@@ -1,0 +1,472 @@
+[0.000000] (-) TimerEvent: {}
+[0.000956] (my_tracked_robot_description) JobQueued: {'identifier': 'my_tracked_robot_description', 'dependencies': OrderedDict()}
+[0.000989] (virtual_maize_field) JobQueued: {'identifier': 'virtual_maize_field', 'dependencies': OrderedDict()}
+[0.001024] (maize_robot_bringup) JobQueued: {'identifier': 'maize_robot_bringup', 'dependencies': OrderedDict([('my_tracked_robot_description', '/home/fede/ros2_ws/src/install/my_tracked_robot_description')])}
+[0.001102] (my_tracked_robot_description) JobStarted: {'identifier': 'my_tracked_robot_description'}
+[0.012165] (virtual_maize_field) JobStarted: {'identifier': 'virtual_maize_field'}
+[0.020074] (my_tracked_robot_description) JobProgress: {'identifier': 'my_tracked_robot_description', 'progress': 'cmake'}
+[0.023425] (my_tracked_robot_description) Command: {'cmd': ['/usr/bin/cmake', '/home/fede/ros2_ws/src/my_tracked_robot_description', '-DCMAKE_INSTALL_PREFIX=/home/fede/ros2_ws/src/install/my_tracked_robot_description'], 'cwd': '/home/fede/ros2_ws/src/build/my_tracked_robot_description', 'env': OrderedDict([('LESSOPEN', '| /usr/bin/lesspipe %s'), ('USER', 'fede'), ('SHLVL', '1'), ('LD_LIBRARY_PATH', '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:'), ('WT_PROFILE_ID', '{61c54bbd-c2c6-5271-96e7-009a87ff44bf}'), ('HOME', '/home/fede'), ('OLDPWD', '/home/fede/ros2_ws'), ('GAZEBO_MASTER_URI', 'http://localhost:11345'), ('ROS_PYTHON_VERSION', '3'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('WSL_DISTRO_NAME', 'Ubuntu-22.04'), ('WAYLAND_DISPLAY', 'wayland-0'), ('COLCON_PREFIX_PATH', '/home/fede/ros2_ws/install'), ('ROS_DISTRO', 'humble'), ('LOGNAME', 'fede'), ('NAME', 'Federico-Asus'), ('WSL_INTEROP', '/run/WSL/1601_interop'), ('PULSE_SERVER', 'unix:/mnt/wslg/PulseServer'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'xterm-256color'), ('GAZEBO_MODEL_PATH', '/home/fede/ros2_ws/install/virtual_maize_field/share/virtual_maize_field/models:/opt/ros/humble/share:/usr/share/gazebo-11/models:'), ('ROS_LOCALHOST_ONLY', '0'), ('OGRE_RESOURCE_PATH', '/usr/lib/x86_64-linux-gnu/OGRE-1.9.0'), ('PATH', '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib:/mnt/c/Program Files/Common Files/Oracle/Java/javapath:/mnt/c/WINDOWS/system32:/mnt/c/WINDOWS:/mnt/c/WINDOWS/System32/Wbem:/mnt/c/WINDOWS/System32/WindowsPowerShell/v1.0/:/mnt/c/WINDOWS/System32/OpenSSH/:/mnt/c/Program Files/MATLAB/R2023b/bin:/mnt/c/Program Files/Git/cmd:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Launcher/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python39/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python39/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python311/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python311/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python312/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python312/:/mnt/c/Users/Federico/AppData/Local/Microsoft/WindowsApps:/mnt/c/Users/Federico/AppData/Local/Programs/Microsoft VS Code/bin:/mnt/c/Users/Federico/AppData/Local/Google/Cloud SDK/google-cloud-sdk/bin:/mnt/c/Users/Federico/AppData/Local/GitHubDesktop/bin:/mnt/d/Downloads/ffmpeg-2025-04-14-git-3b2a9410ef-full_build/ffmpeg-2025-04-14-git-3b2a9410ef-full_build/bin/ffmpeg:/snap/bin'), ('WT_SESSION', 'b4d930d2-01b8-433c-a0d1-9f486631b8dc'), ('XDG_RUNTIME_DIR', '/run/user/1000/'), ('DISPLAY', ':0'), ('LANG', 'C.UTF-8'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('AMENT_PREFIX_PATH', '/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/home/fede/ros2_ws/install/my_tracked_robot_description:/opt/ros/humble'), ('SHELL', '/bin/bash'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('GAZEBO_RESOURCE_PATH', '/usr/share/gazebo-11:'), ('GAZEBO_MODEL_DATABASE_URI', 'http://models.gazebosim.org'), ('PWD', '/home/fede/ros2_ws/src/build/my_tracked_robot_description'), ('TURTLEBOT3_MODEL', 'burger'), ('GAZEBO_PLUGIN_PATH', '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:'), ('XDG_DATA_DIRS', '/usr/local/share:/usr/share:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/fede/ros2_ws/install/virtual_maize_field/lib/python3.10/site-packages:/home/fede/ros2_ws/install/maize_robot_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('WSL2_GUI_APPS_ENABLED', '1'), ('HOSTTYPE', 'x86_64'), ('CMAKE_PREFIX_PATH', '/home/fede/ros2_ws/install/my_tracked_robot_description:/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/opt/ros/humble'), ('WSLENV', 'WT_SESSION:WT_PROFILE_ID:')]), 'shell': False}
+[0.099478] (-) TimerEvent: {}
+[0.199969] (-) TimerEvent: {}
+[0.211224] (my_tracked_robot_description) StdoutLine: {'line': b'-- The C compiler identification is GNU 11.4.0\n'}
+[0.300103] (-) TimerEvent: {}
+[0.400621] (-) TimerEvent: {}
+[0.500988] (-) TimerEvent: {}
+[0.601375] (-) TimerEvent: {}
+[0.701723] (-) TimerEvent: {}
+[0.750641] (virtual_maize_field) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../build/virtual_maize_field', 'build', '--build-base', '/home/fede/ros2_ws/src/build/virtual_maize_field/build', 'install', '--record', '/home/fede/ros2_ws/src/build/virtual_maize_field/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/home/fede/ros2_ws/src/virtual_maize_field', 'env': {'LESSOPEN': '| /usr/bin/lesspipe %s', 'USER': 'fede', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:', 'WT_PROFILE_ID': '{61c54bbd-c2c6-5271-96e7-009a87ff44bf}', 'HOME': '/home/fede', 'OLDPWD': '/home/fede/ros2_ws', 'GAZEBO_MASTER_URI': 'http://localhost:11345', 'ROS_PYTHON_VERSION': '3', 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/1000/bus', 'WSL_DISTRO_NAME': 'Ubuntu-22.04', 'WAYLAND_DISPLAY': 'wayland-0', 'COLCON_PREFIX_PATH': '/home/fede/ros2_ws/install', 'ROS_DISTRO': 'humble', 'LOGNAME': 'fede', 'NAME': 'Federico-Asus', 'WSL_INTEROP': '/run/WSL/1601_interop', 'PULSE_SERVER': 'unix:/mnt/wslg/PulseServer', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm-256color', 'GAZEBO_MODEL_PATH': '/home/fede/ros2_ws/install/virtual_maize_field/share/virtual_maize_field/models:/opt/ros/humble/share:/usr/share/gazebo-11/models:', 'ROS_LOCALHOST_ONLY': '0', 'OGRE_RESOURCE_PATH': '/usr/lib/x86_64-linux-gnu/OGRE-1.9.0', 'PATH': '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib:/mnt/c/Program Files/Common Files/Oracle/Java/javapath:/mnt/c/WINDOWS/system32:/mnt/c/WINDOWS:/mnt/c/WINDOWS/System32/Wbem:/mnt/c/WINDOWS/System32/WindowsPowerShell/v1.0/:/mnt/c/WINDOWS/System32/OpenSSH/:/mnt/c/Program Files/MATLAB/R2023b/bin:/mnt/c/Program Files/Git/cmd:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Launcher/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python39/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python39/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python311/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python311/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python312/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python312/:/mnt/c/Users/Federico/AppData/Local/Microsoft/WindowsApps:/mnt/c/Users/Federico/AppData/Local/Programs/Microsoft VS Code/bin:/mnt/c/Users/Federico/AppData/Local/Google/Cloud SDK/google-cloud-sdk/bin:/mnt/c/Users/Federico/AppData/Local/GitHubDesktop/bin:/mnt/d/Downloads/ffmpeg-2025-04-14-git-3b2a9410ef-full_build/ffmpeg-2025-04-14-git-3b2a9410ef-full_build/bin/ffmpeg:/snap/bin', 'WT_SESSION': 'b4d930d2-01b8-433c-a0d1-9f486631b8dc', 'XDG_RUNTIME_DIR': '/run/user/1000/', 'DISPLAY': ':0', 'LANG': 'C.UTF-8', 'LS_COLORS': 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:', 'AMENT_PREFIX_PATH': '/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/home/fede/ros2_ws/install/my_tracked_robot_description:/opt/ros/humble', 'SHELL': '/bin/bash', 'LESSCLOSE': '/usr/bin/lesspipe %s %s', 'GAZEBO_RESOURCE_PATH': '/usr/share/gazebo-11:', 'GAZEBO_MODEL_DATABASE_URI': 'http://models.gazebosim.org', 'PWD': '/home/fede/ros2_ws/src/build/virtual_maize_field', 'TURTLEBOT3_MODEL': 'burger', 'GAZEBO_PLUGIN_PATH': '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:', 'XDG_DATA_DIRS': '/usr/local/share:/usr/share:/var/lib/snapd/desktop', 'PYTHONPATH': '/home/fede/ros2_ws/src/build/virtual_maize_field/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages:/home/fede/ros2_ws/install/virtual_maize_field/lib/python3.10/site-packages:/home/fede/ros2_ws/install/maize_robot_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'COLCON': '1', 'WSL2_GUI_APPS_ENABLED': '1', 'HOSTTYPE': 'x86_64', 'CMAKE_PREFIX_PATH': '/home/fede/ros2_ws/install/my_tracked_robot_description', 'WSLENV': 'WT_SESSION:WT_PROFILE_ID:'}, 'shell': False}
+[0.801888] (-) TimerEvent: {}
+[0.825149] (my_tracked_robot_description) StdoutLine: {'line': b'-- The CXX compiler identification is GNU 11.4.0\n'}
+[0.902124] (-) TimerEvent: {}
+[0.997016] (virtual_maize_field) StdoutLine: {'line': b'running egg_info\n'}
+[0.997706] (virtual_maize_field) StdoutLine: {'line': b'creating ../build/virtual_maize_field/virtual_maize_field.egg-info\n'}
+[0.998149] (virtual_maize_field) StdoutLine: {'line': b'writing ../build/virtual_maize_field/virtual_maize_field.egg-info/PKG-INFO\n'}
+[0.998420] (virtual_maize_field) StdoutLine: {'line': b'writing dependency_links to ../build/virtual_maize_field/virtual_maize_field.egg-info/dependency_links.txt\n'}
+[0.998616] (virtual_maize_field) StdoutLine: {'line': b'writing entry points to ../build/virtual_maize_field/virtual_maize_field.egg-info/entry_points.txt\n'}
+[0.998910] (virtual_maize_field) StdoutLine: {'line': b'writing requirements to ../build/virtual_maize_field/virtual_maize_field.egg-info/requires.txt\n'}
+[0.999265] (virtual_maize_field) StdoutLine: {'line': b'writing top-level names to ../build/virtual_maize_field/virtual_maize_field.egg-info/top_level.txt\n'}
+[1.000335] (virtual_maize_field) StdoutLine: {'line': b"writing manifest file '../build/virtual_maize_field/virtual_maize_field.egg-info/SOURCES.txt'\n"}
+[1.002248] (-) TimerEvent: {}
+[1.004612] (virtual_maize_field) StdoutLine: {'line': b"reading manifest file '../build/virtual_maize_field/virtual_maize_field.egg-info/SOURCES.txt'\n"}
+[1.004746] (virtual_maize_field) StdoutLine: {'line': b"adding license file 'LICENSE'\n"}
+[1.005457] (virtual_maize_field) StdoutLine: {'line': b"writing manifest file '../build/virtual_maize_field/virtual_maize_field.egg-info/SOURCES.txt'\n"}
+[1.006038] (virtual_maize_field) StdoutLine: {'line': b'running build\n'}
+[1.006132] (virtual_maize_field) StdoutLine: {'line': b'running build_py\n'}
+[1.006174] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/build/virtual_maize_field/build\n'}
+[1.006444] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib\n'}
+[1.006509] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field\n'}
+[1.006778] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/generate_world.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field\n'}
+[1.007349] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/__init__.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field\n'}
+[1.007947] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator\n'}
+[1.008782] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/world_generator/field_2d_generator.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator\n'}
+[1.009410] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/world_generator/world_description.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator\n'}
+[1.010098] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/world_generator/models.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator\n'}
+[1.010510] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/world_generator/utils.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator\n'}
+[1.011261] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/world_generator/__init__.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator\n'}
+[1.011547] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments\n'}
+[1.011873] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/world_generator/segments/base.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments\n'}
+[1.012191] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/world_generator/segments/straight.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments\n'}
+[1.012604] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/world_generator/segments/curve.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments\n'}
+[1.013081] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/world_generator/segments/__init__.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments\n'}
+[1.013503] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/world_generator/segments/sincurve.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments\n'}
+[1.014020] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/world_generator/segments/island.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments\n'}
+[1.015750] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/world_generator/field.world.template -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator\n'}
+[1.016347] (virtual_maize_field) StdoutLine: {'line': b'copying virtual_maize_field/world_generator/robot_spawner.launch.py.template -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator\n'}
+[1.017141] (virtual_maize_field) StdoutLine: {'line': b'running install\n'}
+[1.017512] (virtual_maize_field) StdoutLine: {'line': b'running install_lib\n'}
+[1.018210] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field\n'}
+[1.018644] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator\n'}
+[1.018860] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/field_2d_generator.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator\n'}
+[1.019287] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/world_description.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator\n'}
+[1.019511] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/models.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator\n'}
+[1.019720] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/utils.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator\n'}
+[1.019920] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/robot_spawner.launch.py.template -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator\n'}
+[1.020212] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/field.world.template -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator\n'}
+[1.020507] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/__init__.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator\n'}
+[1.020879] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments\n'}
+[1.021088] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments/base.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments\n'}
+[1.022081] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments/straight.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments\n'}
+[1.022172] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments/curve.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments\n'}
+[1.022253] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments/__init__.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments\n'}
+[1.023447] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments/sincurve.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments\n'}
+[1.023619] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments/island.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments\n'}
+[1.023670] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/generate_world.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field\n'}
+[1.023797] (virtual_maize_field) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/__init__.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field\n'}
+[1.023897] (virtual_maize_field) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/field_2d_generator.py to field_2d_generator.cpython-310.pyc\n'}
+[1.026145] (virtual_maize_field) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/world_description.py to world_description.cpython-310.pyc\n'}
+[1.027342] (virtual_maize_field) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/models.py to models.cpython-310.pyc\n'}
+[1.028309] (virtual_maize_field) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/utils.py to utils.cpython-310.pyc\n'}
+[1.028862] (virtual_maize_field) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/__init__.py to __init__.cpython-310.pyc\n'}
+[1.029057] (virtual_maize_field) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments/base.py to base.cpython-310.pyc\n'}
+[1.031463] (virtual_maize_field) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments/straight.py to straight.cpython-310.pyc\n'}
+[1.031943] (virtual_maize_field) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments/curve.py to curve.cpython-310.pyc\n'}
+[1.032435] (virtual_maize_field) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments/__init__.py to __init__.cpython-310.pyc\n'}
+[1.032928] (virtual_maize_field) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments/sincurve.py to sincurve.cpython-310.pyc\n'}
+[1.034723] (virtual_maize_field) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments/island.py to island.cpython-310.pyc\n'}
+[1.036196] (virtual_maize_field) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/generate_world.py to generate_world.cpython-310.pyc\n'}
+[1.037884] (virtual_maize_field) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/__init__.py to __init__.cpython-310.pyc\n'}
+[1.038351] (virtual_maize_field) StdoutLine: {'line': b'running install_data\n'}
+[1.038671] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/ament_index\n'}
+[1.038870] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/ament_index/resource_index\n'}
+[1.039081] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/ament_index/resource_index/packages\n'}
+[1.039351] (virtual_maize_field) StdoutLine: {'line': b'copying resource/virtual_maize_field -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/ament_index/resource_index/packages\n'}
+[1.039550] (virtual_maize_field) StdoutLine: {'line': b'copying package.xml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field\n'}
+[1.039965] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.040216] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre21_task_3_mini.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.040643] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre21_task_4_fast.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.041206] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre22_task_navigation.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.041765] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre21_task_1_mini.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.042389] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre21_task_1.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.042734] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre21_task_4_mini.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.043239] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre22_task_mapping.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.043680] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre21_task_2.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.044315] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre22_task_navigation_mini.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.044894] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre22_task_navigation_fast.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.045415] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre21_task_3.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.046040] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre21_task_2_fast.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.046701] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre21_task_3_fast.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.047252] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre21_task_1_fast.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.047755] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre21_task_4.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.048317] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre22_task_mapping_mini.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.048650] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre22_task_mapping_fast.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.049084] (virtual_maize_field) StdoutLine: {'line': b'copying config/fre21_task_2_mini.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config\n'}
+[1.049477] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/launch\n'}
+[1.049947] (virtual_maize_field) StdoutLine: {'line': b'copying launch/simulation.launch.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/launch\n'}
+[1.050655] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media\n'}
+[1.050895] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models\n'}
+[1.051307] (virtual_maize_field) StdoutLine: {'line': b'copying Media/models/.gitkeep -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models\n'}
+[1.051619] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials\n'}
+[1.051788] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures\n'}
+[1.051999] (virtual_maize_field) StdoutLine: {'line': b'copying Media/models/materials/textures/grass_roughness.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures\n'}
+[1.057703] (virtual_maize_field) StdoutLine: {'line': b'copying Media/models/materials/textures/grass_normal.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures\n'}
+[1.077227] (virtual_maize_field) StdoutLine: {'line': b'copying Media/models/materials/textures/grass_color.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures\n'}
+[1.086993] (virtual_maize_field) StdoutLine: {'line': b'copying Media/models/materials/textures/fungus_diffusespecular.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures\n'}
+[1.095091] (virtual_maize_field) StdoutLine: {'line': b'copying Media/models/materials/textures/dirt_diffusespecular.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures\n'}
+[1.101688] (virtual_maize_field) StdoutLine: {'line': b'copying Media/models/materials/textures/grass_displacement.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures\n'}
+[1.102369] (-) TimerEvent: {}
+[1.106583] (virtual_maize_field) StdoutLine: {'line': b'copying Media/models/materials/textures/flat_normal.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures\n'}
+[1.107071] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models\n'}
+[1.107346] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can\n'}
+[1.107517] (virtual_maize_field) StdoutLine: {'line': b'copying models/coke_can/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can\n'}
+[1.108138] (virtual_maize_field) StdoutLine: {'line': b'copying models/coke_can/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can\n'}
+[1.108569] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can/meshes\n'}
+[1.108871] (virtual_maize_field) StdoutLine: {'line': b'copying models/coke_can/meshes/coke_can.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can/meshes\n'}
+[1.111529] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can/materials\n'}
+[1.111897] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can/materials/textures\n'}
+[1.112575] (virtual_maize_field) StdoutLine: {'line': b'copying models/coke_can/materials/textures/coke_can.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can/materials/textures\n'}
+[1.115940] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer\n'}
+[1.116387] (virtual_maize_field) StdoutLine: {'line': b'copying models/beer/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer\n'}
+[1.116955] (virtual_maize_field) StdoutLine: {'line': b'copying models/beer/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer\n'}
+[1.117210] (virtual_maize_field) StdoutLine: {'line': b'copying models/beer/model-1_4.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer\n'}
+[1.117889] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer/materials\n'}
+[1.118141] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer/materials/scripts\n'}
+[1.118338] (virtual_maize_field) StdoutLine: {'line': b'copying models/beer/materials/scripts/beer.material -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer/materials/scripts\n'}
+[1.118720] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer/materials/textures\n'}
+[1.118961] (virtual_maize_field) StdoutLine: {'line': b'copying models/beer/materials/textures/beer.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer/materials/textures\n'}
+[1.125348] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02\n'}
+[1.125712] (virtual_maize_field) StdoutLine: {'line': b'copying models/maize_02/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02\n'}
+[1.126182] (virtual_maize_field) StdoutLine: {'line': b'copying models/maize_02/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02\n'}
+[1.126613] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02/meshes\n'}
+[1.126882] (virtual_maize_field) StdoutLine: {'line': b'copying models/maize_02/meshes/maize_02.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02/meshes\n'}
+[1.127489] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02/materials\n'}
+[1.127938] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02/materials/textures\n'}
+[1.128043] (virtual_maize_field) StdoutLine: {'line': b'copying models/maize_02/materials/textures/maize_02.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02/materials/textures\n'}
+[1.129783] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02\n'}
+[1.130039] (virtual_maize_field) StdoutLine: {'line': b'copying models/stone_02/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02\n'}
+[1.130812] (virtual_maize_field) StdoutLine: {'line': b'copying models/stone_02/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02\n'}
+[1.131297] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02/meshes\n'}
+[1.131632] (virtual_maize_field) StdoutLine: {'line': b'copying models/stone_02/meshes/stone_02.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02/meshes\n'}
+[1.132909] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02/materials\n'}
+[1.133159] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02/materials/textures\n'}
+[1.133355] (virtual_maize_field) StdoutLine: {'line': b'copying models/stone_02/materials/textures/stone_02.jpeg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02/materials/textures\n'}
+[1.136007] (virtual_maize_field) StdoutLine: {'line': b'copying models/stone_02/materials/textures/stone_02_normal.jpeg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02/materials/textures\n'}
+[1.139164] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can\n'}
+[1.139408] (virtual_maize_field) StdoutLine: {'line': b'copying models/retro_pepsi_can/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can\n'}
+[1.139917] (virtual_maize_field) StdoutLine: {'line': b'copying models/retro_pepsi_can/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can\n'}
+[1.140436] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can/meshes\n'}
+[1.140891] (virtual_maize_field) StdoutLine: {'line': b'copying models/retro_pepsi_can/meshes/retro_pepsi_can.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can/meshes\n'}
+[1.141800] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can/materials\n'}
+[1.142501] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can/materials/textures\n'}
+[1.142799] (virtual_maize_field) StdoutLine: {'line': b'copying models/retro_pepsi_can/materials/textures/blinn2SG_baseColor.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can/materials/textures\n'}
+[1.143877] (virtual_maize_field) StdoutLine: {'line': b'copying models/retro_pepsi_can/materials/textures/blinn1SG_baseColor.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can/materials/textures\n'}
+[1.155017] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale\n'}
+[1.155385] (virtual_maize_field) StdoutLine: {'line': b'copying models/ale/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale\n'}
+[1.156009] (virtual_maize_field) StdoutLine: {'line': b'copying models/ale/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale\n'}
+[1.156475] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale/meshes\n'}
+[1.156805] (virtual_maize_field) StdoutLine: {'line': b'copying models/ale/meshes/ale.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale/meshes\n'}
+[1.157823] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale/materials\n'}
+[1.158074] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale/materials/textures\n'}
+[1.158512] (virtual_maize_field) StdoutLine: {'line': b'copying models/ale/materials/textures/beerbottle_blinn_baseColor.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale/materials/textures\n'}
+[1.165603] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01\n'}
+[1.165926] (virtual_maize_field) StdoutLine: {'line': b'copying models/maize_01/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01\n'}
+[1.166800] (virtual_maize_field) StdoutLine: {'line': b'copying models/maize_01/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01\n'}
+[1.167202] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01/meshes\n'}
+[1.167544] (virtual_maize_field) StdoutLine: {'line': b'copying models/maize_01/meshes/maize_01.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01/meshes\n'}
+[1.168852] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01/materials\n'}
+[1.169053] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01/materials/textures\n'}
+[1.169436] (virtual_maize_field) StdoutLine: {'line': b'copying models/maize_01/materials/textures/maize_01.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01/materials/textures\n'}
+[1.170278] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle\n'}
+[1.170705] (virtual_maize_field) StdoutLine: {'line': b'copying models/nettle/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle\n'}
+[1.171195] (virtual_maize_field) StdoutLine: {'line': b'copying models/nettle/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle\n'}
+[1.171544] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/meshes\n'}
+[1.171893] (virtual_maize_field) StdoutLine: {'line': b'copying models/nettle/meshes/nettle.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/meshes\n'}
+[1.172388] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/materials\n'}
+[1.172677] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/materials/scripts\n'}
+[1.172982] (virtual_maize_field) StdoutLine: {'line': b'copying models/nettle/materials/scripts/nettle.material -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/materials/scripts\n'}
+[1.173288] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/materials/textures\n'}
+[1.173563] (virtual_maize_field) StdoutLine: {'line': b'copying models/nettle/materials/textures/nettle.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/materials/textures\n'}
+[1.178038] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed\n'}
+[1.178458] (virtual_maize_field) StdoutLine: {'line': b'copying models/unknown_weed/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed\n'}
+[1.178731] (virtual_maize_field) StdoutLine: {'line': b'copying models/unknown_weed/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed\n'}
+[1.179409] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/meshes\n'}
+[1.179820] (virtual_maize_field) StdoutLine: {'line': b'copying models/unknown_weed/meshes/unknown_weed.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/meshes\n'}
+[1.180503] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/materials\n'}
+[1.180859] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/materials/scripts\n'}
+[1.181183] (virtual_maize_field) StdoutLine: {'line': b'copying models/unknown_weed/materials/scripts/unknown_weed.material -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/materials/scripts\n'}
+[1.181822] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/materials/textures\n'}
+[1.182108] (virtual_maize_field) StdoutLine: {'line': b'copying models/unknown_weed/materials/textures/unknown_weed.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/materials/textures\n'}
+[1.183975] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a\n'}
+[1.184261] (virtual_maize_field) StdoutLine: {'line': b'copying models/location_marker_a/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a\n'}
+[1.184970] (virtual_maize_field) StdoutLine: {'line': b'copying models/location_marker_a/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a\n'}
+[1.185440] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a/materials\n'}
+[1.185755] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a/materials/scripts\n'}
+[1.185848] (virtual_maize_field) StdoutLine: {'line': b'copying models/location_marker_a/materials/scripts/location_marker_a.material -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a/materials/scripts\n'}
+[1.186348] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a/materials/textures\n'}
+[1.186649] (virtual_maize_field) StdoutLine: {'line': b'copying models/location_marker_a/materials/textures/fre_logo.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a/materials/textures\n'}
+[1.187681] (virtual_maize_field) StdoutLine: {'line': b'copying models/location_marker_a/materials/textures/location_marker_a.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a/materials/textures\n'}
+[1.188276] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b\n'}
+[1.188485] (virtual_maize_field) StdoutLine: {'line': b'copying models/location_marker_b/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b\n'}
+[1.188942] (virtual_maize_field) StdoutLine: {'line': b'copying models/location_marker_b/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b\n'}
+[1.189503] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b/materials\n'}
+[1.189990] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b/materials/scripts\n'}
+[1.190422] (virtual_maize_field) StdoutLine: {'line': b'copying models/location_marker_b/materials/scripts/location_marker_b.material -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b/materials/scripts\n'}
+[1.190810] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b/materials/textures\n'}
+[1.191026] (virtual_maize_field) StdoutLine: {'line': b'copying models/location_marker_b/materials/textures/fre_logo.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b/materials/textures\n'}
+[1.192725] (virtual_maize_field) StdoutLine: {'line': b'copying models/location_marker_b/materials/textures/location_marker_b.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b/materials/textures\n'}
+[1.193117] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01\n'}
+[1.193387] (virtual_maize_field) StdoutLine: {'line': b'copying models/stone_01/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01\n'}
+[1.193909] (virtual_maize_field) StdoutLine: {'line': b'copying models/stone_01/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01\n'}
+[1.194386] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/meshes\n'}
+[1.195073] (virtual_maize_field) StdoutLine: {'line': b'copying models/stone_01/meshes/stone_01.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/meshes\n'}
+[1.197073] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/materials\n'}
+[1.197290] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/materials/textures\n'}
+[1.197870] (virtual_maize_field) StdoutLine: {'line': b'copying models/stone_01/materials/textures/stone_01_normal.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/materials/textures\n'}
+[1.202483] (-) TimerEvent: {}
+[1.211398] (virtual_maize_field) StdoutLine: {'line': b'copying models/stone_01/materials/textures/stone_01.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/materials/textures\n'}
+[1.227031] (virtual_maize_field) StdoutLine: {'line': b'copying models/stone_01/materials/textures/stone_01_occlusion.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/materials/textures\n'}
+[1.231656] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start\n'}
+[1.232120] (virtual_maize_field) StdoutLine: {'line': b'copying models/start/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start\n'}
+[1.232809] (virtual_maize_field) StdoutLine: {'line': b'copying models/start/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start\n'}
+[1.233229] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start/materials\n'}
+[1.233454] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start/materials/scripts\n'}
+[1.233797] (virtual_maize_field) StdoutLine: {'line': b'copying models/start/materials/scripts/start.material -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start/materials/scripts\n'}
+[1.234069] (virtual_maize_field) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start/materials/textures\n'}
+[1.234342] (virtual_maize_field) StdoutLine: {'line': b'copying models/start/materials/textures/arrow.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start/materials/textures\n'}
+[1.235017] (virtual_maize_field) StdoutLine: {'line': b'running install_egg_info\n'}
+[1.237270] (virtual_maize_field) StdoutLine: {'line': b'Copying ../build/virtual_maize_field/virtual_maize_field.egg-info to /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field-5.0.0-py3.10.egg-info\n'}
+[1.238300] (virtual_maize_field) StdoutLine: {'line': b'running install_scripts\n'}
+[1.259956] (virtual_maize_field) StdoutLine: {'line': b'Installing generate_world script to /home/fede/ros2_ws/src/install/virtual_maize_field/lib/virtual_maize_field\n'}
+[1.261727] (virtual_maize_field) StdoutLine: {'line': b"writing list of installed files to '/home/fede/ros2_ws/src/build/virtual_maize_field/install.log'\n"}
+[1.291387] (virtual_maize_field) CommandEnded: {'returncode': 0}
+[1.302734] (virtual_maize_field) JobEnded: {'identifier': 'virtual_maize_field', 'rc': 0}
+[1.303112] (-) TimerEvent: {}
+[1.403353] (-) TimerEvent: {}
+[1.503792] (-) TimerEvent: {}
+[1.604126] (-) TimerEvent: {}
+[1.613596] (my_tracked_robot_description) StdoutLine: {'line': b'-- Detecting C compiler ABI info\n'}
+[1.704252] (-) TimerEvent: {}
+[1.804884] (-) TimerEvent: {}
+[1.841315] (my_tracked_robot_description) StdoutLine: {'line': b'-- Detecting C compiler ABI info - done\n'}
+[1.847670] (my_tracked_robot_description) StdoutLine: {'line': b'-- Check for working C compiler: /usr/bin/cc - skipped\n'}
+[1.848076] (my_tracked_robot_description) StdoutLine: {'line': b'-- Detecting C compile features\n'}
+[1.848628] (my_tracked_robot_description) StdoutLine: {'line': b'-- Detecting C compile features - done\n'}
+[1.852774] (my_tracked_robot_description) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info\n'}
+[1.904910] (-) TimerEvent: {}
+[2.005297] (-) TimerEvent: {}
+[2.055008] (my_tracked_robot_description) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info - done\n'}
+[2.061374] (my_tracked_robot_description) StdoutLine: {'line': b'-- Check for working CXX compiler: /usr/bin/c++ - skipped\n'}
+[2.061681] (my_tracked_robot_description) StdoutLine: {'line': b'-- Detecting CXX compile features\n'}
+[2.061984] (my_tracked_robot_description) StdoutLine: {'line': b'-- Detecting CXX compile features - done\n'}
+[2.065395] (my_tracked_robot_description) StdoutLine: {'line': b'-- Found ament_cmake: 1.3.11 (/opt/ros/humble/share/ament_cmake/cmake)\n'}
+[2.105456] (-) TimerEvent: {}
+[2.205844] (-) TimerEvent: {}
+[2.234472] (my_tracked_robot_description) StdoutLine: {'line': b'-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter \n'}
+[2.306097] (-) TimerEvent: {}
+[2.327514] (my_tracked_robot_description) StdoutLine: {'line': b'-- Found rclcpp: 16.0.12 (/opt/ros/humble/share/rclcpp/cmake)\n'}
+[2.406233] (-) TimerEvent: {}
+[2.506599] (-) TimerEvent: {}
+[2.606970] (-) TimerEvent: {}
+[2.679541] (my_tracked_robot_description) StdoutLine: {'line': b'-- Found rosidl_generator_c: 3.1.6 (/opt/ros/humble/share/rosidl_generator_c/cmake)\n'}
+[2.684513] (my_tracked_robot_description) StdoutLine: {'line': b'-- Found rosidl_adapter: 3.1.6 (/opt/ros/humble/share/rosidl_adapter/cmake)\n'}
+[2.693158] (my_tracked_robot_description) StdoutLine: {'line': b'-- Found rosidl_generator_cpp: 3.1.6 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)\n'}
+[2.707052] (my_tracked_robot_description) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c\n'}
+[2.707245] (-) TimerEvent: {}
+[2.723778] (my_tracked_robot_description) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp\n'}
+[2.770329] (my_tracked_robot_description) StdoutLine: {'line': b'-- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)\n'}
+[2.773110] (my_tracked_robot_description) StdoutLine: {'line': b'-- Found rmw_fastrtps_cpp: 6.2.7 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)\n'}
+[2.807448] (-) TimerEvent: {}
+[2.907944] (-) TimerEvent: {}
+[3.008323] (-) TimerEvent: {}
+[3.108639] (-) TimerEvent: {}
+[3.208957] (-) TimerEvent: {}
+[3.309274] (-) TimerEvent: {}
+[3.409656] (-) TimerEvent: {}
+[3.510059] (-) TimerEvent: {}
+[3.610625] (-) TimerEvent: {}
+[3.711077] (-) TimerEvent: {}
+[3.811442] (-) TimerEvent: {}
+[3.911805] (-) TimerEvent: {}
+[4.012267] (-) TimerEvent: {}
+[4.112598] (-) TimerEvent: {}
+[4.212930] (-) TimerEvent: {}
+[4.313291] (-) TimerEvent: {}
+[4.413645] (-) TimerEvent: {}
+[4.514029] (-) TimerEvent: {}
+[4.614384] (-) TimerEvent: {}
+[4.714951] (-) TimerEvent: {}
+[4.815321] (-) TimerEvent: {}
+[4.915764] (-) TimerEvent: {}
+[5.016105] (-) TimerEvent: {}
+[5.116488] (-) TimerEvent: {}
+[5.216920] (-) TimerEvent: {}
+[5.317248] (-) TimerEvent: {}
+[5.417594] (-) TimerEvent: {}
+[5.517930] (-) TimerEvent: {}
+[5.618339] (-) TimerEvent: {}
+[5.718690] (-) TimerEvent: {}
+[5.819056] (-) TimerEvent: {}
+[5.919459] (-) TimerEvent: {}
+[6.019852] (-) TimerEvent: {}
+[6.120270] (-) TimerEvent: {}
+[6.220763] (-) TimerEvent: {}
+[6.228189] (my_tracked_robot_description) StdoutLine: {'line': b'-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.2")  \n'}
+[6.320884] (-) TimerEvent: {}
+[6.421244] (-) TimerEvent: {}
+[6.521617] (-) TimerEvent: {}
+[6.621960] (-) TimerEvent: {}
+[6.722320] (-) TimerEvent: {}
+[6.822718] (-) TimerEvent: {}
+[6.923168] (-) TimerEvent: {}
+[7.023545] (-) TimerEvent: {}
+[7.124125] (-) TimerEvent: {}
+[7.224521] (-) TimerEvent: {}
+[7.324874] (-) TimerEvent: {}
+[7.425206] (-) TimerEvent: {}
+[7.525576] (-) TimerEvent: {}
+[7.625948] (-) TimerEvent: {}
+[7.726361] (-) TimerEvent: {}
+[7.826721] (-) TimerEvent: {}
+[7.889433] (my_tracked_robot_description) StdoutLine: {'line': b'-- Found FastRTPS: /opt/ros/humble/include  \n'}
+[7.926862] (-) TimerEvent: {}
+[8.027234] (-) TimerEvent: {}
+[8.127567] (-) TimerEvent: {}
+[8.228006] (-) TimerEvent: {}
+[8.328448] (-) TimerEvent: {}
+[8.428902] (-) TimerEvent: {}
+[8.529266] (-) TimerEvent: {}
+[8.629679] (-) TimerEvent: {}
+[8.730007] (-) TimerEvent: {}
+[8.830505] (-) TimerEvent: {}
+[8.930906] (-) TimerEvent: {}
+[9.031302] (-) TimerEvent: {}
+[9.131721] (-) TimerEvent: {}
+[9.232067] (-) TimerEvent: {}
+[9.332504] (-) TimerEvent: {}
+[9.432872] (-) TimerEvent: {}
+[9.533275] (-) TimerEvent: {}
+[9.633624] (-) TimerEvent: {}
+[9.733968] (-) TimerEvent: {}
+[9.834301] (-) TimerEvent: {}
+[9.934708] (-) TimerEvent: {}
+[10.035097] (-) TimerEvent: {}
+[10.135489] (-) TimerEvent: {}
+[10.236057] (-) TimerEvent: {}
+[10.336500] (-) TimerEvent: {}
+[10.436920] (-) TimerEvent: {}
+[10.537263] (-) TimerEvent: {}
+[10.637618] (-) TimerEvent: {}
+[10.738032] (-) TimerEvent: {}
+[10.838427] (-) TimerEvent: {}
+[10.938754] (-) TimerEvent: {}
+[11.039094] (-) TimerEvent: {}
+[11.139413] (-) TimerEvent: {}
+[11.241869] (-) TimerEvent: {}
+[11.342201] (-) TimerEvent: {}
+[11.406608] (my_tracked_robot_description) StdoutLine: {'line': b"-- Using RMW implementation 'rmw_fastrtps_cpp' as default\n"}
+[11.417803] (my_tracked_robot_description) StdoutLine: {'line': b'-- Looking for pthread.h\n'}
+[11.442353] (-) TimerEvent: {}
+[11.542729] (-) TimerEvent: {}
+[11.638251] (my_tracked_robot_description) StdoutLine: {'line': b'-- Looking for pthread.h - found\n'}
+[11.638636] (my_tracked_robot_description) StdoutLine: {'line': b'-- Performing Test CMAKE_HAVE_LIBC_PTHREAD\n'}
+[11.642827] (-) TimerEvent: {}
+[11.743118] (-) TimerEvent: {}
+[11.810658] (my_tracked_robot_description) StdoutLine: {'line': b'-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success\n'}
+[11.811663] (my_tracked_robot_description) StdoutLine: {'line': b'-- Found Threads: TRUE  \n'}
+[11.843263] (-) TimerEvent: {}
+[11.862595] (my_tracked_robot_description) StdoutLine: {'line': b'-- Found xacro: 2.0.13 (/opt/ros/humble/share/xacro/cmake)\n'}
+[11.864137] (my_tracked_robot_description) StdoutLine: {'line': b'-- Found ament_lint_auto: 0.12.12 (/opt/ros/humble/share/ament_lint_auto/cmake)\n'}
+[11.941477] (my_tracked_robot_description) StdoutLine: {'line': b"-- Added test 'flake8' to check Python code syntax and style conventions\n"}
+[11.942349] (my_tracked_robot_description) StdoutLine: {'line': b"-- Added test 'lint_cmake' to check CMake code style\n"}
+[11.943073] (my_tracked_robot_description) StdoutLine: {'line': b"-- Added test 'pep257' to check Python code against some of the docstring style conventions in PEP 257\n"}
+[11.943360] (-) TimerEvent: {}
+[11.943942] (my_tracked_robot_description) StdoutLine: {'line': b"-- Added test 'xmllint' to check XML markup files\n"}
+[11.945447] (my_tracked_robot_description) StdoutLine: {'line': b'-- Configuring done\n'}
+[11.951127] (my_tracked_robot_description) StdoutLine: {'line': b'-- Generating done\n'}
+[11.954143] (my_tracked_robot_description) StdoutLine: {'line': b'-- Build files have been written to: /home/fede/ros2_ws/src/build/my_tracked_robot_description\n'}
+[11.965161] (my_tracked_robot_description) CommandEnded: {'returncode': 0}
+[11.966819] (my_tracked_robot_description) JobProgress: {'identifier': 'my_tracked_robot_description', 'progress': 'build'}
+[11.967049] (my_tracked_robot_description) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/fede/ros2_ws/src/build/my_tracked_robot_description', '--', '-j16', '-l16'], 'cwd': '/home/fede/ros2_ws/src/build/my_tracked_robot_description', 'env': OrderedDict([('LESSOPEN', '| /usr/bin/lesspipe %s'), ('USER', 'fede'), ('SHLVL', '1'), ('LD_LIBRARY_PATH', '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:'), ('WT_PROFILE_ID', '{61c54bbd-c2c6-5271-96e7-009a87ff44bf}'), ('HOME', '/home/fede'), ('OLDPWD', '/home/fede/ros2_ws'), ('GAZEBO_MASTER_URI', 'http://localhost:11345'), ('ROS_PYTHON_VERSION', '3'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('WSL_DISTRO_NAME', 'Ubuntu-22.04'), ('WAYLAND_DISPLAY', 'wayland-0'), ('COLCON_PREFIX_PATH', '/home/fede/ros2_ws/install'), ('ROS_DISTRO', 'humble'), ('LOGNAME', 'fede'), ('NAME', 'Federico-Asus'), ('WSL_INTEROP', '/run/WSL/1601_interop'), ('PULSE_SERVER', 'unix:/mnt/wslg/PulseServer'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'xterm-256color'), ('GAZEBO_MODEL_PATH', '/home/fede/ros2_ws/install/virtual_maize_field/share/virtual_maize_field/models:/opt/ros/humble/share:/usr/share/gazebo-11/models:'), ('ROS_LOCALHOST_ONLY', '0'), ('OGRE_RESOURCE_PATH', '/usr/lib/x86_64-linux-gnu/OGRE-1.9.0'), ('PATH', '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib:/mnt/c/Program Files/Common Files/Oracle/Java/javapath:/mnt/c/WINDOWS/system32:/mnt/c/WINDOWS:/mnt/c/WINDOWS/System32/Wbem:/mnt/c/WINDOWS/System32/WindowsPowerShell/v1.0/:/mnt/c/WINDOWS/System32/OpenSSH/:/mnt/c/Program Files/MATLAB/R2023b/bin:/mnt/c/Program Files/Git/cmd:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Launcher/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python39/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python39/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python311/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python311/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python312/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python312/:/mnt/c/Users/Federico/AppData/Local/Microsoft/WindowsApps:/mnt/c/Users/Federico/AppData/Local/Programs/Microsoft VS Code/bin:/mnt/c/Users/Federico/AppData/Local/Google/Cloud SDK/google-cloud-sdk/bin:/mnt/c/Users/Federico/AppData/Local/GitHubDesktop/bin:/mnt/d/Downloads/ffmpeg-2025-04-14-git-3b2a9410ef-full_build/ffmpeg-2025-04-14-git-3b2a9410ef-full_build/bin/ffmpeg:/snap/bin'), ('WT_SESSION', 'b4d930d2-01b8-433c-a0d1-9f486631b8dc'), ('XDG_RUNTIME_DIR', '/run/user/1000/'), ('DISPLAY', ':0'), ('LANG', 'C.UTF-8'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('AMENT_PREFIX_PATH', '/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/home/fede/ros2_ws/install/my_tracked_robot_description:/opt/ros/humble'), ('SHELL', '/bin/bash'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('GAZEBO_RESOURCE_PATH', '/usr/share/gazebo-11:'), ('GAZEBO_MODEL_DATABASE_URI', 'http://models.gazebosim.org'), ('PWD', '/home/fede/ros2_ws/src/build/my_tracked_robot_description'), ('TURTLEBOT3_MODEL', 'burger'), ('GAZEBO_PLUGIN_PATH', '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:'), ('XDG_DATA_DIRS', '/usr/local/share:/usr/share:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/fede/ros2_ws/install/virtual_maize_field/lib/python3.10/site-packages:/home/fede/ros2_ws/install/maize_robot_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('WSL2_GUI_APPS_ENABLED', '1'), ('HOSTTYPE', 'x86_64'), ('CMAKE_PREFIX_PATH', '/home/fede/ros2_ws/install/my_tracked_robot_description:/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/opt/ros/humble'), ('WSLENV', 'WT_SESSION:WT_PROFILE_ID:')]), 'shell': False}
+[12.010140] (my_tracked_robot_description) CommandEnded: {'returncode': 0}
+[12.010537] (my_tracked_robot_description) JobProgress: {'identifier': 'my_tracked_robot_description', 'progress': 'install'}
+[12.019488] (my_tracked_robot_description) Command: {'cmd': ['/usr/bin/cmake', '--install', '/home/fede/ros2_ws/src/build/my_tracked_robot_description'], 'cwd': '/home/fede/ros2_ws/src/build/my_tracked_robot_description', 'env': OrderedDict([('LESSOPEN', '| /usr/bin/lesspipe %s'), ('USER', 'fede'), ('SHLVL', '1'), ('LD_LIBRARY_PATH', '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:'), ('WT_PROFILE_ID', '{61c54bbd-c2c6-5271-96e7-009a87ff44bf}'), ('HOME', '/home/fede'), ('OLDPWD', '/home/fede/ros2_ws'), ('GAZEBO_MASTER_URI', 'http://localhost:11345'), ('ROS_PYTHON_VERSION', '3'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('WSL_DISTRO_NAME', 'Ubuntu-22.04'), ('WAYLAND_DISPLAY', 'wayland-0'), ('COLCON_PREFIX_PATH', '/home/fede/ros2_ws/install'), ('ROS_DISTRO', 'humble'), ('LOGNAME', 'fede'), ('NAME', 'Federico-Asus'), ('WSL_INTEROP', '/run/WSL/1601_interop'), ('PULSE_SERVER', 'unix:/mnt/wslg/PulseServer'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'xterm-256color'), ('GAZEBO_MODEL_PATH', '/home/fede/ros2_ws/install/virtual_maize_field/share/virtual_maize_field/models:/opt/ros/humble/share:/usr/share/gazebo-11/models:'), ('ROS_LOCALHOST_ONLY', '0'), ('OGRE_RESOURCE_PATH', '/usr/lib/x86_64-linux-gnu/OGRE-1.9.0'), ('PATH', '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib:/mnt/c/Program Files/Common Files/Oracle/Java/javapath:/mnt/c/WINDOWS/system32:/mnt/c/WINDOWS:/mnt/c/WINDOWS/System32/Wbem:/mnt/c/WINDOWS/System32/WindowsPowerShell/v1.0/:/mnt/c/WINDOWS/System32/OpenSSH/:/mnt/c/Program Files/MATLAB/R2023b/bin:/mnt/c/Program Files/Git/cmd:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Launcher/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python39/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python39/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python311/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python311/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python312/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python312/:/mnt/c/Users/Federico/AppData/Local/Microsoft/WindowsApps:/mnt/c/Users/Federico/AppData/Local/Programs/Microsoft VS Code/bin:/mnt/c/Users/Federico/AppData/Local/Google/Cloud SDK/google-cloud-sdk/bin:/mnt/c/Users/Federico/AppData/Local/GitHubDesktop/bin:/mnt/d/Downloads/ffmpeg-2025-04-14-git-3b2a9410ef-full_build/ffmpeg-2025-04-14-git-3b2a9410ef-full_build/bin/ffmpeg:/snap/bin'), ('WT_SESSION', 'b4d930d2-01b8-433c-a0d1-9f486631b8dc'), ('XDG_RUNTIME_DIR', '/run/user/1000/'), ('DISPLAY', ':0'), ('LANG', 'C.UTF-8'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('AMENT_PREFIX_PATH', '/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/home/fede/ros2_ws/install/my_tracked_robot_description:/opt/ros/humble'), ('SHELL', '/bin/bash'), ('LESSCLOSE', '/usr/bin/lesspipe %s %s'), ('GAZEBO_RESOURCE_PATH', '/usr/share/gazebo-11:'), ('GAZEBO_MODEL_DATABASE_URI', 'http://models.gazebosim.org'), ('PWD', '/home/fede/ros2_ws/src/build/my_tracked_robot_description'), ('TURTLEBOT3_MODEL', 'burger'), ('GAZEBO_PLUGIN_PATH', '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:'), ('XDG_DATA_DIRS', '/usr/local/share:/usr/share:/var/lib/snapd/desktop'), ('PYTHONPATH', '/home/fede/ros2_ws/install/virtual_maize_field/lib/python3.10/site-packages:/home/fede/ros2_ws/install/maize_robot_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('WSL2_GUI_APPS_ENABLED', '1'), ('HOSTTYPE', 'x86_64'), ('CMAKE_PREFIX_PATH', '/home/fede/ros2_ws/install/my_tracked_robot_description:/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/opt/ros/humble'), ('WSLENV', 'WT_SESSION:WT_PROFILE_ID:')]), 'shell': False}
+[12.026662] (my_tracked_robot_description) StdoutLine: {'line': b'-- Install configuration: ""\n'}
+[12.026844] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/launch\n'}
+[12.027401] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/launch/robot_state_publisher.launch.py\n'}
+[12.027813] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/urdf\n'}
+[12.028488] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/urdf/tracked_robot.urdf.xacro\n'}
+[12.029748] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/ament_index/resource_index/package_run_dependencies/my_tracked_robot_description\n'}
+[12.030008] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/ament_index/resource_index/parent_prefix_path/my_tracked_robot_description\n'}
+[12.030993] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/environment/ament_prefix_path.sh\n'}
+[12.031094] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/environment/ament_prefix_path.dsv\n'}
+[12.031341] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/environment/path.sh\n'}
+[12.031597] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/environment/path.dsv\n'}
+[12.031890] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/local_setup.bash\n'}
+[12.032153] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/local_setup.sh\n'}
+[12.032431] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/local_setup.zsh\n'}
+[12.032702] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/local_setup.dsv\n'}
+[12.032808] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.dsv\n'}
+[12.033269] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/ament_index/resource_index/packages/my_tracked_robot_description\n'}
+[12.033538] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/cmake/my_tracked_robot_descriptionConfig.cmake\n'}
+[12.033811] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/cmake/my_tracked_robot_descriptionConfig-version.cmake\n'}
+[12.033899] (my_tracked_robot_description) StdoutLine: {'line': b'-- Installing: /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.xml\n'}
+[12.035887] (my_tracked_robot_description) CommandEnded: {'returncode': 0}
+[12.043607] (-) TimerEvent: {}
+[12.049517] (my_tracked_robot_description) JobEnded: {'identifier': 'my_tracked_robot_description', 'rc': 0}
+[12.050150] (maize_robot_bringup) JobStarted: {'identifier': 'maize_robot_bringup'}
+[12.143753] (-) TimerEvent: {}
+[12.244134] (-) TimerEvent: {}
+[12.344493] (-) TimerEvent: {}
+[12.444936] (-) TimerEvent: {}
+[12.545325] (-) TimerEvent: {}
+[12.645686] (-) TimerEvent: {}
+[12.734237] (maize_robot_bringup) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../build/maize_robot_bringup', 'build', '--build-base', '/home/fede/ros2_ws/src/build/maize_robot_bringup/build', 'install', '--record', '/home/fede/ros2_ws/src/build/maize_robot_bringup/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/home/fede/ros2_ws/src/maize_robot_bringup', 'env': {'LESSOPEN': '| /usr/bin/lesspipe %s', 'USER': 'fede', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:', 'WT_PROFILE_ID': '{61c54bbd-c2c6-5271-96e7-009a87ff44bf}', 'HOME': '/home/fede', 'OLDPWD': '/home/fede/ros2_ws', 'GAZEBO_MASTER_URI': 'http://localhost:11345', 'ROS_PYTHON_VERSION': '3', 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/1000/bus', 'WSL_DISTRO_NAME': 'Ubuntu-22.04', 'WAYLAND_DISPLAY': 'wayland-0', 'COLCON_PREFIX_PATH': '/home/fede/ros2_ws/install', 'ROS_DISTRO': 'humble', 'LOGNAME': 'fede', 'NAME': 'Federico-Asus', 'WSL_INTEROP': '/run/WSL/1601_interop', 'PULSE_SERVER': 'unix:/mnt/wslg/PulseServer', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm-256color', 'GAZEBO_MODEL_PATH': '/home/fede/ros2_ws/install/virtual_maize_field/share/virtual_maize_field/models:/opt/ros/humble/share:/usr/share/gazebo-11/models:', 'ROS_LOCALHOST_ONLY': '0', 'OGRE_RESOURCE_PATH': '/usr/lib/x86_64-linux-gnu/OGRE-1.9.0', 'PATH': '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib:/mnt/c/Program Files/Common Files/Oracle/Java/javapath:/mnt/c/WINDOWS/system32:/mnt/c/WINDOWS:/mnt/c/WINDOWS/System32/Wbem:/mnt/c/WINDOWS/System32/WindowsPowerShell/v1.0/:/mnt/c/WINDOWS/System32/OpenSSH/:/mnt/c/Program Files/MATLAB/R2023b/bin:/mnt/c/Program Files/Git/cmd:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Launcher/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python39/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python39/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python311/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python311/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python312/Scripts/:/mnt/c/Users/Federico/AppData/Local/Programs/Python/Python312/:/mnt/c/Users/Federico/AppData/Local/Microsoft/WindowsApps:/mnt/c/Users/Federico/AppData/Local/Programs/Microsoft VS Code/bin:/mnt/c/Users/Federico/AppData/Local/Google/Cloud SDK/google-cloud-sdk/bin:/mnt/c/Users/Federico/AppData/Local/GitHubDesktop/bin:/mnt/d/Downloads/ffmpeg-2025-04-14-git-3b2a9410ef-full_build/ffmpeg-2025-04-14-git-3b2a9410ef-full_build/bin/ffmpeg:/snap/bin', 'WT_SESSION': 'b4d930d2-01b8-433c-a0d1-9f486631b8dc', 'XDG_RUNTIME_DIR': '/run/user/1000/', 'DISPLAY': ':0', 'LANG': 'C.UTF-8', 'LS_COLORS': 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:', 'AMENT_PREFIX_PATH': '/home/fede/ros2_ws/src/install/my_tracked_robot_description:/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/home/fede/ros2_ws/install/my_tracked_robot_description:/opt/ros/humble', 'SHELL': '/bin/bash', 'LESSCLOSE': '/usr/bin/lesspipe %s %s', 'GAZEBO_RESOURCE_PATH': '/usr/share/gazebo-11:', 'GAZEBO_MODEL_DATABASE_URI': 'http://models.gazebosim.org', 'PWD': '/home/fede/ros2_ws/src/build/maize_robot_bringup', 'TURTLEBOT3_MODEL': 'burger', 'GAZEBO_PLUGIN_PATH': '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:', 'XDG_DATA_DIRS': '/usr/local/share:/usr/share:/var/lib/snapd/desktop', 'PYTHONPATH': '/home/fede/ros2_ws/src/build/maize_robot_bringup/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages:/home/fede/ros2_ws/install/virtual_maize_field/lib/python3.10/site-packages:/home/fede/ros2_ws/install/maize_robot_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'COLCON': '1', 'WSL2_GUI_APPS_ENABLED': '1', 'HOSTTYPE': 'x86_64', 'CMAKE_PREFIX_PATH': '/home/fede/ros2_ws/src/install/my_tracked_robot_description:/home/fede/ros2_ws/install/my_tracked_robot_description', 'WSLENV': 'WT_SESSION:WT_PROFILE_ID:'}, 'shell': False}
+[12.745844] (-) TimerEvent: {}
+[12.846241] (-) TimerEvent: {}
+[12.946640] (-) TimerEvent: {}
+[12.961265] (maize_robot_bringup) StdoutLine: {'line': b'running egg_info\n'}
+[12.962168] (maize_robot_bringup) StdoutLine: {'line': b'creating ../build/maize_robot_bringup/maize_robot_bringup.egg-info\n'}
+[12.962577] (maize_robot_bringup) StdoutLine: {'line': b'writing ../build/maize_robot_bringup/maize_robot_bringup.egg-info/PKG-INFO\n'}
+[12.962824] (maize_robot_bringup) StdoutLine: {'line': b'writing dependency_links to ../build/maize_robot_bringup/maize_robot_bringup.egg-info/dependency_links.txt\n'}
+[12.963031] (maize_robot_bringup) StdoutLine: {'line': b'writing entry points to ../build/maize_robot_bringup/maize_robot_bringup.egg-info/entry_points.txt\n'}
+[12.963142] (maize_robot_bringup) StdoutLine: {'line': b'writing requirements to ../build/maize_robot_bringup/maize_robot_bringup.egg-info/requires.txt\n'}
+[12.963307] (maize_robot_bringup) StdoutLine: {'line': b'writing top-level names to ../build/maize_robot_bringup/maize_robot_bringup.egg-info/top_level.txt\n'}
+[12.963486] (maize_robot_bringup) StdoutLine: {'line': b"writing manifest file '../build/maize_robot_bringup/maize_robot_bringup.egg-info/SOURCES.txt'\n"}
+[12.965154] (maize_robot_bringup) StdoutLine: {'line': b"reading manifest file '../build/maize_robot_bringup/maize_robot_bringup.egg-info/SOURCES.txt'\n"}
+[12.965788] (maize_robot_bringup) StdoutLine: {'line': b"writing manifest file '../build/maize_robot_bringup/maize_robot_bringup.egg-info/SOURCES.txt'\n"}
+[12.966199] (maize_robot_bringup) StdoutLine: {'line': b'running build\n'}
+[12.966362] (maize_robot_bringup) StdoutLine: {'line': b'running build_py\n'}
+[12.966479] (maize_robot_bringup) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/build/maize_robot_bringup/build\n'}
+[12.966756] (maize_robot_bringup) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/build/maize_robot_bringup/build/lib\n'}
+[12.966918] (maize_robot_bringup) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/build/maize_robot_bringup/build/lib/maize_robot_bringup\n'}
+[12.967137] (maize_robot_bringup) StdoutLine: {'line': b'copying maize_robot_bringup/__init__.py -> /home/fede/ros2_ws/src/build/maize_robot_bringup/build/lib/maize_robot_bringup\n'}
+[12.967447] (maize_robot_bringup) StdoutLine: {'line': b'running install\n'}
+[12.967740] (maize_robot_bringup) StdoutLine: {'line': b'running install_lib\n'}
+[12.968485] (maize_robot_bringup) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages/maize_robot_bringup\n'}
+[12.968799] (maize_robot_bringup) StdoutLine: {'line': b'copying /home/fede/ros2_ws/src/build/maize_robot_bringup/build/lib/maize_robot_bringup/__init__.py -> /home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages/maize_robot_bringup\n'}
+[12.969371] (maize_robot_bringup) StdoutLine: {'line': b'byte-compiling /home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages/maize_robot_bringup/__init__.py to __init__.cpython-310.pyc\n'}
+[12.969771] (maize_robot_bringup) StdoutLine: {'line': b'running install_data\n'}
+[12.970065] (maize_robot_bringup) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/maize_robot_bringup/share/ament_index\n'}
+[12.970126] (maize_robot_bringup) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/maize_robot_bringup/share/ament_index/resource_index\n'}
+[12.970241] (maize_robot_bringup) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/maize_robot_bringup/share/ament_index/resource_index/packages\n'}
+[12.970599] (maize_robot_bringup) StdoutLine: {'line': b'copying resource/maize_robot_bringup -> /home/fede/ros2_ws/src/install/maize_robot_bringup/share/ament_index/resource_index/packages\n'}
+[12.970731] (maize_robot_bringup) StdoutLine: {'line': b'copying package.xml -> /home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup\n'}
+[12.970866] (maize_robot_bringup) StdoutLine: {'line': b'creating /home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/launch\n'}
+[12.971073] (maize_robot_bringup) StdoutLine: {'line': b'copying launch/spawn_turtlebot_in_maize.launch.py -> /home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/launch\n'}
+[12.971616] (maize_robot_bringup) StdoutLine: {'line': b'copying launch/spawn_tracked_robot.launch.py -> /home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/launch\n'}
+[12.971840] (maize_robot_bringup) StdoutLine: {'line': b'running install_egg_info\n'}
+[12.974671] (maize_robot_bringup) StdoutLine: {'line': b'Copying ../build/maize_robot_bringup/maize_robot_bringup.egg-info to /home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages/maize_robot_bringup-0.0.0-py3.10.egg-info\n'}
+[12.975796] (maize_robot_bringup) StdoutLine: {'line': b'running install_scripts\n'}
+[12.995874] (maize_robot_bringup) StdoutLine: {'line': b"writing list of installed files to '/home/fede/ros2_ws/src/build/maize_robot_bringup/install.log'\n"}
+[13.024704] (maize_robot_bringup) CommandEnded: {'returncode': 0}
+[13.029426] (maize_robot_bringup) JobEnded: {'identifier': 'maize_robot_bringup', 'rc': 0}
+[13.030994] (-) EventReactorShutdown: {}

@@ -1,0 +1,6 @@
+source;share/virtual_maize_field/hook/pythonpath.ps1
+source;share/virtual_maize_field/hook/pythonpath.dsv
+source;share/virtual_maize_field/hook/pythonpath.sh
+source;share/virtual_maize_field/hook/ament_prefix_path.ps1
+source;share/virtual_maize_field/hook/ament_prefix_path.dsv
+source;share/virtual_maize_field/hook/ament_prefix_path.sh

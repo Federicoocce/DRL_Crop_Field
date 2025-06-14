@@ -1,0 +1,229 @@
+[0.249s] DEBUG:colcon:Command line arguments: ['/usr/bin/colcon', 'build']
+[0.249s] DEBUG:colcon:Parsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='build', build_base='build', install_base='install', merge_install=False, symlink_install=False, test_result_base=None, continue_on_error=False, executor='parallel', parallel_workers=16, event_handlers=None, ignore_user_meta=False, metas=['./colcon.meta'], base_paths=['.'], packages_ignore=None, packages_ignore_regex=None, paths=None, packages_up_to=None, packages_up_to_regex=None, packages_above=None, packages_above_and_dependencies=None, packages_above_depth=None, packages_select_by_dep=None, packages_skip_by_dep=None, packages_skip_up_to=None, packages_select_build_failed=False, packages_skip_build_finished=False, packages_select_test_failures=False, packages_skip_test_passed=False, packages_select=None, packages_skip=None, packages_select_regex=None, packages_skip_regex=None, packages_start=None, packages_end=None, allow_overriding=[], cmake_args=None, cmake_target=None, cmake_target_skip_unavailable=False, cmake_clean_cache=False, cmake_clean_first=False, cmake_force_configure=False, ament_cmake_args=None, catkin_cmake_args=None, catkin_skip_building_tests=False, mixin_files=None, mixin=None, verb_parser=<colcon_mixin.mixin.mixin_argument.MixinArgumentDecorator object at 0x74dcd8651600>, verb_extension=<colcon_core.verb.build.BuildVerb object at 0x74dcd8762530>, main=<bound method BuildVerb.main of <colcon_core.verb.build.BuildVerb object at 0x74dcd8762530>>, mixin_verb=('build',))
+[0.469s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) check parameters
+[0.470s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) check parameters
+[0.470s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) check parameters
+[0.470s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) check parameters
+[0.470s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) discover
+[0.470s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) discover
+[0.470s] INFO:colcon.colcon_core.package_discovery:Crawling recursively for packages in '/home/fede/ros2_ws/src'
+[0.470s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ignore', 'ignore_ament_install']
+[0.470s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore'
+[0.470s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore_ament_install'
+[0.470s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_pkg']
+[0.470s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_pkg'
+[0.470s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_meta']
+[0.470s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_meta'
+[0.470s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ros']
+[0.470s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ros'
+[0.483s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['cmake', 'python']
+[0.483s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'cmake'
+[0.483s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python'
+[0.483s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['python_setup_py']
+[0.483s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python_setup_py'
+[0.483s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extensions ['ignore', 'ignore_ament_install']
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extension 'ignore'
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(build) ignored
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extensions ['ignore', 'ignore_ament_install']
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extension 'ignore'
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(install) ignored
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extensions ['ignore', 'ignore_ament_install']
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extension 'ignore'
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(log) ignored
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(maize_robot_bringup) by extensions ['ignore', 'ignore_ament_install']
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(maize_robot_bringup) by extension 'ignore'
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(maize_robot_bringup) by extension 'ignore_ament_install'
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(maize_robot_bringup) by extensions ['colcon_pkg']
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(maize_robot_bringup) by extension 'colcon_pkg'
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(maize_robot_bringup) by extensions ['colcon_meta']
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(maize_robot_bringup) by extension 'colcon_meta'
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(maize_robot_bringup) by extensions ['ros']
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(maize_robot_bringup) by extension 'ros'
+[0.487s] DEBUG:colcon.colcon_core.package_identification:Package 'maize_robot_bringup' with type 'ros.ament_python' and name 'maize_robot_bringup'
+[0.487s] Level 1:colcon.colcon_core.package_identification:_identify(my_tracked_robot_description) by extensions ['ignore', 'ignore_ament_install']
+[0.487s] Level 1:colcon.colcon_core.package_identification:_identify(my_tracked_robot_description) by extension 'ignore'
+[0.487s] Level 1:colcon.colcon_core.package_identification:_identify(my_tracked_robot_description) by extension 'ignore_ament_install'
+[0.487s] Level 1:colcon.colcon_core.package_identification:_identify(my_tracked_robot_description) by extensions ['colcon_pkg']
+[0.487s] Level 1:colcon.colcon_core.package_identification:_identify(my_tracked_robot_description) by extension 'colcon_pkg'
+[0.487s] Level 1:colcon.colcon_core.package_identification:_identify(my_tracked_robot_description) by extensions ['colcon_meta']
+[0.487s] Level 1:colcon.colcon_core.package_identification:_identify(my_tracked_robot_description) by extension 'colcon_meta'
+[0.488s] Level 1:colcon.colcon_core.package_identification:_identify(my_tracked_robot_description) by extensions ['ros']
+[0.488s] Level 1:colcon.colcon_core.package_identification:_identify(my_tracked_robot_description) by extension 'ros'
+[0.488s] DEBUG:colcon.colcon_core.package_identification:Package 'my_tracked_robot_description' with type 'ros.ament_cmake' and name 'my_tracked_robot_description'
+[0.488s] Level 1:colcon.colcon_core.package_identification:_identify(virtual_maize_field) by extensions ['ignore', 'ignore_ament_install']
+[0.489s] Level 1:colcon.colcon_core.package_identification:_identify(virtual_maize_field) by extension 'ignore'
+[0.489s] Level 1:colcon.colcon_core.package_identification:_identify(virtual_maize_field) by extension 'ignore_ament_install'
+[0.489s] Level 1:colcon.colcon_core.package_identification:_identify(virtual_maize_field) by extensions ['colcon_pkg']
+[0.489s] Level 1:colcon.colcon_core.package_identification:_identify(virtual_maize_field) by extension 'colcon_pkg'
+[0.489s] Level 1:colcon.colcon_core.package_identification:_identify(virtual_maize_field) by extensions ['colcon_meta']
+[0.489s] Level 1:colcon.colcon_core.package_identification:_identify(virtual_maize_field) by extension 'colcon_meta'
+[0.489s] Level 1:colcon.colcon_core.package_identification:_identify(virtual_maize_field) by extensions ['ros']
+[0.489s] Level 1:colcon.colcon_core.package_identification:_identify(virtual_maize_field) by extension 'ros'
+[0.490s] DEBUG:colcon.colcon_core.package_identification:Package 'virtual_maize_field' with type 'ros.ament_python' and name 'virtual_maize_field'
+[0.490s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) using defaults
+[0.490s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) discover
+[0.490s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) using defaults
+[0.490s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) discover
+[0.490s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) using defaults
+[0.529s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) check parameters
+[0.529s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) discover
+[0.532s] DEBUG:colcon.colcon_installed_package_information.package_discovery:Found 3 installed packages in /home/fede/ros2_ws/install
+[0.533s] DEBUG:colcon.colcon_installed_package_information.package_discovery:Found 302 installed packages in /opt/ros/humble
+[0.535s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) using defaults
+[0.577s] Level 5:colcon.colcon_core.verb:set package 'my_tracked_robot_description' build argument 'cmake_args' from command line to 'None'
+[0.577s] Level 5:colcon.colcon_core.verb:set package 'my_tracked_robot_description' build argument 'cmake_target' from command line to 'None'
+[0.577s] Level 5:colcon.colcon_core.verb:set package 'my_tracked_robot_description' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.577s] Level 5:colcon.colcon_core.verb:set package 'my_tracked_robot_description' build argument 'cmake_clean_cache' from command line to 'False'
+[0.577s] Level 5:colcon.colcon_core.verb:set package 'my_tracked_robot_description' build argument 'cmake_clean_first' from command line to 'False'
+[0.577s] Level 5:colcon.colcon_core.verb:set package 'my_tracked_robot_description' build argument 'cmake_force_configure' from command line to 'False'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'my_tracked_robot_description' build argument 'ament_cmake_args' from command line to 'None'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'my_tracked_robot_description' build argument 'catkin_cmake_args' from command line to 'None'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'my_tracked_robot_description' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.578s] DEBUG:colcon.colcon_core.verb:Building package 'my_tracked_robot_description' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/fede/ros2_ws/src/build/my_tracked_robot_description', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/fede/ros2_ws/src/install/my_tracked_robot_description', 'merge_install': False, 'path': '/home/fede/ros2_ws/src/my_tracked_robot_description', 'symlink_install': False, 'test_result_base': None}
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'virtual_maize_field' build argument 'cmake_args' from command line to 'None'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'virtual_maize_field' build argument 'cmake_target' from command line to 'None'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'virtual_maize_field' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'virtual_maize_field' build argument 'cmake_clean_cache' from command line to 'False'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'virtual_maize_field' build argument 'cmake_clean_first' from command line to 'False'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'virtual_maize_field' build argument 'cmake_force_configure' from command line to 'False'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'virtual_maize_field' build argument 'ament_cmake_args' from command line to 'None'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'virtual_maize_field' build argument 'catkin_cmake_args' from command line to 'None'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'virtual_maize_field' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.578s] DEBUG:colcon.colcon_core.verb:Building package 'virtual_maize_field' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/fede/ros2_ws/src/build/virtual_maize_field', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/fede/ros2_ws/src/install/virtual_maize_field', 'merge_install': False, 'path': '/home/fede/ros2_ws/src/virtual_maize_field', 'symlink_install': False, 'test_result_base': None}
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'maize_robot_bringup' build argument 'cmake_args' from command line to 'None'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'maize_robot_bringup' build argument 'cmake_target' from command line to 'None'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'maize_robot_bringup' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'maize_robot_bringup' build argument 'cmake_clean_cache' from command line to 'False'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'maize_robot_bringup' build argument 'cmake_clean_first' from command line to 'False'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'maize_robot_bringup' build argument 'cmake_force_configure' from command line to 'False'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'maize_robot_bringup' build argument 'ament_cmake_args' from command line to 'None'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'maize_robot_bringup' build argument 'catkin_cmake_args' from command line to 'None'
+[0.578s] Level 5:colcon.colcon_core.verb:set package 'maize_robot_bringup' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.579s] DEBUG:colcon.colcon_core.verb:Building package 'maize_robot_bringup' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/fede/ros2_ws/src/build/maize_robot_bringup', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/fede/ros2_ws/src/install/maize_robot_bringup', 'merge_install': False, 'path': '/home/fede/ros2_ws/src/maize_robot_bringup', 'symlink_install': False, 'test_result_base': None}
+[0.579s] INFO:colcon.colcon_core.executor:Executing jobs using 'parallel' executor
+[0.580s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete
+[0.580s] INFO:colcon.colcon_ros.task.ament_cmake.build:Building ROS package in '/home/fede/ros2_ws/src/my_tracked_robot_description' with build type 'ament_cmake'
+[0.580s] INFO:colcon.colcon_cmake.task.cmake.build:Building CMake package in '/home/fede/ros2_ws/src/my_tracked_robot_description'
+[0.585s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_core.shell.bat': Not used on non-Windows systems
+[0.585s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.585s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.591s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/fede/ros2_ws/src/virtual_maize_field' with build type 'ament_python'
+[0.592s] Level 1:colcon.colcon_core.shell:create_environment_hook('virtual_maize_field', 'ament_prefix_path')
+[0.592s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/hook/ament_prefix_path.ps1'
+[0.595s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/hook/ament_prefix_path.dsv'
+[0.595s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/hook/ament_prefix_path.sh'
+[0.596s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.596s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.608s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/fede/ros2_ws/src/build/my_tracked_robot_description': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/opt/ros/humble /usr/bin/cmake /home/fede/ros2_ws/src/my_tracked_robot_description -DCMAKE_INSTALL_PREFIX=/home/fede/ros2_ws/src/install/my_tracked_robot_description
+[0.901s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/fede/ros2_ws/src/virtual_maize_field'
+[0.902s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.902s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[1.335s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/fede/ros2_ws/src/virtual_maize_field': PYTHONPATH=/home/fede/ros2_ws/src/build/virtual_maize_field/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/virtual_maize_field build --build-base /home/fede/ros2_ws/src/build/virtual_maize_field/build install --record /home/fede/ros2_ws/src/build/virtual_maize_field/install.log --single-version-externally-managed install_data
+[1.872s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/fede/ros2_ws/src/virtual_maize_field' returned '0': PYTHONPATH=/home/fede/ros2_ws/src/build/virtual_maize_field/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/virtual_maize_field build --build-base /home/fede/ros2_ws/src/build/virtual_maize_field/build install --record /home/fede/ros2_ws/src/build/virtual_maize_field/install.log --single-version-externally-managed install_data
+[1.874s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/virtual_maize_field' for CMake module files
+[1.875s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/virtual_maize_field' for CMake config files
+[1.877s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/virtual_maize_field/lib'
+[1.877s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/virtual_maize_field/bin'
+[1.877s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/virtual_maize_field/lib/pkgconfig/virtual_maize_field.pc'
+[1.877s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages'
+[1.877s] Level 1:colcon.colcon_core.shell:create_environment_hook('virtual_maize_field', 'pythonpath')
+[1.877s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/hook/pythonpath.ps1'
+[1.878s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/hook/pythonpath.dsv'
+[1.878s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/hook/pythonpath.sh'
+[1.879s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/virtual_maize_field/bin'
+[1.879s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(virtual_maize_field)
+[1.879s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/package.ps1'
+[1.880s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/package.dsv'
+[1.880s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/package.sh'
+[1.881s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/package.bash'
+[1.881s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/package.zsh'
+[1.882s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/fede/ros2_ws/src/install/virtual_maize_field/share/colcon-core/packages/virtual_maize_field)
+[12.545s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/fede/ros2_ws/src/build/my_tracked_robot_description' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/opt/ros/humble /usr/bin/cmake /home/fede/ros2_ws/src/my_tracked_robot_description -DCMAKE_INSTALL_PREFIX=/home/fede/ros2_ws/src/install/my_tracked_robot_description
+[12.548s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/fede/ros2_ws/src/build/my_tracked_robot_description': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/opt/ros/humble /usr/bin/cmake --build /home/fede/ros2_ws/src/build/my_tracked_robot_description -- -j16 -l16
+[12.590s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/fede/ros2_ws/src/build/my_tracked_robot_description' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/opt/ros/humble /usr/bin/cmake --build /home/fede/ros2_ws/src/build/my_tracked_robot_description -- -j16 -l16
+[12.600s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/fede/ros2_ws/src/build/my_tracked_robot_description': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/opt/ros/humble /usr/bin/cmake --install /home/fede/ros2_ws/src/build/my_tracked_robot_description
+[12.616s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(my_tracked_robot_description)
+[12.616s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/fede/ros2_ws/src/build/my_tracked_robot_description' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/fede/ros2_ws/install/virtual_maize_field:/home/fede/ros2_ws/install/maize_robot_bringup:/opt/ros/humble /usr/bin/cmake --install /home/fede/ros2_ws/src/build/my_tracked_robot_description
+[12.617s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/my_tracked_robot_description' for CMake module files
+[12.617s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/my_tracked_robot_description' for CMake config files
+[12.617s] Level 1:colcon.colcon_core.shell:create_environment_hook('my_tracked_robot_description', 'cmake_prefix_path')
+[12.617s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/hook/cmake_prefix_path.ps1'
+[12.618s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/hook/cmake_prefix_path.dsv'
+[12.619s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/hook/cmake_prefix_path.sh'
+[12.619s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/my_tracked_robot_description/bin'
+[12.619s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/my_tracked_robot_description/lib/pkgconfig/my_tracked_robot_description.pc'
+[12.619s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/my_tracked_robot_description/lib/python3.10/site-packages'
+[12.619s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/my_tracked_robot_description/bin'
+[12.620s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.ps1'
+[12.620s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.dsv'
+[12.620s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.sh'
+[12.621s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.bash'
+[12.621s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.zsh'
+[12.621s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/colcon-core/packages/my_tracked_robot_description)
+[12.622s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(my_tracked_robot_description)
+[12.623s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/my_tracked_robot_description' for CMake module files
+[12.623s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/my_tracked_robot_description' for CMake config files
+[12.623s] Level 1:colcon.colcon_core.shell:create_environment_hook('my_tracked_robot_description', 'cmake_prefix_path')
+[12.623s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/hook/cmake_prefix_path.ps1'
+[12.624s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/hook/cmake_prefix_path.dsv'
+[12.625s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/hook/cmake_prefix_path.sh'
+[12.626s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/my_tracked_robot_description/bin'
+[12.626s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/my_tracked_robot_description/lib/pkgconfig/my_tracked_robot_description.pc'
+[12.626s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/my_tracked_robot_description/lib/python3.10/site-packages'
+[12.626s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/my_tracked_robot_description/bin'
+[12.626s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.ps1'
+[12.627s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.dsv'
+[12.627s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.sh'
+[12.628s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.bash'
+[12.628s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.zsh'
+[12.629s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/colcon-core/packages/my_tracked_robot_description)
+[12.629s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/fede/ros2_ws/src/maize_robot_bringup' with build type 'ament_python'
+[12.629s] Level 1:colcon.colcon_core.shell:create_environment_hook('maize_robot_bringup', 'ament_prefix_path')
+[12.629s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/hook/ament_prefix_path.ps1'
+[12.633s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/hook/ament_prefix_path.dsv'
+[12.634s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/hook/ament_prefix_path.sh'
+[12.635s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[12.635s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[12.930s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/fede/ros2_ws/src/maize_robot_bringup'
+[12.930s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[12.930s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[13.316s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/fede/ros2_ws/src/maize_robot_bringup': AMENT_PREFIX_PATH=/home/fede/ros2_ws/src/install/my_tracked_robot_description:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/fede/ros2_ws/src/install/my_tracked_robot_description:${CMAKE_PREFIX_PATH} PYTHONPATH=/home/fede/ros2_ws/src/build/maize_robot_bringup/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/maize_robot_bringup build --build-base /home/fede/ros2_ws/src/build/maize_robot_bringup/build install --record /home/fede/ros2_ws/src/build/maize_robot_bringup/install.log --single-version-externally-managed install_data
+[13.603s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/maize_robot_bringup' for CMake module files
+[13.603s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/maize_robot_bringup' for CMake config files
+[13.604s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/maize_robot_bringup/lib'
+[13.604s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/maize_robot_bringup/bin'
+[13.604s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/maize_robot_bringup/lib/pkgconfig/maize_robot_bringup.pc'
+[13.604s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages'
+[13.604s] Level 1:colcon.colcon_core.shell:create_environment_hook('maize_robot_bringup', 'pythonpath')
+[13.605s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/hook/pythonpath.ps1'
+[13.605s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/fede/ros2_ws/src/maize_robot_bringup' returned '0': AMENT_PREFIX_PATH=/home/fede/ros2_ws/src/install/my_tracked_robot_description:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/fede/ros2_ws/src/install/my_tracked_robot_description:${CMAKE_PREFIX_PATH} PYTHONPATH=/home/fede/ros2_ws/src/build/maize_robot_bringup/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/maize_robot_bringup build --build-base /home/fede/ros2_ws/src/build/maize_robot_bringup/build install --record /home/fede/ros2_ws/src/build/maize_robot_bringup/install.log --single-version-externally-managed install_data
+[13.605s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/hook/pythonpath.dsv'
+[13.606s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/hook/pythonpath.sh'
+[13.607s] Level 1:colcon.colcon_core.environment:checking '/home/fede/ros2_ws/src/install/maize_robot_bringup/bin'
+[13.607s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(maize_robot_bringup)
+[13.607s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/package.ps1'
+[13.607s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/package.dsv'
+[13.607s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/package.sh'
+[13.608s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/package.bash'
+[13.608s] INFO:colcon.colcon_core.shell:Creating package script '/home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/package.zsh'
+[13.609s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/fede/ros2_ws/src/install/maize_robot_bringup/share/colcon-core/packages/maize_robot_bringup)
+[13.609s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:closing loop
+[13.610s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:loop closed
+[13.610s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete finished with '0'
+[13.610s] DEBUG:colcon.colcon_core.event_reactor:joining thread
+[13.665s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.notify_send': Could not find 'notify-send'
+[13.665s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.terminal_notifier': Not used on non-Darwin systems
+[13.665s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.win32': Not used on non-Windows systems
+[13.665s] INFO:colcon.colcon_notification.desktop_notification:Sending desktop notification using 'notify2'
+[13.670s] DEBUG:colcon.colcon_notification.desktop_notification.notify2:Failed to initialize notify2: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.Notifications was not provided by any .service files
+[13.670s] DEBUG:colcon.colcon_core.event_reactor:joined thread
+[13.670s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/fede/ros2_ws/src/install/local_setup.ps1'
+[13.671s] INFO:colcon.colcon_core.shell:Creating prefix util module '/home/fede/ros2_ws/src/install/_local_setup_util_ps1.py'
+[13.672s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/fede/ros2_ws/src/install/setup.ps1'
+[13.673s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/fede/ros2_ws/src/install/local_setup.sh'
+[13.674s] INFO:colcon.colcon_core.shell:Creating prefix util module '/home/fede/ros2_ws/src/install/_local_setup_util_sh.py'
+[13.674s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/fede/ros2_ws/src/install/setup.sh'
+[13.675s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/fede/ros2_ws/src/install/local_setup.bash'
+[13.676s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/fede/ros2_ws/src/install/setup.bash'
+[13.677s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/fede/ros2_ws/src/install/local_setup.zsh'
+[13.677s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/fede/ros2_ws/src/install/setup.zsh'

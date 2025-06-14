@@ -1,0 +1,226 @@
+running egg_info
+creating ../build/virtual_maize_field/virtual_maize_field.egg-info
+writing ../build/virtual_maize_field/virtual_maize_field.egg-info/PKG-INFO
+writing dependency_links to ../build/virtual_maize_field/virtual_maize_field.egg-info/dependency_links.txt
+writing entry points to ../build/virtual_maize_field/virtual_maize_field.egg-info/entry_points.txt
+writing requirements to ../build/virtual_maize_field/virtual_maize_field.egg-info/requires.txt
+writing top-level names to ../build/virtual_maize_field/virtual_maize_field.egg-info/top_level.txt
+writing manifest file '../build/virtual_maize_field/virtual_maize_field.egg-info/SOURCES.txt'
+reading manifest file '../build/virtual_maize_field/virtual_maize_field.egg-info/SOURCES.txt'
+adding license file 'LICENSE'
+writing manifest file '../build/virtual_maize_field/virtual_maize_field.egg-info/SOURCES.txt'
+running build
+running build_py
+creating /home/fede/ros2_ws/src/build/virtual_maize_field/build
+creating /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib
+creating /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field
+copying virtual_maize_field/generate_world.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field
+copying virtual_maize_field/__init__.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field
+creating /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator
+copying virtual_maize_field/world_generator/field_2d_generator.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator
+copying virtual_maize_field/world_generator/world_description.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator
+copying virtual_maize_field/world_generator/models.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator
+copying virtual_maize_field/world_generator/utils.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator
+copying virtual_maize_field/world_generator/__init__.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator
+creating /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments
+copying virtual_maize_field/world_generator/segments/base.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments
+copying virtual_maize_field/world_generator/segments/straight.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments
+copying virtual_maize_field/world_generator/segments/curve.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments
+copying virtual_maize_field/world_generator/segments/__init__.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments
+copying virtual_maize_field/world_generator/segments/sincurve.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments
+copying virtual_maize_field/world_generator/segments/island.py -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments
+copying virtual_maize_field/world_generator/field.world.template -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator
+copying virtual_maize_field/world_generator/robot_spawner.launch.py.template -> /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator
+running install
+running install_lib
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/field_2d_generator.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/world_description.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/models.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/utils.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/robot_spawner.launch.py.template -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/field.world.template -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/__init__.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments/base.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments/straight.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments/curve.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments/__init__.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments/sincurve.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/world_generator/segments/island.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/generate_world.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field
+copying /home/fede/ros2_ws/src/build/virtual_maize_field/build/lib/virtual_maize_field/__init__.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field
+byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/field_2d_generator.py to field_2d_generator.cpython-310.pyc
+byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/world_description.py to world_description.cpython-310.pyc
+byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/models.py to models.cpython-310.pyc
+byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/utils.py to utils.cpython-310.pyc
+byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/__init__.py to __init__.cpython-310.pyc
+byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments/base.py to base.cpython-310.pyc
+byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments/straight.py to straight.cpython-310.pyc
+byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments/curve.py to curve.cpython-310.pyc
+byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments/__init__.py to __init__.cpython-310.pyc
+byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments/sincurve.py to sincurve.cpython-310.pyc
+byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/world_generator/segments/island.py to island.cpython-310.pyc
+byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/generate_world.py to generate_world.cpython-310.pyc
+byte-compiling /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field/__init__.py to __init__.cpython-310.pyc
+running install_data
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/ament_index
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/ament_index/resource_index
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/ament_index/resource_index/packages
+copying resource/virtual_maize_field -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/ament_index/resource_index/packages
+copying package.xml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre21_task_3_mini.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre21_task_4_fast.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre22_task_navigation.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre21_task_1_mini.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre21_task_1.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre21_task_4_mini.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre22_task_mapping.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre21_task_2.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre22_task_navigation_mini.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre22_task_navigation_fast.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre21_task_3.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre21_task_2_fast.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre21_task_3_fast.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre21_task_1_fast.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre21_task_4.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre22_task_mapping_mini.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre22_task_mapping_fast.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+copying config/fre21_task_2_mini.yaml -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/config
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/launch
+copying launch/simulation.launch.py -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/launch
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models
+copying Media/models/.gitkeep -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures
+copying Media/models/materials/textures/grass_roughness.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures
+copying Media/models/materials/textures/grass_normal.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures
+copying Media/models/materials/textures/grass_color.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures
+copying Media/models/materials/textures/fungus_diffusespecular.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures
+copying Media/models/materials/textures/dirt_diffusespecular.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures
+copying Media/models/materials/textures/grass_displacement.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures
+copying Media/models/materials/textures/flat_normal.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/Media/models/materials/textures
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can
+copying models/coke_can/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can
+copying models/coke_can/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can/meshes
+copying models/coke_can/meshes/coke_can.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can/meshes
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can/materials/textures
+copying models/coke_can/materials/textures/coke_can.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/coke_can/materials/textures
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer
+copying models/beer/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer
+copying models/beer/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer
+copying models/beer/model-1_4.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer/materials/scripts
+copying models/beer/materials/scripts/beer.material -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer/materials/scripts
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer/materials/textures
+copying models/beer/materials/textures/beer.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/beer/materials/textures
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02
+copying models/maize_02/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02
+copying models/maize_02/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02/meshes
+copying models/maize_02/meshes/maize_02.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02/meshes
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02/materials/textures
+copying models/maize_02/materials/textures/maize_02.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_02/materials/textures
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02
+copying models/stone_02/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02
+copying models/stone_02/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02/meshes
+copying models/stone_02/meshes/stone_02.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02/meshes
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02/materials/textures
+copying models/stone_02/materials/textures/stone_02.jpeg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02/materials/textures
+copying models/stone_02/materials/textures/stone_02_normal.jpeg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_02/materials/textures
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can
+copying models/retro_pepsi_can/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can
+copying models/retro_pepsi_can/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can/meshes
+copying models/retro_pepsi_can/meshes/retro_pepsi_can.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can/meshes
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can/materials/textures
+copying models/retro_pepsi_can/materials/textures/blinn2SG_baseColor.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can/materials/textures
+copying models/retro_pepsi_can/materials/textures/blinn1SG_baseColor.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/retro_pepsi_can/materials/textures
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale
+copying models/ale/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale
+copying models/ale/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale/meshes
+copying models/ale/meshes/ale.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale/meshes
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale/materials/textures
+copying models/ale/materials/textures/beerbottle_blinn_baseColor.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/ale/materials/textures
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01
+copying models/maize_01/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01
+copying models/maize_01/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01/meshes
+copying models/maize_01/meshes/maize_01.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01/meshes
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01/materials/textures
+copying models/maize_01/materials/textures/maize_01.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/maize_01/materials/textures
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle
+copying models/nettle/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle
+copying models/nettle/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/meshes
+copying models/nettle/meshes/nettle.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/meshes
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/materials/scripts
+copying models/nettle/materials/scripts/nettle.material -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/materials/scripts
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/materials/textures
+copying models/nettle/materials/textures/nettle.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/nettle/materials/textures
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed
+copying models/unknown_weed/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed
+copying models/unknown_weed/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/meshes
+copying models/unknown_weed/meshes/unknown_weed.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/meshes
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/materials/scripts
+copying models/unknown_weed/materials/scripts/unknown_weed.material -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/materials/scripts
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/materials/textures
+copying models/unknown_weed/materials/textures/unknown_weed.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/unknown_weed/materials/textures
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a
+copying models/location_marker_a/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a
+copying models/location_marker_a/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a/materials/scripts
+copying models/location_marker_a/materials/scripts/location_marker_a.material -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a/materials/scripts
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a/materials/textures
+copying models/location_marker_a/materials/textures/fre_logo.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a/materials/textures
+copying models/location_marker_a/materials/textures/location_marker_a.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_a/materials/textures
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b
+copying models/location_marker_b/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b
+copying models/location_marker_b/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b/materials/scripts
+copying models/location_marker_b/materials/scripts/location_marker_b.material -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b/materials/scripts
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b/materials/textures
+copying models/location_marker_b/materials/textures/fre_logo.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b/materials/textures
+copying models/location_marker_b/materials/textures/location_marker_b.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/location_marker_b/materials/textures
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01
+copying models/stone_01/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01
+copying models/stone_01/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/meshes
+copying models/stone_01/meshes/stone_01.dae -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/meshes
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/materials/textures
+copying models/stone_01/materials/textures/stone_01_normal.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/materials/textures
+copying models/stone_01/materials/textures/stone_01.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/materials/textures
+copying models/stone_01/materials/textures/stone_01_occlusion.jpg -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/stone_01/materials/textures
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start
+copying models/start/model.sdf -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start
+copying models/start/model.config -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start/materials
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start/materials/scripts
+copying models/start/materials/scripts/start.material -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start/materials/scripts
+creating /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start/materials/textures
+copying models/start/materials/textures/arrow.png -> /home/fede/ros2_ws/src/install/virtual_maize_field/share/virtual_maize_field/models/start/materials/textures
+running install_egg_info
+Copying ../build/virtual_maize_field/virtual_maize_field.egg-info to /home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages/virtual_maize_field-5.0.0-py3.10.egg-info
+running install_scripts
+Installing generate_world script to /home/fede/ros2_ws/src/install/virtual_maize_field/lib/virtual_maize_field
+writing list of installed files to '/home/fede/ros2_ws/src/build/virtual_maize_field/install.log'

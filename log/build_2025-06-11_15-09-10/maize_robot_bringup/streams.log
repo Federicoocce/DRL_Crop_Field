@@ -1,0 +1,36 @@
+[0.685s] Invoking command in '/home/fede/ros2_ws/src/maize_robot_bringup': AMENT_PREFIX_PATH=/home/fede/ros2_ws/src/install/my_tracked_robot_description:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/fede/ros2_ws/src/install/my_tracked_robot_description:${CMAKE_PREFIX_PATH} PYTHONPATH=/home/fede/ros2_ws/src/build/maize_robot_bringup/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/maize_robot_bringup build --build-base /home/fede/ros2_ws/src/build/maize_robot_bringup/build install --record /home/fede/ros2_ws/src/build/maize_robot_bringup/install.log --single-version-externally-managed install_data
+[0.911s] running egg_info
+[0.912s] creating ../build/maize_robot_bringup/maize_robot_bringup.egg-info
+[0.912s] writing ../build/maize_robot_bringup/maize_robot_bringup.egg-info/PKG-INFO
+[0.913s] writing dependency_links to ../build/maize_robot_bringup/maize_robot_bringup.egg-info/dependency_links.txt
+[0.913s] writing entry points to ../build/maize_robot_bringup/maize_robot_bringup.egg-info/entry_points.txt
+[0.913s] writing requirements to ../build/maize_robot_bringup/maize_robot_bringup.egg-info/requires.txt
+[0.913s] writing top-level names to ../build/maize_robot_bringup/maize_robot_bringup.egg-info/top_level.txt
+[0.913s] writing manifest file '../build/maize_robot_bringup/maize_robot_bringup.egg-info/SOURCES.txt'
+[0.915s] reading manifest file '../build/maize_robot_bringup/maize_robot_bringup.egg-info/SOURCES.txt'
+[0.916s] writing manifest file '../build/maize_robot_bringup/maize_robot_bringup.egg-info/SOURCES.txt'
+[0.916s] running build
+[0.916s] running build_py
+[0.916s] creating /home/fede/ros2_ws/src/build/maize_robot_bringup/build
+[0.917s] creating /home/fede/ros2_ws/src/build/maize_robot_bringup/build/lib
+[0.917s] creating /home/fede/ros2_ws/src/build/maize_robot_bringup/build/lib/maize_robot_bringup
+[0.917s] copying maize_robot_bringup/__init__.py -> /home/fede/ros2_ws/src/build/maize_robot_bringup/build/lib/maize_robot_bringup
+[0.917s] running install
+[0.918s] running install_lib
+[0.918s] creating /home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages/maize_robot_bringup
+[0.919s] copying /home/fede/ros2_ws/src/build/maize_robot_bringup/build/lib/maize_robot_bringup/__init__.py -> /home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages/maize_robot_bringup
+[0.919s] byte-compiling /home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages/maize_robot_bringup/__init__.py to __init__.cpython-310.pyc
+[0.920s] running install_data
+[0.920s] creating /home/fede/ros2_ws/src/install/maize_robot_bringup/share/ament_index
+[0.920s] creating /home/fede/ros2_ws/src/install/maize_robot_bringup/share/ament_index/resource_index
+[0.920s] creating /home/fede/ros2_ws/src/install/maize_robot_bringup/share/ament_index/resource_index/packages
+[0.920s] copying resource/maize_robot_bringup -> /home/fede/ros2_ws/src/install/maize_robot_bringup/share/ament_index/resource_index/packages
+[0.921s] copying package.xml -> /home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup
+[0.921s] creating /home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/launch
+[0.921s] copying launch/spawn_turtlebot_in_maize.launch.py -> /home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/launch
+[0.922s] copying launch/spawn_tracked_robot.launch.py -> /home/fede/ros2_ws/src/install/maize_robot_bringup/share/maize_robot_bringup/launch
+[0.922s] running install_egg_info
+[0.925s] Copying ../build/maize_robot_bringup/maize_robot_bringup.egg-info to /home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages/maize_robot_bringup-0.0.0-py3.10.egg-info
+[0.926s] running install_scripts
+[0.946s] writing list of installed files to '/home/fede/ros2_ws/src/build/maize_robot_bringup/install.log'
+[0.975s] Invoked command in '/home/fede/ros2_ws/src/maize_robot_bringup' returned '0': AMENT_PREFIX_PATH=/home/fede/ros2_ws/src/install/my_tracked_robot_description:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/fede/ros2_ws/src/install/my_tracked_robot_description:${CMAKE_PREFIX_PATH} PYTHONPATH=/home/fede/ros2_ws/src/build/maize_robot_bringup/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/maize_robot_bringup build --build-base /home/fede/ros2_ws/src/build/maize_robot_bringup/build install --record /home/fede/ros2_ws/src/build/maize_robot_bringup/install.log --single-version-externally-managed install_data

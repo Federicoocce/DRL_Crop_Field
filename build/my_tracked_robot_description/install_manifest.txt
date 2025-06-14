@@ -1,0 +1,17 @@
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/launch/robot_state_publisher.launch.py
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/urdf/tracked_robot.urdf.xacro
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/ament_index/resource_index/package_run_dependencies/my_tracked_robot_description
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/ament_index/resource_index/parent_prefix_path/my_tracked_robot_description
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/environment/ament_prefix_path.sh
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/environment/ament_prefix_path.dsv
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/environment/path.sh
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/environment/path.dsv
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/local_setup.bash
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/local_setup.sh
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/local_setup.zsh
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/local_setup.dsv
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.dsv
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/ament_index/resource_index/packages/my_tracked_robot_description
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/cmake/my_tracked_robot_descriptionConfig.cmake
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/cmake/my_tracked_robot_descriptionConfig-version.cmake
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/package.xml
