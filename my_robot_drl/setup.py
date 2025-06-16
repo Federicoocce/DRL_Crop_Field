@@ -13,7 +13,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         # This line installs your models
-        (os.path.join('share', package_name, 'models', 'waypoint_sphere'), glob(os.path.join('models', 'waypoint_sphere', '*'))),
+        (os.path.join('share', package_name, 'models', 'waypoint_box'), glob(os.path.join('models', 'waypoint_box', '*'))),
         # --- THIS IS THE MISSING LINE ---
         # This line tells the build system to find all .launch.py files
         # in your 'launch' directory and install them.

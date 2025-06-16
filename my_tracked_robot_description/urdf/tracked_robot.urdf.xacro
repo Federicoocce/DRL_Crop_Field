@@ -168,19 +168,28 @@
         </plugin>
     </gazebo>
 
+    <!-- In your current tracked_robot.xacro -->
     <gazebo reference="laser_link">
         <sensor name="laser" type="ray">
             <visualize>true</visualize>
             <update_rate>10</update_rate>
             <ray>
                 <scan><horizontal><samples>360</samples><min_angle>-${PI}</min_angle><max_angle>${PI}</max_angle></horizontal></scan>
-                <range><min>0.12</min><max>10.0</max></range>
+                <range>
+                    <min>0.12</min>
+                    <max>2.0</max> <!-- KEEP THIS CHANGE for 2m range -->
+                    <resolution>0.015</resolution>
+                </range>
+                <noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
             </ray>
             <plugin name="laser_controller" filename="libgazebo_ros_ray_sensor.so">
-                <ros></ros> <!-- Ensuring empty tag as per original -->
+                <ros>
+                    <namespace>/laser_controller</namespace> <!-- KEEP NAMESPACE -->
+                    <remapping>~/out:=out</remapping>    <!-- KEEP REMAPPING (topic becomes /laser_controller/out) -->
+                </ros>
                 <output_type>sensor_msgs/LaserScan</output_type>
-                <topic_name>scan</topic_name>
                 <frame_name>laser_link</frame_name>
+                <!-- topic_name is not needed when using namespace + remapping for this specific outcome -->
             </plugin>
         </sensor>
     </gazebo>
