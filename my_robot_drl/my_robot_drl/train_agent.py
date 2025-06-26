@@ -30,7 +30,7 @@ def main(args=None):
         rclpy.shutdown()
         sys.exit(1)
 
-    episode_length = 3000
+    episode_length = 5000
     # Important: Wrap with Monitor before TimeLimit for EvalCallback to get proper episode stats
     train_env = Monitor(train_raw_env) # Monitor wrapper for SB3 logging
     train_env = TimeLimit(train_env, max_episode_steps=episode_length)

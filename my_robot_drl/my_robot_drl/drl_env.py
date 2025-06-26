@@ -51,13 +51,13 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
-        self.scan_sub = self.create_subscription(LaserScan, '/laser_controller/scan', self.scan_callback, 10)
+        self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
         self.reset_sim_client = self.create_client(Empty, '/reset_simulation')
         
         self.current_odom = None
         self.current_scan = np.full(360, 2.0, dtype=np.float32) # Initialize with a typical far value
-        self.min_lidar_range = 0.14 # Physical minimum range of the LIDAR
-        self.collision_threshold = 0.15 # If min_scan < this, it's a collision
+        self.min_lidar_range = 0.15 # Physical minimum range of the LIDAR
+        self.collision_threshold = 0.16 # If min_scan < this, it's a collision
         self.too_far_lidar_threshold = 1.5 # If min_scan > this, considered too far from obstacles (potential issue)
         
         self.waypoints = []
@@ -74,7 +74,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.episode_done = False
         self.last_action = np.array([0.0, 0.0], dtype=np.float32)
         self.waypoint_reach_threshold = 0.3 # Meters
-        self.ignore_box_x = [-0.35, 0.05]  # [min_x, max_x] relative to laser_link
+        self.ignore_box_x = [-0.35, 0.15]  # [min_x, max_x] relative to laser_link
         self.ignore_box_y = [-0.17, 0.17]  # [min_y, max_y] relative to laser_link
 
         # --- Parameters for Dubins U-Turns ---
@@ -110,52 +110,54 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
         if not self.master_waypoints:
             self.get_logger().error("Cannot reset: Master waypoint list is empty.")
-            # Return a valid observation shape even on error
             dummy_obs = np.zeros(self.observation_space.shape, dtype=self.observation_space.dtype)
             return dummy_obs, self._get_info()
 
-
-        while True: # Loop for retrying Gazebo reset and sensor data acquisition
-            # Call Gazebo reset service
+        # This outer loop will retry the entire Gazebo reset if sensor data isn't received.
+        while rclpy.ok():
+            # 1. Call Gazebo reset service
             while not self.reset_sim_client.wait_for_service(timeout_sec=1.0):
                 self.get_logger().info('Reset service not available, waiting again...')
             
             reset_future = self.reset_sim_client.call_async(Empty.Request())
             rclpy.spin_until_future_complete(self, reset_future, timeout_sec=5.0)
+            
             if not reset_future.done() or reset_future.result() is None:
-                self.get_logger().warn("Reset service call failed or timed out. Retrying full reset...")
-                time.sleep(0.5)
-                continue # Retry the outer while loop for Gazebo reset
-            
-            time.sleep(1.0) # Allow simulation to settle after reset
+                self.get_logger().warn("Reset service call failed or timed out. Retrying...")
+                time.sleep(1.0)
+                continue # Retry the outer while loop
 
-            # Reset internal state related to sensor data
+            # 2. Robustly wait for fresh sensor data
+            # This replaces the old logic with a more patient while loop.
             self.current_odom = None
-            self.current_scan = np.full(360, 2.0, dtype=np.float32) # Re-initialize scan
+            self.current_scan = np.full(360, 2.0, dtype=np.float32)
             
-            # Attempt to get fresh sensor data
-            max_retries_sensor = 10
+            start_time = time.time()
+            timeout_seconds = 10.0
             got_fresh_data = False
-            for i in range(max_retries_sensor):
-                rclpy.spin_once(self, timeout_sec=0.2) # Process callbacks
+
+            self.get_logger().info(f"Waiting up to {timeout_seconds}s for fresh odom and scan data...")
+            while time.time() - start_time < timeout_seconds:
+                rclpy.spin_once(self, timeout_sec=0.1) # Actively process callbacks
+                # Check if we have received new data since clearing it
                 if self.current_odom is not None and not np.all(self.current_scan == 2.0):
+                    self.get_logger().info("Successfully received fresh odom and scan.")
                     got_fresh_data = True
                     break
-                if i == max_retries_sensor - 1:
-                     self.get_logger().warn("Failed to get fresh odom/scan after reset. Retrying full reset...")
             
             if not got_fresh_data:
-                continue # Retry the outer while loop for Gazebo reset
+                self.get_logger().warn(f"Timed out waiting for sensor data. Retrying full reset process.")
+                continue # Retry the outer while loop
 
-            # Initialize episode-specific variables
+            # 3. Initialize episode state (only runs if data was received)
             self.waypoints = [wp.copy() for wp in self.master_waypoints]
             self.num_waypoints_total = len(self.waypoints)
             self.visited_waypoints = [False] * self.num_waypoints_total
             self.num_waypoints_visited_current_episode = 0
             
             self.target_waypoint_index = self._find_closest_unvisited_waypoint()
-            self.previous_waypoint_index = None # Reset for new episode
-            self.original_target_after_turn_idx = None # Reset for new episode
+            self.previous_waypoint_index = None
+            self.original_target_after_turn_idx = None
 
             if self.target_waypoint_index is not None:
                 target_wp = self.waypoints[self.target_waypoint_index]
@@ -163,21 +165,18 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 self.last_distance_to_target = math.sqrt(
                     (target_wp['x'] - robot_pos.x)**2 + (target_wp['y'] - robot_pos.y)**2
                 )
-                self.get_logger().info(f"Initial target waypoint: #{self.target_waypoint_index} at {self.waypoints[self.target_waypoint_index]['x']:.2f},{self.waypoints[self.target_waypoint_index]['y']:.2f}, dist {self.last_distance_to_target:.2f}m")
             else:
-                self.last_distance_to_target = 0.0 # Should ideally not happen if waypoints exist
-
+                self.last_distance_to_target = 0.0
+        
             self.episode_done = False
             self.last_action = np.array([0.0, 0.0], dtype=np.float32)
-            self.debug_counter = 0
-            time.sleep(1.5) # Allow time for the environment to stabilize after reset
-        
             
-            break # Successfully reset and initialized
+            # If we've reached here, the reset was successful. Break the outer loop.
+            break
 
         observation = self._get_observation()
         info = self._get_info()
-        self.get_logger().info(f"Reset complete. Total waypoints in episode: {self.num_waypoints_total}. Visited: 0. Initial target: {self.target_waypoint_index}")
+        self.get_logger().info(f"Reset complete. Initial target: #{self.target_waypoint_index}")
         return observation, info
 
     def step(self, action):
@@ -260,6 +259,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             distance_reward = distance_diff * self.REWARD_FACTOR_DISTANCE
             current_reward += distance_reward
             self.last_distance_to_target = current_distance
+            
 
             # Check if the current target waypoint is reached
             if current_distance < self.waypoint_reach_threshold:

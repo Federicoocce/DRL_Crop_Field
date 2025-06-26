@@ -22,7 +22,7 @@ def generate_launch_description():
     )
 
     # --- 1. Generate the World ---
-    world_config_name = 'fre22_task_navigation_mini'
+    world_config_name = 'my_world'
     generate_world_cmd = ExecuteProcess(
         cmd=['ros2', 'run', 'virtual_maize_field', 'generate_world', world_config_name],
         output='screen'
