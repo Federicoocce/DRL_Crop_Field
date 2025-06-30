@@ -42,7 +42,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         low_obs[0:360] = 0.0 # LIDAR ranges
         high_obs[0:360] = 2.0 # LIDAR ranges (clamped for observation, actual max_range can be higher)
         low_obs[360] = 0.0 # Distance to goal
-        high_obs[360] = 50.0 # Distance to goal (max expected field dimension)
+        high_obs[360] = 10.0 # Distance to goal (max expected field dimension)
         low_obs[361] = -math.pi # Angle to goal
         high_obs[361] = math.pi # Angle to goal
         self.observation_space = spaces.Box(
@@ -56,8 +56,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         
         self.current_odom = None
         self.current_scan = np.full(360, 2.0, dtype=np.float32) # Initialize with a typical far value
-        self.min_lidar_range = 0.15 # Physical minimum range of the LIDAR
-        self.collision_threshold = 0.16 # If min_scan < this, it's a collision
+        self.min_lidar_range = 0.14 # Physical minimum range of the LIDAR
+        self.collision_threshold = 0.155 # If min_scan < this, it's a collision
         self.too_far_lidar_threshold = 1.5 # If min_scan > this, considered too far from obstacles (potential issue)
         
         self.waypoints = []
@@ -69,13 +69,12 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.previous_waypoint_index = None 
         
         self.last_distance_to_target = 0.0
-        self.REWARD_FACTOR_DISTANCE = 13.0
+        self.REWARD_FACTOR_DISTANCE = 15.0
 
         self.episode_done = False
         self.last_action = np.array([0.0, 0.0], dtype=np.float32)
-        self.waypoint_reach_threshold = 0.3 # Meters
-        self.ignore_box_x = [-0.35, 0.15]  # [min_x, max_x] relative to laser_link
-        self.ignore_box_y = [-0.17, 0.17]  # [min_y, max_y] relative to laser_link
+        self.waypoint_reach_threshold = 0.25 # Meters
+
 
         # --- Parameters for Dubins U-Turns ---
         self.turning_radius = 0.4  # Meters
@@ -87,21 +86,15 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.debug_counter = 0
 
     def odom_callback(self, msg):
+        if msg.header.frame_id != "odom":
+            self.get_logger().warn("Unexpected odom frame!")
         self.current_odom = msg
 
     def scan_callback(self, msg):
-        angles = np.linspace(msg.angle_min, msg.angle_max, len(msg.ranges))
         ranges = np.array(msg.ranges, dtype=np.float32)
-        x_coords = ranges * np.cos(angles)
-        y_coords = ranges * np.sin(angles)
-        is_in_ignore_box = (
-            (x_coords > self.ignore_box_x[0]) & (x_coords < self.ignore_box_x[1]) &
-            (y_coords > self.ignore_box_y[0]) & (y_coords < self.ignore_box_y[1])
-        )
-        ranges[is_in_ignore_box] = msg.range_max # Effectively ignore points on robot body
         ranges[np.isinf(ranges)] = msg.range_max
         ranges[np.isnan(ranges)] = msg.range_max
-        ranges[ranges < self.min_lidar_range] = msg.range_max # Clean up noise below physical min
+        ranges[ranges < self.min_lidar_range] = msg.range_max
         self.current_scan = ranges
 
     def reset(self, seed=None, options=None):
@@ -138,7 +131,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
             self.get_logger().info(f"Waiting up to {timeout_seconds}s for fresh odom and scan data...")
             while time.time() - start_time < timeout_seconds:
-                rclpy.spin_once(self, timeout_sec=0.1) # Actively process callbacks
+                time.sleep(1.0) # Sleep to avoid busy-waiting
+                rclpy.spin_once(self, timeout_sec=0.05) # Actively process callbacks
                 # Check if we have received new data since clearing it
                 if self.current_odom is not None and not np.all(self.current_scan == 2.0):
                     self.get_logger().info("Successfully received fresh odom and scan.")
@@ -154,7 +148,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             self.num_waypoints_total = len(self.waypoints)
             self.visited_waypoints = [False] * self.num_waypoints_total
             self.num_waypoints_visited_current_episode = 0
-            
+            time.sleep(1.0) # Allow time for the system to stabilize after reset
             self.target_waypoint_index = self._find_closest_unvisited_waypoint()
             self.previous_waypoint_index = None
             self.original_target_after_turn_idx = None
@@ -165,9 +159,18 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 self.last_distance_to_target = math.sqrt(
                     (target_wp['x'] - robot_pos.x)**2 + (target_wp['y'] - robot_pos.y)**2
                 )
+                self.get_logger().info(f"current_odom: {robot_pos.x:.2f}, {robot_pos.y:.2f}")
+                self.get_logger().info(f"Initial target waypoint #{self.target_waypoint_index} at {target_wp['x']:.2f}, {target_wp['y']:.2f}, distance {self.last_distance_to_target:.2f}m")
             else:
                 self.last_distance_to_target = 0.0
-        
+
+            if (self.current_scan == 2.0).all():
+                self.get_logger().warn("Received scan with all values at max range. Retrying full reset process.")
+                continue
+            if (self.current_scan < self.min_lidar_range).any():
+                self.get_logger().warn("Received scan with values below minimum range. Retrying full reset process.")
+                continue
+
             self.episode_done = False
             self.last_action = np.array([0.0, 0.0], dtype=np.float32)
             
@@ -202,7 +205,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
         if min_current_scan < self.collision_threshold:
             terminated = True
-            reward = -100.0
+            reward = -50.0
             self.get_logger().info(f"Episode terminated: COLLISION. Min scan: {min_current_scan:.3f}. Reward: {reward}")
         
         elif self.episode_done and self.num_waypoints_visited_current_episode >= self.num_waypoints_total:
@@ -211,7 +214,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
         if not terminated and min_current_scan >= self.too_far_lidar_threshold:
             truncated = True
-            reward = -70.0
+            reward = -20.0
             self.get_logger().info(f"Episode TRUNCATED: TOO FAR. Min scan: {min_current_scan:.3f}. Reward: {reward}")
 
         self.episode_done = terminated or truncated
@@ -220,27 +223,45 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         return observation, reward, terminated, truncated, self._get_info()
     
     def _find_closest_unvisited_waypoint(self):
-        if self.current_odom is None: return None
+        if self.current_odom is None: 
+            return None
+        
         robot_pos = self.current_odom.pose.pose.position
         closest_dist_sq = float('inf')
         closest_idx = None
+        
+        # Store candidates when distances are nearly equal
+        candidate_indices = []
+        
         for i, visited in enumerate(self.visited_waypoints):
             if not visited:
                 wp = self.waypoints[i]
                 dist_sq = (wp['x'] - robot_pos.x)**2 + (wp['y'] - robot_pos.y)**2
-                if dist_sq < closest_dist_sq:
+                
+                # Check if distance is significantly closer
+                if dist_sq < closest_dist_sq - 1e-6:  # Tolerance for floating point
                     closest_dist_sq = dist_sq
-                    closest_idx = i
+                    candidate_indices = [i]  # Reset candidates
+                    
+                # If distance is approximately equal, add to candidates
+                elif abs(dist_sq - closest_dist_sq) < 1e-6:
+                    candidate_indices.append(i)
+        
+        # Select smallest index if multiple candidates
+        if candidate_indices:
+            return min(candidate_indices)
         return closest_idx
 
     def _calculate_reward(self):
-        REWARD_WAYPOINT_REACHED = 75.0
+        REWARD_WAYPOINT_REACHED = 25.0
         REWARD_ALL_WAYPOINTS_VISITED_BONUS = 200.0
-        TIME_PENALTY_PER_STEP = -0.1 
+        TIME_PENALTY_PER_STEP = -0.1
 
 
-        current_reward =  TIME_PENALTY_PER_STEP
+        REWARD_FACTOR_FORWARD_VELOCITY = 1.0 # MODIFIED: Added factor for new forward motion reward
 
+        
+        current_reward = TIME_PENALTY_PER_STEP + (self.last_action[0] * REWARD_FACTOR_FORWARD_VELOCITY)
         if self.current_odom is None or self.target_waypoint_index is None:
             self.get_logger().warn("REWARD_FN: No odom or target_waypoint_index. Returning base reward.")
             return current_reward 
@@ -486,6 +507,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         goal_obs = np.array([dist_to_goal, angle_to_goal], dtype=np.float32)
         full_obs = np.concatenate([self.current_scan, goal_obs])
         
+
         return full_obs.astype(np.float32)
 
     def _get_info(self):
