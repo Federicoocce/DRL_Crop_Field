@@ -1,0 +1,28 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <model name="waypoint_box">
+    <static>true</static> <!-- Static for visualization purposes -->
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <box>
+            <size>0.2 0.2 0.2</size> <!-- Dimensions of the box (e.g., 20cm cube) -->
+          </box>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <box>
+            <size>0.2 0.2 0.2</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+            <name>Gazebo/Blue</name> <!-- Changed color for distinction -->
+          </script>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

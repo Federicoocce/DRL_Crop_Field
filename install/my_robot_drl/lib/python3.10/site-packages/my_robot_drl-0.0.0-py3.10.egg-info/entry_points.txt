@@ -1,0 +1,6 @@
+[console_scripts]
+field_data_reader = my_robot_drl.get_field_data:main
+teleop_maize_env = my_robot_drl.teleop_maize_env:maintest_uturn = my_robot_drl.test_uturn:main
+train_agent = my_robot_drl.train_agent:main
+waypoint_visualizer = my_robot_drl.waypoint_visualizer:main
+

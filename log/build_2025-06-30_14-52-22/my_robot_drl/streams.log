@@ -1,0 +1,65 @@
+[0.705s] Invoking command in '/home/fede/ros2_ws/src/my_robot_drl': AMENT_PREFIX_PATH=/home/fede/ros2_ws/src/install/virtual_maize_field:${AMENT_PREFIX_PATH} PYTHONPATH=/home/fede/ros2_ws/src/build/my_robot_drl/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages:/home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/my_robot_drl build --build-base /home/fede/ros2_ws/src/build/my_robot_drl/build install --record /home/fede/ros2_ws/src/build/my_robot_drl/install.log --single-version-externally-managed install_data
+[0.866s] running egg_info
+[0.866s] creating ../build/my_robot_drl/my_robot_drl.egg-info
+[0.867s] writing ../build/my_robot_drl/my_robot_drl.egg-info/PKG-INFO
+[0.867s] writing dependency_links to ../build/my_robot_drl/my_robot_drl.egg-info/dependency_links.txt
+[0.867s] writing entry points to ../build/my_robot_drl/my_robot_drl.egg-info/entry_points.txt
+[0.867s] writing requirements to ../build/my_robot_drl/my_robot_drl.egg-info/requires.txt
+[0.867s] writing top-level names to ../build/my_robot_drl/my_robot_drl.egg-info/top_level.txt
+[0.868s] writing manifest file '../build/my_robot_drl/my_robot_drl.egg-info/SOURCES.txt'
+[0.869s] reading manifest file '../build/my_robot_drl/my_robot_drl.egg-info/SOURCES.txt'
+[0.869s] adding license file 'LICENSE'
+[0.869s] writing manifest file '../build/my_robot_drl/my_robot_drl.egg-info/SOURCES.txt'
+[0.870s] running build
+[0.870s] running build_py
+[0.870s] creating /home/fede/ros2_ws/src/build/my_robot_drl/build
+[0.870s] creating /home/fede/ros2_ws/src/build/my_robot_drl/build/lib
+[0.870s] creating /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl
+[0.870s] copying my_robot_drl/get_field_data.py -> /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl
+[0.870s] copying my_robot_drl/drl_env.py -> /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl
+[0.870s] copying my_robot_drl/waypoint_visualizer.py -> /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl
+[0.871s] copying my_robot_drl/dense_waypoint.py -> /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl
+[0.871s] copying my_robot_drl/train_agent.py -> /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl
+[0.871s] copying my_robot_drl/test_uturn.py -> /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl
+[0.871s] copying my_robot_drl/teleop_maize_env.py -> /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl
+[0.871s] copying my_robot_drl/__init__.py -> /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl
+[0.871s] running install
+[0.871s] running install_lib
+[0.872s] creating /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl
+[0.873s] copying /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl/get_field_data.py -> /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl
+[0.873s] copying /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl/drl_env.py -> /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl
+[0.873s] copying /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl/waypoint_visualizer.py -> /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl
+[0.873s] copying /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl/dense_waypoint.py -> /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl
+[0.873s] copying /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl/train_agent.py -> /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl
+[0.873s] copying /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl/test_uturn.py -> /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl
+[0.873s] copying /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl/teleop_maize_env.py -> /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl
+[0.874s] copying /home/fede/ros2_ws/src/build/my_robot_drl/build/lib/my_robot_drl/__init__.py -> /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl
+[0.874s] byte-compiling /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/get_field_data.py to get_field_data.cpython-310.pyc
+[0.875s] byte-compiling /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/drl_env.py to drl_env.cpython-310.pyc
+[0.878s] byte-compiling /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/waypoint_visualizer.py to waypoint_visualizer.cpython-310.pyc
+[0.878s] byte-compiling /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/dense_waypoint.py to dense_waypoint.cpython-310.pyc
+[0.879s] byte-compiling /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/train_agent.py to train_agent.cpython-310.pyc
+[0.879s] byte-compiling /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/test_uturn.py to test_uturn.cpython-310.pyc
+[0.880s] byte-compiling /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/teleop_maize_env.py to teleop_maize_env.cpython-310.pyc
+[0.881s] byte-compiling /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/__init__.py to __init__.cpython-310.pyc
+[0.881s] running install_data
+[0.881s] creating /home/fede/ros2_ws/src/install/my_robot_drl/share/ament_index
+[0.881s] creating /home/fede/ros2_ws/src/install/my_robot_drl/share/ament_index/resource_index
+[0.881s] creating /home/fede/ros2_ws/src/install/my_robot_drl/share/ament_index/resource_index/packages
+[0.881s] copying resource/my_robot_drl -> /home/fede/ros2_ws/src/install/my_robot_drl/share/ament_index/resource_index/packages
+[0.882s] copying package.xml -> /home/fede/ros2_ws/src/install/my_robot_drl/share/my_robot_drl
+[0.882s] creating /home/fede/ros2_ws/src/install/my_robot_drl/share/my_robot_drl/models
+[0.882s] creating /home/fede/ros2_ws/src/install/my_robot_drl/share/my_robot_drl/models/waypoint_box
+[0.882s] copying models/waypoint_box/model.sdf -> /home/fede/ros2_ws/src/install/my_robot_drl/share/my_robot_drl/models/waypoint_box
+[0.883s] copying models/waypoint_box/model.config -> /home/fede/ros2_ws/src/install/my_robot_drl/share/my_robot_drl/models/waypoint_box
+[0.883s] creating /home/fede/ros2_ws/src/install/my_robot_drl/share/my_robot_drl/launch
+[0.883s] copying launch/train_maize_nav.launch.py -> /home/fede/ros2_ws/src/install/my_robot_drl/share/my_robot_drl/launch
+[0.883s] running install_egg_info
+[0.885s] Copying ../build/my_robot_drl/my_robot_drl.egg-info to /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl-0.0.0-py3.10.egg-info
+[0.886s] running install_scripts
+[0.901s] Installing field_data_reader script to /home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl
+[0.901s] Installing teleop_maize_env = my_robot_drl.teleop_maize_env:maintest_uturn script to /home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl
+[0.901s] Installing train_agent script to /home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl
+[0.901s] Installing waypoint_visualizer script to /home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl
+[0.901s] writing list of installed files to '/home/fede/ros2_ws/src/build/my_robot_drl/install.log'
+[0.919s] Invoked command in '/home/fede/ros2_ws/src/my_robot_drl' returned '0': AMENT_PREFIX_PATH=/home/fede/ros2_ws/src/install/virtual_maize_field:${AMENT_PREFIX_PATH} PYTHONPATH=/home/fede/ros2_ws/src/build/my_robot_drl/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages:/home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/my_robot_drl build --build-base /home/fede/ros2_ws/src/build/my_robot_drl/build install --record /home/fede/ros2_ws/src/build/my_robot_drl/install.log --single-version-externally-managed install_data

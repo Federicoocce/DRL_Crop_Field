@@ -258,13 +258,18 @@ class Field2DGenerator:
             # iterate in reverse order, and remove plants in the holes
             i = probs.shape[0] - 1
             while i > 0:
-                if probs[i]:
+                # --- START OF MODIFICATION ---
+                max_hole_size_for_row = self.wd.structure["params"]["hole_size_max"][index]
+                # Only try to create a hole if one is detected AND the max size is > 0
+                if probs[i] and max_hole_size_for_row > 0:
+                    # The high argument is exclusive, so add 1 to make it inclusive
                     hole_size = self.wd.rng.integers(
-                        1, self.wd.structure["params"]["hole_size_max"][index]
+                        1, max_hole_size_for_row + 1
                     )
                     row = np.delete(row, slice(max(1, i - hole_size), i), axis=0)
                     i = i - hole_size
-
+                # --- END OF MODIFICATION ---
+                
                 i = i - 1
             self.rows.append(row)
 
@@ -446,15 +451,24 @@ class Field2DGenerator:
             n += 1
 
         # Normalize heightmap
-        heightmap -= heightmap.min()
-        heightmap /= heightmap.max()
+        h_max = heightmap.max()
+        if h_max > 0:
+            heightmap -= heightmap.min()
+            heightmap /= h_max
 
         max_elevation = self.wd.structure["params"]["ground_elevation_max"]
 
         self.heightmap_elevation = ditch_depth + (max_elevation / 2)
 
-        heightmap *= (max_elevation) / self.heightmap_elevation
-        field_height = (ditch_depth - (max_elevation / 2)) / self.heightmap_elevation
+        # If heightmap_elevation is zero (or very close), the ground is flat.
+        # This check prevents a division by zero error.
+        if self.heightmap_elevation > 1e-6:
+            heightmap *= (max_elevation) / self.heightmap_elevation
+            field_height = (ditch_depth - (max_elevation / 2)) / self.heightmap_elevation
+        else:
+            # When flat, clear any noise and set field height to 0.
+            heightmap.fill(0.0)
+            field_height = 0.0
 
         field_mask = np.zeros((image_size, image_size))
 
@@ -474,6 +488,7 @@ class Field2DGenerator:
 
             height = heightmap[py, px]
             heightmap = cv2.circle(heightmap, (px, py), flatspot_radius, height, -1)
+            # This calculation correctly becomes 0 if self.heightmap_elevation is 0.
             self.placements_ground_height.append(
                 (field_height + height) * self.heightmap_elevation
             )
@@ -492,8 +507,8 @@ class Field2DGenerator:
 
         heightmap += field_height * field_mask
 
-        assert heightmap.max() <= 1
-        assert heightmap.min() >= 0
+        assert heightmap.max() <= 1.00001, f"Heightmap max is {heightmap.max()}"
+        assert heightmap.min() >= -0.00001, f"Heightmap min is {heightmap.min()}"
 
         # Convert to grayscale
         self.heightmap = (255 * heightmap[::-1, :]).astype(np.uint8)
@@ -606,6 +621,7 @@ class Field2DGenerator:
                 "max_elevation": self.wd.structure["params"]["ground_elevation_max"],
                 "ditch_depth": self.wd.structure["params"]["ground_ditch_depth"],
                 "total_height": self.heightmap_elevation,
+                "base_elevation": self.heightmap_elevation,
                 "cache_dir": cache_dir,
             },
         )

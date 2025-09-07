@@ -103,6 +103,39 @@
             </heightmap>
           </geometry>
         </visual>
+        <!--  
+        <collision name="collision">
+           ====================================================================== -->
+          <!-- ====================== THE ELEVATION FIX =========================== -->
+          <!-- We set the pose of the collision plane to match the average        -->
+          <!-- height of the visual terrain. The Z value comes from the generator.-->
+          <!-- ====================================================================== 
+          <pose>0 0 {{ heightmap.base_elevation }} 0 0 0</pose>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>{{ heightmap.size }} {{ heightmap.size }}</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1.0</mu>
+                <mu2>1.0</mu2>
+              </ode>
+            </friction>
+            <contact>
+              <ode/>
+            </contact>
+          </surface>
+        </collision>
+        -->
+        <!-- ====================================================================== -->
+        <!-- ======================= END OF PERFORMANCE FIX ======================= -->
+        <!-- ====================================================================== -->
+
+
+        <!-- original collision model with pumpy road -->
         <collision name="collision">
           <geometry>
             <heightmap>
@@ -112,6 +145,7 @@
             </heightmap>
           </geometry>
         </collision>
+        
       </link>
     </model>
     {% for coordinate in coordinates -%}

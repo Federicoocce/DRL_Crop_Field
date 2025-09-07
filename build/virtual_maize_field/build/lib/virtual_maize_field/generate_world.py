@@ -36,12 +36,15 @@ class WorldGenerator:
         sdf_file = self.cache_folder / "generated.world"
         with sdf_file.open("w") as f:
             f.write(generated_sdf)
-
+        # Save the world description that was used, so other nodes can read it.
+        self.wd.save(self.cache_folder / "last_used_world.json")
         # Save heightmap
         heightmap_file = self.cache_folder / "virtual_maize_field_heightmap.png"
         cv2.imwrite(str(heightmap_file), self.fgen.heightmap)
 
         print(f"Saved world (sdf) to {sdf_file}")
+        # Add a print statement for the new file too
+        print(f"Saved world description to {self.cache_folder / 'last_used_world.json'}")
 
     def clear_gazebo_cache(self) -> None:
         """

@@ -6,6 +6,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from virtual_maize_field import get_spawner_launch_file
 
+
 def generate_launch_description():
     """
     This launch file spawns a custom tracked robot into the maize field simulation.

@@ -1,5 +1,7 @@
 /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/launch/robot_state_publisher.launch.py
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/urdf/diff_bot.urdf.xacro
 /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/urdf/tracked_robot.urdf.xacro
+/home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/urdf/car_robot.urdf.xacro
 /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/ament_index/resource_index/package_run_dependencies/my_tracked_robot_description
 /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/ament_index/resource_index/parent_prefix_path/my_tracked_robot_description
 /home/fede/ros2_ws/src/install/my_tracked_robot_description/share/my_tracked_robot_description/environment/ament_prefix_path.sh

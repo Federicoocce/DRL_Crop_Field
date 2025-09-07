@@ -8,6 +8,7 @@ setup.py
 ../build/maize_robot_bringup/maize_robot_bringup.egg-info/requires.txt
 ../build/maize_robot_bringup/maize_robot_bringup.egg-info/top_level.txt
 ../build/maize_robot_bringup/maize_robot_bringup.egg-info/zip-safe
+launch/spawn_car_like.launch.py
 launch/spawn_tracked_robot.launch.py
 launch/spawn_turtlebot_in_maize.launch.py
 maize_robot_bringup/__init__.py

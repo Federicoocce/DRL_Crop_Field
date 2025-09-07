@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from argparse import ArgumentError
 from datetime import datetime
-from json import dump, dumps, load
+from json import dump, dumps, load, JSONEncoder
 
 import numpy as np
 
@@ -254,9 +254,25 @@ class WorldDescription:
     def load(self) -> None:
         self.structure = load(open(self.load_from_file))
 
+    # In class WorldDescription:
     def save(self, path: str) -> None:
-        dump(self.structure, open(path, "w"), indent=2)
+        # --- ADD THIS HELPER CLASS ---
+        # This custom encoder will convert numpy types to standard Python types.
+        class NumpyEncoder(JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, np.integer):
+                    return int(obj)
+                if isinstance(obj, np.floating):
+                    return float(obj)
+                if isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                return super(NumpyEncoder, self).default(obj)
 
+        # --- AND MODIFY THIS LINE ---
+        # Use the new NumpyEncoder when dumping the JSON file.
+        # We also need to import JSONEncoder at the top of the file.
+        with open(path, "w") as f:
+            dump(self.structure, f, indent=2, cls=NumpyEncoder)
 
 if __name__ == "__main__":
     from world_generator.utils import parser_from_function

@@ -37,6 +37,7 @@ config/fre22_task_mapping_mini.yaml
 config/fre22_task_navigation.yaml
 config/fre22_task_navigation_fast.yaml
 config/fre22_task_navigation_mini.yaml
+config/my_world.yaml
 launch/simulation.launch.py
 models/ale/model.config
 models/ale/model.sdf

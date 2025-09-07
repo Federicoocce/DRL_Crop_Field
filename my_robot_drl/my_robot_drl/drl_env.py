@@ -58,7 +58,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.current_scan = np.full(360, 2.0, dtype=np.float32) # Initialize with a typical far value
         self.min_lidar_range = 0.14 # Physical minimum range of the LIDAR
         self.collision_threshold = 0.155 # If min_scan < this, it's a collision
-        self.too_far_lidar_threshold = 1.5 # If min_scan > this, considered too far from obstacles (potential issue)
+        self.too_far_lidar_threshold = 1.8 # If min_scan > this, considered too far from obstacles (potential issue)
         
         self.waypoints = []
         self.visited_waypoints = []
@@ -73,11 +73,11 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
         self.episode_done = False
         self.last_action = np.array([0.0, 0.0], dtype=np.float32)
-        self.waypoint_reach_threshold = 0.25 # Meters
+        self.waypoint_reach_threshold = 0.3 # Meters
 
 
         # --- Parameters for Dubins U-Turns ---
-        self.turning_radius = 0.4  # Meters
+        self.turning_radius = 0.7  # Meters
         self.turn_wp_step_distance = 0.2 # Meters, density of waypoints on the turn
         self.original_target_after_turn_idx = None # Stores the index of the true next lane WP
         # ---
@@ -423,13 +423,26 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             else:
                 yaw_start = math.atan2(dy_start, dx_start)
             q0 = (x0, y0, yaw_start)
-
+            wp_start_next_lane_proper_next = self.waypoints[start_of_next_actual_lane_wp_idx + 1]
+            print(f"next waypoint for next lane: {wp_start_next_lane_proper_next}")
             # 3. Define End Pose (q1) for Dubins Path
             # Position is at wp_start_next_lane_proper
             # Heading will be reversed from yaw_start for a simple U-turn.
             x1, y1 = wp_start_next_lane_proper['x'], wp_start_next_lane_proper['y']
-            yaw_end = yaw_start + math.pi # Standard U-turn aims for 180 deg from entry
-            yaw_end = (yaw_end + math.pi) % (2 * math.pi) - math.pi # Normalize to [-pi, pi]
+            dx_next = wp_start_next_lane_proper_next['x'] - wp_start_next_lane_proper['x']
+            dy_next = wp_start_next_lane_proper_next['y'] - wp_start_next_lane_proper['y']
+            yaw_end = math.atan2(dy_next, dx_next) # Heading of the next lane's start
+            print(f"Dubins: Start yaw={math.degrees(yaw_start):.1f}deg, End yaw={math.degrees(yaw_end):.1f}deg")
+            # if the difference is too small, check previous index 
+            if yaw_end - yaw_start < 20 * math.pi / 180.0:
+                print("Dubins: Start and end yaw difference too small, checking previous waypoint for end yaw.")
+                wp_start_next_lane_proper_prev = self.waypoints[start_of_next_actual_lane_wp_idx - 1]
+                print(f"Previous waypoint for next lane: {wp_start_next_lane_proper_prev}")
+                dx_next = wp_start_next_lane_proper_prev['x'] - wp_start_next_lane_proper['x']
+                dy_next = wp_start_next_lane_proper_prev['y'] - wp_start_next_lane_proper['y']
+                yaw_end = math.atan2(dy_next, dx_next) # Heading of the previous lane's end
+            print(f"Dubins: Final yaw_end={math.degrees(yaw_end):.1f}deg")
+
             q1 = (x1, y1, yaw_end)
     
             self.get_logger().info(f"Dubins U-Turn Input: q0=({x0:.2f},{y0:.2f},{math.degrees(yaw_start):.1f}deg), q1=({x1:.2f},{y1:.2f},{math.degrees(yaw_end):.1f}deg), R={self.turning_radius:.2f}m")
