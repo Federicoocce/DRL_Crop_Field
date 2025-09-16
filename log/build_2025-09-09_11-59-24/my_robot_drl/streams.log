@@ -1,0 +1,27 @@
+[0.887s] Invoking command in '/home/fede/ros2_ws/src/my_robot_drl': AMENT_PREFIX_PATH=/home/fede/ros2_ws/src/install/virtual_maize_field:${AMENT_PREFIX_PATH} PYTHONPATH=/home/fede/ros2_ws/src/build/my_robot_drl/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages:/home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/my_robot_drl build --build-base /home/fede/ros2_ws/src/build/my_robot_drl/build install --record /home/fede/ros2_ws/src/build/my_robot_drl/install.log --single-version-externally-managed install_data
+[1.066s] running egg_info
+[1.067s] writing ../build/my_robot_drl/my_robot_drl.egg-info/PKG-INFO
+[1.068s] writing dependency_links to ../build/my_robot_drl/my_robot_drl.egg-info/dependency_links.txt
+[1.068s] writing entry points to ../build/my_robot_drl/my_robot_drl.egg-info/entry_points.txt
+[1.068s] writing requirements to ../build/my_robot_drl/my_robot_drl.egg-info/requires.txt
+[1.068s] writing top-level names to ../build/my_robot_drl/my_robot_drl.egg-info/top_level.txt
+[1.069s] reading manifest file '../build/my_robot_drl/my_robot_drl.egg-info/SOURCES.txt'
+[1.069s] adding license file 'LICENSE'
+[1.070s] writing manifest file '../build/my_robot_drl/my_robot_drl.egg-info/SOURCES.txt'
+[1.070s] running build
+[1.070s] running build_py
+[1.070s] running install
+[1.070s] running install_lib
+[1.072s] running install_data
+[1.072s] running install_egg_info
+[1.073s] removing '/home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl-0.0.0-py3.10.egg-info' (and everything under it)
+[1.073s] Copying ../build/my_robot_drl/my_robot_drl.egg-info to /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl-0.0.0-py3.10.egg-info
+[1.074s] running install_scripts
+[1.090s] Installing field_data_reader script to /home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl
+[1.090s] Installing teleop_maize_env script to /home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl
+[1.090s] Installing test_uturn script to /home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl
+[1.091s] Installing train_agent script to /home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl
+[1.091s] Installing visualize_real_uturn script to /home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl
+[1.091s] Installing waypoint_visualizer script to /home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl
+[1.091s] writing list of installed files to '/home/fede/ros2_ws/src/build/my_robot_drl/install.log'
+[1.110s] Invoked command in '/home/fede/ros2_ws/src/my_robot_drl' returned '0': AMENT_PREFIX_PATH=/home/fede/ros2_ws/src/install/virtual_maize_field:${AMENT_PREFIX_PATH} PYTHONPATH=/home/fede/ros2_ws/src/build/my_robot_drl/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages:/home/fede/ros2_ws/src/install/virtual_maize_field/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/my_robot_drl build --build-base /home/fede/ros2_ws/src/build/my_robot_drl/build install --record /home/fede/ros2_ws/src/build/my_robot_drl/install.log --single-version-externally-managed install_data

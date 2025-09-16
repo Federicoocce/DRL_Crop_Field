@@ -1,5 +1,6 @@
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/get_field_data.py
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/drl_env.py
+/home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/visualize_real_uturn.py
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/waypoint_visualizer.py
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/dense_waypoint.py
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/train_agent.py
@@ -8,6 +9,7 @@
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/__init__.py
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/__pycache__/get_field_data.cpython-310.pyc
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/__pycache__/drl_env.cpython-310.pyc
+/home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/__pycache__/visualize_real_uturn.cpython-310.pyc
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/__pycache__/waypoint_visualizer.cpython-310.pyc
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/__pycache__/dense_waypoint.cpython-310.pyc
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl/__pycache__/train_agent.cpython-310.pyc
@@ -27,6 +29,8 @@
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl-0.0.0-py3.10.egg-info/SOURCES.txt
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/python3.10/site-packages/my_robot_drl-0.0.0-py3.10.egg-info/requires.txt
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl/field_data_reader
-/home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl/teleop_maize_env = my_robot_drl.teleop_maize_env:maintest_uturn
+/home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl/teleop_maize_env
+/home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl/test_uturn
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl/train_agent
+/home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl/visualize_real_uturn
 /home/fede/ros2_ws/src/install/my_robot_drl/lib/my_robot_drl/waypoint_visualizer

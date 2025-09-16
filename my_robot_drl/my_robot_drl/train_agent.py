@@ -64,13 +64,7 @@ def main(args=None):
         eval_env_callback = Monitor(eval_env_callback) # Monitor wraps TimeLimit
         eval_raw_env_callback.get_logger().info("Callback evaluation environment wrapped.")
 
-        # Check spaces
-        if not isinstance(train_env.observation_space, gymnasium.spaces.Box):
-            train_raw_env.get_logger().error(f"Observation space is not a Box: {type(train_env.observation_space)}")
-            train_raw_env.close()
-            eval_raw_env_callback.close()
-            rclpy.shutdown()
-            return
+ 
 
         # 2. Define Callbacks
         eval_callback = EvalCallback(
@@ -87,14 +81,14 @@ def main(args=None):
 
         # 3. Define the DRL model
         model = SAC(
-            "MlpPolicy",
+            "MultiInputPolicy",
             train_env,
             verbose=1,
             tensorboard_log=log_path,
             learning_rate=0.0003,
-            batch_size=256,
-            buffer_size=1000000,
-            learning_starts=5000,
+            batch_size=64,
+            buffer_size=5000,
+            learning_starts=2000,
             gamma=0.99,
             tau=0.005,
             train_freq=1,

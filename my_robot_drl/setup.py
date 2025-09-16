@@ -33,6 +33,7 @@ setup(
         'train_agent = my_robot_drl.train_agent:main',
         'teleop_maize_env = my_robot_drl.teleop_maize_env:main',
         'test_uturn = my_robot_drl.test_uturn:main',
+        'visualize_real_uturn = my_robot_drl.visualize_real_uturn:main',
         ],
     },
 )

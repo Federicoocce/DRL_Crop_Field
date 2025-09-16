@@ -1,0 +1,20 @@
+[1.028s] Invoking command in '/home/fede/ros2_ws/src/maize_robot_bringup': PYTHONPATH=/home/fede/ros2_ws/src/build/maize_robot_bringup/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/maize_robot_bringup build --build-base /home/fede/ros2_ws/src/build/maize_robot_bringup/build install --record /home/fede/ros2_ws/src/build/maize_robot_bringup/install.log --single-version-externally-managed install_data
+[1.404s] running egg_info
+[1.405s] writing ../build/maize_robot_bringup/maize_robot_bringup.egg-info/PKG-INFO
+[1.405s] writing dependency_links to ../build/maize_robot_bringup/maize_robot_bringup.egg-info/dependency_links.txt
+[1.405s] writing entry points to ../build/maize_robot_bringup/maize_robot_bringup.egg-info/entry_points.txt
+[1.405s] writing requirements to ../build/maize_robot_bringup/maize_robot_bringup.egg-info/requires.txt
+[1.406s] writing top-level names to ../build/maize_robot_bringup/maize_robot_bringup.egg-info/top_level.txt
+[1.410s] reading manifest file '../build/maize_robot_bringup/maize_robot_bringup.egg-info/SOURCES.txt'
+[1.413s] writing manifest file '../build/maize_robot_bringup/maize_robot_bringup.egg-info/SOURCES.txt'
+[1.413s] running build
+[1.413s] running build_py
+[1.413s] running install
+[1.414s] running install_lib
+[1.417s] running install_data
+[1.418s] running install_egg_info
+[1.420s] removing '/home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages/maize_robot_bringup-0.0.0-py3.10.egg-info' (and everything under it)
+[1.421s] Copying ../build/maize_robot_bringup/maize_robot_bringup.egg-info to /home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages/maize_robot_bringup-0.0.0-py3.10.egg-info
+[1.423s] running install_scripts
+[1.454s] writing list of installed files to '/home/fede/ros2_ws/src/build/maize_robot_bringup/install.log'
+[1.492s] Invoked command in '/home/fede/ros2_ws/src/maize_robot_bringup' returned '0': PYTHONPATH=/home/fede/ros2_ws/src/build/maize_robot_bringup/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/fede/ros2_ws/src/install/maize_robot_bringup/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/maize_robot_bringup build --build-base /home/fede/ros2_ws/src/build/maize_robot_bringup/build install --record /home/fede/ros2_ws/src/build/maize_robot_bringup/install.log --single-version-externally-managed install_data

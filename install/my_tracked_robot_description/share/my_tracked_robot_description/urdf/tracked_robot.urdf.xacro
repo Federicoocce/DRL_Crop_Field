@@ -25,11 +25,25 @@
     <xacro:property name="caster_x_offset" value="0.2"/>
     <xacro:property name="caster_z_offset" value="-0.1"/>
 
-    <!-- Lidar Properties -->
-    <xacro:property name="lidar_radius" value="0.1"/>
-    <xacro:property name="lidar_length" value="0.05"/>
-    <xacro:property name="lidar_mass" value="0.2"/>
+    <!-- 2D Lidar Properties (Original) -->
+    <xacro:property name="lidar_2d_radius" value="0.1"/>
+    <xacro:property name="lidar_2d_length" value="0.05"/>
+    <xacro:property name="lidar_2d_mass" value="0.2"/>
     <xacro:property name="lidar_z_offset" value="0.1"/>
+
+    <!-- SICK multiScan136 3D Lidar Properties (New) -->
+    <xacro:property name="lidar_3d_radius" value="0.05015"/> <!-- 100.3mm diameter / 2 -->
+    <xacro:property name="lidar_3d_length" value="0.0985"/>  <!-- 98.5mm height -->
+    <xacro:property name="lidar_3d_mass" value="0.7"/>       <!-- 0.7 kg -->
+
+    <!-- RGB Camera Properties -->
+    <xacro:property name="camera_width" value="0.05"/>
+    <xacro:property name="camera_height" value="0.05"/>
+    <xacro:property name="camera_depth" value="0.02"/>
+    <xacro:property name="camera_mass" value="0.1"/>
+    <xacro:property name="camera_x_offset" value="0.2"/>
+    <xacro:property name="camera_y_offset" value="0"/>
+    <xacro:property name="camera_z_offset" value="0.1"/>
 
     <!-- #################### ROBOT LINKS AND JOINTS #################### -->
     
@@ -86,23 +100,54 @@
 
     <joint name="caster_wheel_joint" type="fixed"><parent link="base_link"/><child link="caster_wheel_link"/><origin xyz="${caster_x_offset} 0 ${caster_z_offset}"/></joint>
 
-    <link name="lidar_link">
-        <visual><geometry><cylinder length="${lidar_length}" radius="${lidar_radius}"/></geometry><material name="green"><color rgba="0 1 0 1"/></material></visual>
-        <collision><geometry><cylinder length="${lidar_length}" radius="${lidar_radius}"/></geometry></collision>
+    <!-- 2D LiDAR Link (Original, Renamed) -->
+    <link name="lidar_2d_link">
+        <visual><geometry><cylinder length="${lidar_2d_length}" radius="${lidar_2d_radius}"/></geometry><material name="green"><color rgba="0 1 0 1"/></material></visual>
+        <!-- COLLISION REMOVED to prevent interference with the co-located 3D LiDAR -->
         <inertial>
-            <mass value="${lidar_mass}"/>
+            <mass value="${lidar_2d_mass}"/>
             <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
         </inertial>
     </link>
 
-    <joint name="lidar_joint" type="fixed"><parent link="base_link"/><child link="lidar_link"/><origin xyz="0.15 0 ${lidar_z_offset}"/></joint>
+    <joint name="lidar_2d_joint" type="fixed"><parent link="base_link"/><child link="lidar_2d_link"/><origin xyz="0.15 0 ${lidar_z_offset}"/></joint>
 
+    <!-- 3D LiDAR Link (New) -->
+    <link name="lidar_3d_link">
+        <visual><geometry><cylinder length="${lidar_3d_length}" radius="${lidar_3d_radius}"/></geometry><material name="red"><color rgba="1 0 0 1"/></material></visual>
+        <!-- COLLISION REMOVED to prevent interference with the co-located 2D LiDAR -->
+        <inertial>
+            <mass value="${lidar_3d_mass}"/>
+            <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+        </inertial>
+    </link>
+
+    <joint name="lidar_3d_joint" type="fixed"><parent link="base_link"/><child link="lidar_3d_link"/><origin xyz="0.15 0 ${lidar_z_offset}"/></joint>
+    
+    <!-- RGB Camera Link -->
+    <link name="camera_link">
+        <visual>
+            <geometry><box size="${camera_width} ${camera_height} ${camera_depth}"/></geometry>
+            <material name="black"><color rgba="0 0 0 1"/></material>
+        </visual>
+        <inertial>
+            <mass value="${camera_mass}"/>
+            <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+        </inertial>
+    </link>
+
+    <joint name="camera_joint" type="fixed">
+        <parent link="base_link"/>
+        <child link="camera_link"/>
+        <origin xyz="${camera_x_offset} ${camera_y_offset} ${camera_z_offset}" rpy="0 0 0"/>
+    </joint>
     <!-- #################### GAZEBO PLUGINS AND REFERENCES #################### -->
     
     <gazebo reference="base_link"><material>Gazebo/Blue</material></gazebo>
     <gazebo reference="left_wheel_link"><material>Gazebo/Black</material></gazebo>
     <gazebo reference="right_wheel_link"><material>Gazebo/Black</material></gazebo>
-    <gazebo reference="lidar_link"><material>Gazebo/Green</material></gazebo>
+    <gazebo reference="lidar_2d_link"><material>Gazebo/Green</material></gazebo>
+    <gazebo reference="lidar_3d_link"><material>Gazebo/Red</material></gazebo> <!-- Material for new 3D LiDAR -->
     <gazebo reference="caster_wheel_link"><material>Gazebo/Black</material><mu1>0.1</mu1><mu2>0.1</mu2></gazebo>
 
     <gazebo>
@@ -119,12 +164,11 @@
             <publish_odom>true</publish_odom>
             <publish_odom_tf>true</publish_odom_tf>
         </plugin>
-        
-    
     </gazebo>
 
-    <gazebo reference="lidar_link">
-        <sensor name="lidar_sensor" type="ray">
+    <!-- Gazebo Plugin for 2D LiDAR -->
+    <gazebo reference="lidar_2d_link">
+        <sensor name="lidar_2d_sensor" type="ray">
             <visualize>true</visualize><update_rate>10</update_rate>
             <ray>
                 <scan>
@@ -132,10 +176,78 @@
                 </scan>
                 <range><min>0.14</min><max>2.0</max></range>
             </ray>
-            <plugin name="lidar_controller" filename="libgazebo_ros_ray_sensor.so">
+            <plugin name="lidar_2d_controller" filename="libgazebo_ros_ray_sensor.so">
                 <ros><remapping>~/out:=scan</remapping></ros>
                 <output_type>sensor_msgs/LaserScan</output_type>
-                <frame_name>lidar_link</frame_name>
+                <frame_name>lidar_2d_link</frame_name>
+            </plugin>
+        </sensor>
+    </gazebo>
+
+    <!-- Gazebo Plugin for SICK multiScan136 3D LiDAR -->
+    <gazebo reference="lidar_3d_link">
+        <sensor name="lidar_3d_sensor" type="ray">
+            <visualize>true</visualize>
+            <update_rate>20</update_rate>
+            <ray>
+                <scan>
+                    <horizontal>
+                        <samples>720</samples>
+                        <resolution>1</resolution>
+                        <min_angle>-${100.0 * PI / 180.0}</min_angle>
+                        <max_angle>${100.0 * PI / 180.0}</max_angle>
+                    </horizontal>
+                    <vertical>
+                        <samples>14</samples>
+                        <resolution>1</resolution>
+                        <min_angle>-0.7417</min_angle> <!-- -42.5 degrees -->
+                        <max_angle>0.3927</max_angle>  <!-- 22.5 degrees -->
+                    </vertical>
+                </scan>
+                <range>
+                    <min>0.05</min>
+                    <max>1.0</max>
+                    <resolution>0.01</resolution>
+                </range>
+                <noise>
+                    <type>gaussian</type>
+                    <mean>0.0</mean>
+                    <stddev>0.01</stddev>
+                </noise>
+            </ray>
+            <plugin name="lidar_3d_controller" filename="libgazebo_ros_ray_sensor.so">
+                <ros><remapping>~/out:=points</remapping></ros>
+                <output_type>sensor_msgs/PointCloud2</output_type>
+                <frame_name>lidar_3d_link</frame_name>
+            </plugin>
+        </sensor>
+    </gazebo>
+
+    <gazebo reference="camera_link">
+        <material>Gazebo/Black</material>
+        <sensor type="camera" name="rgb_camera">
+            <update_rate>30.0</update_rate>
+            <camera name="head">
+                <horizontal_fov>2.2689</horizontal_fov>
+                <image>
+                    <width>1024</width>
+                    <height>576</height>
+                    <format>R8G8B8</format>
+                </image>
+                <clip>
+                    <near>0.28</near>
+                    <far>16.0</far>
+                </clip>
+            </camera>
+            <plugin name="camera_controller" filename="libgazebo_ros_camera.so">
+                <ros>
+                    <namespace>/tracked_robot</namespace>
+                    <remapping>image_raw:=image_raw</remapping>
+                    <remapping>camera_info:=camera_info</remapping>
+                </ros>
+                <camera_name>rgb_camera</camera_name>
+                <frame_name>camera_link</frame_name>
+                <hack_baseline>0.07</hack_baseline>
             </plugin>
         </sensor>
     </gazebo>

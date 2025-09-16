@@ -36,6 +36,15 @@
     <xacro:property name="lidar_3d_length" value="0.0985"/>  <!-- 98.5mm height -->
     <xacro:property name="lidar_3d_mass" value="0.7"/>       <!-- 0.7 kg -->
 
+    <!-- RGB Camera Properties -->
+    <xacro:property name="camera_width" value="0.05"/>
+    <xacro:property name="camera_height" value="0.05"/>
+    <xacro:property name="camera_depth" value="0.02"/>
+    <xacro:property name="camera_mass" value="0.1"/>
+    <xacro:property name="camera_x_offset" value="0.2"/>
+    <xacro:property name="camera_y_offset" value="0"/>
+    <xacro:property name="camera_z_offset" value="0.1"/>
+
     <!-- #################### ROBOT LINKS AND JOINTS #################### -->
     
     <link name="base_link">
@@ -113,8 +122,25 @@
         </inertial>
     </link>
 
-    <joint name="lidar_3d_joint" type="fixed"><parent link="base_link"/><child link="lidar_3d_link"/><origin xyz="0.15 0 ${lidar_z_offset}"/></joint>
+    <joint name="lidar_3d_joint" type="fixed"><parent link="base_link"/><child link="lidar_3d_link"/><origin xyz="0.20 0 ${lidar_z_offset}"/></joint>
+    
+    <!-- RGB Camera Link -->
+    <link name="camera_link">
+        <visual>
+            <geometry><box size="${camera_width} ${camera_height} ${camera_depth}"/></geometry>
+            <material name="black"><color rgba="0 0 0 1"/></material>
+        </visual>
+        <inertial>
+            <mass value="${camera_mass}"/>
+            <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+        </inertial>
+    </link>
 
+    <joint name="camera_joint" type="fixed">
+        <parent link="base_link"/>
+        <child link="camera_link"/>
+        <origin xyz="${camera_x_offset} ${camera_y_offset} ${camera_z_offset}" rpy="0 0 0"/>
+    </joint>
     <!-- #################### GAZEBO PLUGINS AND REFERENCES #################### -->
     
     <gazebo reference="base_link"><material>Gazebo/Blue</material></gazebo>
@@ -161,15 +187,15 @@
     <!-- Gazebo Plugin for SICK multiScan136 3D LiDAR -->
     <gazebo reference="lidar_3d_link">
         <sensor name="lidar_3d_sensor" type="ray">
-            <visualize>true</visualize>
+            <visualize>false</visualize>
             <update_rate>20</update_rate>
             <ray>
                 <scan>
                     <horizontal>
                         <samples>720</samples>
                         <resolution>1</resolution>
-                        <min_angle>-${PI}</min_angle>
-                        <max_angle>${PI}</max_angle>
+                        <min_angle>-${2.00}</min_angle>
+                        <max_angle>${2.00}</max_angle>
                     </horizontal>
                     <vertical>
                         <samples>14</samples>
@@ -180,7 +206,7 @@
                 </scan>
                 <range>
                     <min>0.05</min>
-                    <max>1.0</max>
+                    <max>2.0</max>
                     <resolution>0.01</resolution>
                 </range>
                 <noise>
@@ -193,6 +219,35 @@
                 <ros><remapping>~/out:=points</remapping></ros>
                 <output_type>sensor_msgs/PointCloud2</output_type>
                 <frame_name>lidar_3d_link</frame_name>
+            </plugin>
+        </sensor>
+    </gazebo>
+
+    <gazebo reference="camera_link">
+        <material>Gazebo/Black</material>
+        <sensor type="camera" name="rgb_camera">
+            <update_rate>30.0</update_rate>
+            <camera name="head">
+                <horizontal_fov>2.2689</horizontal_fov>
+                <image>
+                    <width>1024</width>
+                    <height>576</height>
+                    <format>R8G8B8</format>
+                </image>
+                <clip>
+                    <near>0.28</near>
+                    <far>16.0</far>
+                </clip>
+            </camera>
+            <plugin name="camera_controller" filename="libgazebo_ros_camera.so">
+                <ros>
+                    <namespace>/tracked_robot</namespace>
+                    <remapping>image_raw:=image_raw</remapping>
+                    <remapping>camera_info:=camera_info</remapping>
+                </ros>
+                <camera_name>rgb_camera</camera_name>
+                <frame_name>camera_link</frame_name>
+                <hack_baseline>0.07</hack_baseline>
             </plugin>
         </sensor>
     </gazebo>

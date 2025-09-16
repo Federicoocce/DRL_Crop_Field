@@ -47,7 +47,7 @@ def plot_dubins_uturn(q0, q1, turning_radius, step_size, wp_points):
     # --- Plotting ---
     path_points = np.array(configurations)
 
-    plt.style.use('seaborn-v0_8-whitegrid')
+    
     fig, ax = plt.subplots(figsize=(10, 8))
 
     # Plot original context waypoints
@@ -80,50 +80,34 @@ def plot_dubins_uturn(q0, q1, turning_radius, step_size, wp_points):
     plt.show()
 
 
-if __name__ == "__main__":
+def main(args=None):
     # --- Parameters matching drl_env.py ---
-    TURNING_RADIUS = 0.5  # Meters
-    WAYPOINT_STEP = 0.3   # Meters
+    TURNING_RADIUS = 0.7
+    WAYPOINT_STEP = 0.2
+    
+    # ... (the rest of the logic from the if __name__ == "__main__": block)
 
-    # --- Scenario Setup ---
-    # We simulate the robot finishing one lane and starting the next.
-    # Lane 1 travels upwards along the Y-axis at x=0.
-    # Lane 2 travels downwards along the Y-axis at x=0.8.
-    
-    # Waypoint before the end of the current lane (used to establish heading)
     wp_prev = {'x': 0.0, 'y': 1.0}
-    
-    # Waypoint at the very end of the current lane. This is the starting point for the turn.
     wp_end_lane = {'x': 0.0, 'y': 2.0}
-    
-    # Waypoint at the start of the next lane. This is the target point for the turn.
-    # Note: These are close, as requested.
     wp_start_next_lane = {'x': 0.8, 'y': 2.0}
 
-    # --- Mimic the logic from _generate_dubins_uturn_waypoints ---
-    
-    # 1. Define Start Pose (q0)
-    # Position is at wp_end_lane
     x0, y0 = wp_end_lane['x'], wp_end_lane['y']
-    # Heading is determined by the vector from wp_prev to wp_end_lane
     yaw_start = math.atan2(wp_end_lane['y'] - wp_prev['y'], wp_end_lane['x'] - wp_prev['x'])
     q0 = (x0, y0, yaw_start)
 
-    # 2. Define End Pose (q1)
-    # Position is at wp_start_next_lane
     x1, y1 = wp_start_next_lane['x'], wp_start_next_lane['y']
-    # Heading for a U-turn is opposite to the start heading (180 degrees difference)
     yaw_end = yaw_start + math.pi
-    # Normalize yaw to be within [-pi, pi] for consistency
     yaw_end = (yaw_end + math.pi) % (2 * math.pi) - math.pi
     q1 = (x1, y1, yaw_end)
 
-    # Store original points for plotting context
     context_wps = {
         'Prev WP': wp_prev,
         'End of Lane WP': wp_end_lane,
         'Start of Next Lane WP': wp_start_next_lane
     }
 
-    # 3. Generate and plot the path
     plot_dubins_uturn(q0, q1, TURNING_RADIUS, WAYPOINT_STEP, context_wps)
+
+
+if __name__ == '__main__':
+    main()
