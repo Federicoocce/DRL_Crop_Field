@@ -1,0 +1,20 @@
+# Core Deep Reinforcement Learning
+stable-baselines3[extra]
+gymnasium
+
+# Data, Math, and Config
+numpy
+PyYAML
+
+# Deep Learning Framework (backend for stable-baselines3)
+torch
+
+# Image Processing (used in transfuser_util.py)
+Pillow
+opencv-python
+
+# Path Planning for U-Turns (used in drl_env.py and visualizers)
+dubins
+
+# Visualization (used in test scripts like visualize_real_uturn.py)
+matplotlib
