@@ -1,0 +1,23 @@
+# Jazzy Jalisco (May 2024 - November 2029)
+name: ros-jazzy
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - ros2-gz
+  push:
+    branches:
+      - ros2-gz
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: jazzy
+      - uses: ros-tooling/action-ros-ci@v0.3
+        with:
+          package-name: virtual_maize_field
+          target-ros2-distro: jazzy
