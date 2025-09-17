@@ -1,3 +1,0 @@
-[console_scripts]
-generate_world = virtual_maize_field.generate_world:main
-
