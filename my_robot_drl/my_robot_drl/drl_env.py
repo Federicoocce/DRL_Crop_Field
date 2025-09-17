@@ -82,6 +82,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
         self.turning_radius, self.turn_wp_step_distance = 0.7, 0.2
         self.original_target_after_turn_idx = None
+        self.local_goal_waypoints = []
 
         self.get_logger().info("MaizeNavigationEnv initialized with TransFuser data processing.")
         self.debug_counter = 0
@@ -180,6 +181,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             self.num_waypoints_visited_current_episode = 0
             time.sleep(1.0)
             self.target_waypoint_index = self._find_closest_unvisited_waypoint()
+            self._initialize_local_goals()
             self.previous_waypoint_index = None
             self.original_target_after_turn_idx = None
 
@@ -341,6 +343,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 current_reward += REWARD_WAYPOINT_REACHED
                 self.get_logger().info(f"REWARD_FN: Reached waypoint #{wp_reached_idx} ({self.waypoints[wp_reached_idx].get('is_turn_assist_wp', False)}). Total visited: {self.num_waypoints_visited_current_episode}/{self.num_waypoints_total}")
                 is_assist_wp_just_reached = self.waypoints[wp_reached_idx].get('is_turn_assist_wp', False)
+                self._update_local_goals()
                 if self.num_waypoints_visited_current_episode >= self.num_waypoints_total:
                     current_reward, self.episode_done, self.target_waypoint_index = current_reward + REWARD_ALL_WAYPOINTS_VISITED_BONUS, True, None
                 else:
@@ -430,7 +433,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         t4 = +1.0 - 2.0 * (y * y + z * z)
         yaw_z = math.atan2(t3, t4)
         
-        return roll_x, pitch_y, yaw_z # <--- Also fixed a second typo (pitch_Y vs pitch_y)
+        return roll_x, pitch_y, yaw_z 
 
     def close(self):
         """
@@ -447,3 +450,72 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         if self.lidar_3d_sub: self.destroy_subscription(self.lidar_3d_sub)
         if self.reset_sim_client: self.destroy_client(self.reset_sim_client)
         if rclpy.ok(): super().destroy_node()
+
+    ### NEW HELPER FUNCTIONS ###
+
+    def _find_next_waypoint_from_ref(self, reference_pos: dict, exclusion_indices: set) -> int | None:
+        """
+        Finds the master index of the single closest unvisited waypoint relative to a given
+        reference position, excluding any indices already in the plan.
+        """
+        closest_dist_sq = float('inf')
+        closest_idx = None
+
+        for i, wp in enumerate(self.waypoints):
+            if self.visited_waypoints[i] or i in exclusion_indices:
+                continue
+
+            dist_sq = (wp['x'] - reference_pos['x'])**2 + (wp['y'] - reference_pos['y'])**2
+            if dist_sq < closest_dist_sq:
+                closest_dist_sq = dist_sq
+                closest_idx = i
+                
+        return closest_idx
+
+    def _initialize_local_goals(self):
+        """
+        Initializes the 4-waypoint plan at the start of an episode.
+        """
+        self.local_goal_waypoints.clear()
+
+        # 1. Use your existing function to find the first waypoint closest to the robot.
+        first_wp_idx = self._find_closest_unvisited_waypoint()
+        
+        if first_wp_idx is None: return
+
+        # 2. Add it to the plan and set it as the reference for the next search.
+        ref_wp = self.waypoints[first_wp_idx].copy()
+        ref_wp['master_index'] = first_wp_idx
+        self.local_goal_waypoints.append(ref_wp)
+        
+        # 3. Chain the next 3 waypoints.
+        for _ in range(3):
+            current_plan_indices = {wp['master_index'] for wp in self.local_goal_waypoints}
+            next_wp_idx = self._find_next_waypoint_from_ref(ref_wp, current_plan_indices)
+
+            if next_wp_idx is not None:
+                ref_wp = self.waypoints[next_wp_idx].copy()
+                ref_wp['master_index'] = next_wp_idx
+                self.local_goal_waypoints.append(ref_wp)
+            else:
+                break
+
+    def _update_local_goals(self):
+        """
+        Removes the reached waypoint and adds the next one to the end of the plan.
+        """
+        # 1. Remove the first waypoint (the one that was just reached).
+        if self.local_goal_waypoints:
+            self.local_goal_waypoints.pop(0)
+
+        # 2. Find the next waypoint relative to the end of the current plan.
+        if self.local_goal_waypoints:
+            ref_wp = self.local_goal_waypoints[-1]
+            current_plan_indices = {wp['master_index'] for wp in self.local_goal_waypoints}
+            next_wp_idx = self._find_next_waypoint_from_ref(ref_wp, current_plan_indices)
+
+            if next_wp_idx is not None:
+                new_wp = self.waypoints[next_wp_idx].copy()
+                new_wp['master_index'] = next_wp_idx
+                self.local_goal_waypoints.append(new_wp)
+                
