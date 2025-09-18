@@ -52,11 +52,15 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         ### MODIFIED: Expanded state space for local and distant goals ###
         # State vector: [local_goal1_x, local_goal1_y, ..., local_goal4_x, local_goal4_y, 
         #                distant_goal_x, distant_goal_y, linear_vel, angular_vel]
-        # Shape: 4*2 + 2 + 2 = 12
+        STATE_VECTOR_SIZE = 4 
+
         self.observation_space = spaces.Dict({
             'image': spaces.Box(low=0, high=255, shape=(self.IMAGE_CROP_SIZE, self.IMAGE_CROP_SIZE, 3), dtype=np.uint8),
             'lidar_bev': spaces.Box(low=0, high=255, shape=(self.LIDAR_CROP_SIZE, self.LIDAR_CROP_SIZE, 2), dtype=np.uint8),
-            'state': spaces.Box(low=-np.inf, high=np.inf, shape=(12,), dtype=np.float32)
+            'state': spaces.Box(low=-np.inf, high=np.inf, shape=(STATE_VECTOR_SIZE,), dtype=np.float32),
+            # This contains the ground truth for the auxiliary loss.
+            # It is NOT part of the policy's direct state input.
+            'gt_waypoints': spaces.Box(low=-np.inf, high=np.inf, shape=(4, 2), dtype=np.float32)
         })
 
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -296,20 +300,18 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         return observation, reward, terminated, truncated, self._get_info()
     
     def _get_observation(self):
-        # 1. Get relative local goals (4 x 2 = 8 values)
-        local_goals_rel = self._get_relative_local_goals()
-        local_goals_flat = local_goals_rel.flatten() # Shape (8,)
+        # 1. Get ground truth waypoints for the loss function
+        gt_waypoints_rel = self._get_relative_local_goals()
 
-        # 2. Get relative distant goal (1 x 2 = 2 values)
+        # 2. Get relative distant goal
         distant_goal_rel = self._get_local_coords_from_world_point(self.distant_goal_world_coords)
 
-        # 3. Get current velocity (2 values)
+        # 3. Get current velocity
         linear_vel = self.last_action[0]
         angular_vel = self.last_action[1]
 
-        # 4. Concatenate into the final state vector (8 + 2 + 2 = 12 values)
+        # 4. Concatenate into the lean state vector for the policy
         state_obs = np.concatenate([
-            local_goals_flat,
             np.array(distant_goal_rel, dtype=np.float32),
             np.array([linear_vel, angular_vel], dtype=np.float32)
         ])
@@ -317,7 +319,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         obs_dict = {
             'image': self.current_image, 
             'lidar_bev': self.current_lidar_bev, 
-            'state': state_obs
+            'state': state_obs,
+            'gt_waypoints': gt_waypoints_rel 
         }
         
         return obs_dict

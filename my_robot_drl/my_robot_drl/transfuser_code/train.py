@@ -12,7 +12,7 @@ import torch.nn.functional as F
 torch.backends.cudnn.benchmark = True
 
 from config import GlobalConfig
-from model import TransFuser
+from my_robot_drl.my_robot_drl.model import TransFuser
 from data import CARLA_Data
 
 torch.cuda.empty_cache()

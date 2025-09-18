@@ -464,8 +464,8 @@ class TransFuser(nn.Module):
             output_wp.append(x)
 
         pred_wp = torch.stack(output_wp, dim=1)
-
-        return pred_wp
+        #only thing changed from the paper architecture 
+        return pred_wp, z
 
     def control_pid(self, waypoints, velocity):
         ''' 

@@ -8,7 +8,9 @@ from gymnasium.wrappers import TimeLimit
 import sys
 import gymnasium
 import numpy as np # For calculating stats in evaluation mode
-
+from .custom_sac import CustomSAC
+from .custom_features_extractor import TransFuserFeaturesExtractor
+from stable_baselines3.sac import MlpPolicy as SACPolicy # Use the standard MlpPolicy
 def main(args=None):
     rclpy.init(args=args)
 
@@ -80,8 +82,8 @@ def main(args=None):
         train_raw_env.get_logger().info("EvalCallback configured.")
 
         # 3. Define the DRL model
-        model = SAC(
-            "MultiInputPolicy",
+        model = CustomSAC(
+            SACPolicy,
             train_env,
             verbose=1,
             tensorboard_log=log_path,
@@ -93,6 +95,14 @@ def main(args=None):
             tau=0.005,
             train_freq=1,
             gradient_steps=1,
+            policy_kwargs=dict(
+                features_extractor_class=TransFuserFeaturesExtractor,
+                features_extractor_kwargs=dict(
+                    features_dim=72  # 64 from z + 8 from waypoints
+                ),
+                net_arch=[256, 256]
+            ),
+            aux_loss_weight=0.75
         )
         train_raw_env.get_logger().info("SAC model defined.")
 
@@ -155,7 +165,16 @@ def main(args=None):
         eval_raw_env.get_logger().info("Evaluation environment wrapped.")
         # 2. Load the pre-trained model
         try:
-            model = SAC.load(model_to_load_path, env=eval_env)
+            model = CustomSAC.load(
+            model_to_load_path, 
+            env=eval_env,
+            custom_objects={
+                "policy_kwargs": {
+                    "features_extractor_class": TransFuserFeaturesExtractor,
+                    "features_extractor_kwargs": {"features_dim": 72}
+                }
+            }
+        )
             eval_raw_env.get_logger().info(f"Successfully loaded model from {model_to_load_path}")
         except Exception as e:
             eval_raw_env.get_logger().error(f"Error loading the model: {e}")
