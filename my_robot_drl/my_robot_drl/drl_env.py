@@ -49,10 +49,14 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             low=np.array([0.0, -1.0]), high=np.array([0.5, 1.0]), dtype=np.float32
         )
         
+        ### MODIFIED: Expanded state space for local and distant goals ###
+        # State vector: [local_goal1_x, local_goal1_y, ..., local_goal4_x, local_goal4_y, 
+        #                distant_goal_x, distant_goal_y, linear_vel, angular_vel]
+        # Shape: 4*2 + 2 + 2 = 12
         self.observation_space = spaces.Dict({
             'image': spaces.Box(low=0, high=255, shape=(self.IMAGE_CROP_SIZE, self.IMAGE_CROP_SIZE, 3), dtype=np.uint8),
             'lidar_bev': spaces.Box(low=0, high=255, shape=(self.LIDAR_CROP_SIZE, self.LIDAR_CROP_SIZE, 2), dtype=np.uint8),
-            'state': spaces.Box(low=-np.inf, high=np.inf, shape=(2,), dtype=np.float32)
+            'state': spaces.Box(low=-np.inf, high=np.inf, shape=(12,), dtype=np.float32)
         })
 
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -83,6 +87,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.turning_radius, self.turn_wp_step_distance = 0.7, 0.2
         self.original_target_after_turn_idx = None
         self.local_goal_waypoints = []
+        self.distant_goal_world_coords = None
+        self.boundary_crossing_counter = 0
 
         self.get_logger().info("MaizeNavigationEnv initialized with TransFuser data processing.")
         self.debug_counter = 0
@@ -174,7 +180,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             if not got_fresh_data:
                 self.get_logger().warn(f"Timed out waiting for sensor data. Retrying full reset process.")
                 continue 
-
+            self.boundary_crossing_counter = 0
             self.waypoints = [wp.copy() for wp in self.master_waypoints]
             self.num_waypoints_total = len(self.waypoints)
             self.visited_waypoints = [False] * self.num_waypoints_total
@@ -182,6 +188,15 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             time.sleep(1.0)
             self.target_waypoint_index = self._find_closest_unvisited_waypoint()
             self._initialize_local_goals()
+            ### MODIFIED: Set initial distant goal ###
+            if self.target_waypoint_index is not None:
+                initial_lane_idx = self.waypoints[self.target_waypoint_index].get('original_lane_index')
+                if initial_lane_idx is not None:
+                    self.distant_goal_world_coords = self._find_end_of_lane(initial_lane_idx)
+                    if self.distant_goal_world_coords:
+                         self.get_logger().info(f"Initial distant goal set to end of lane {initial_lane_idx}.")
+                else: self.distant_goal_world_coords = None
+            else: self.distant_goal_world_coords = None
             self.previous_waypoint_index = None
             self.original_target_after_turn_idx = None
 
@@ -281,19 +296,29 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         return observation, reward, terminated, truncated, self._get_info()
     
     def _get_observation(self):
-        dist_to_goal, angle_to_goal = 0.0, 0.0
+        # 1. Get relative local goals (4 x 2 = 8 values)
+        local_goals_rel = self._get_relative_local_goals()
+        local_goals_flat = local_goals_rel.flatten() # Shape (8,)
 
-        if self.current_odom is not None and self.target_waypoint_index is not None:
-            robot_pos = self.current_odom.pose.pose.position
-            _roll, _pitch, robot_yaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
-            target_wp = self.waypoints[self.target_waypoint_index]
-            dist_to_goal = math.sqrt((target_wp['x'] - robot_pos.x)**2 + (target_wp['y'] - robot_pos.y)**2)
-            angle_rad = math.atan2(target_wp['y'] - robot_pos.y, target_wp['x'] - robot_pos.x)
-            angle_to_goal = (angle_rad - robot_yaw + math.pi) % (2 * math.pi) - math.pi
-            
-        state_obs = np.array([dist_to_goal, angle_to_goal], dtype=np.float32)
+        # 2. Get relative distant goal (1 x 2 = 2 values)
+        distant_goal_rel = self._get_local_coords_from_world_point(self.distant_goal_world_coords)
+
+        # 3. Get current velocity (2 values)
+        linear_vel = self.last_action[0]
+        angular_vel = self.last_action[1]
+
+        # 4. Concatenate into the final state vector (8 + 2 + 2 = 12 values)
+        state_obs = np.concatenate([
+            local_goals_flat,
+            np.array(distant_goal_rel, dtype=np.float32),
+            np.array([linear_vel, angular_vel], dtype=np.float32)
+        ])
         
-        obs_dict = {'image': self.current_image, 'lidar_bev': self.current_lidar_bev, 'state': state_obs}
+        obs_dict = {
+            'image': self.current_image, 
+            'lidar_bev': self.current_lidar_bev, 
+            'state': state_obs
+        }
         
         return obs_dict
         
@@ -329,42 +354,101 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         REWARD_WAYPOINT_REACHED, REWARD_ALL_WAYPOINTS_VISITED_BONUS, TIME_PENALTY_PER_STEP = 25.0, 200.0, -0.1
         REWARD_FACTOR_FORWARD_VELOCITY = 1.0
         current_reward = TIME_PENALTY_PER_STEP + (self.last_action[0] * REWARD_FACTOR_FORWARD_VELOCITY)
-        if self.current_odom is None or self.target_waypoint_index is None: return current_reward
-        robot_pos, min_scan = self.current_odom.pose.pose.position, np.min(self.current_scan)
+        
+        if self.current_odom is None or self.target_waypoint_index is None:
+            return current_reward
+            
+        robot_pos = self.current_odom.pose.pose.position
+        min_scan = np.min(self.current_scan)
+        
         if min_scan >= self.collision_threshold and min_scan < self.too_far_lidar_threshold:
             target_wp = self.waypoints[self.target_waypoint_index]
             current_distance = math.sqrt((target_wp['x'] - robot_pos.x)**2 + (target_wp['y'] - robot_pos.y)**2)
+            
             distance_diff = self.last_distance_to_target - current_distance
             current_reward += distance_diff * self.REWARD_FACTOR_DISTANCE
             self.last_distance_to_target = current_distance
+            
+            # --- Waypoint Reached Logic ---
             if current_distance < self.waypoint_reach_threshold:
                 wp_reached_idx = self.target_waypoint_index
-                self.visited_waypoints[wp_reached_idx], self.num_waypoints_visited_current_episode = True, self.num_waypoints_visited_current_episode + 1
+                wp_just_reached = self.waypoints[wp_reached_idx]
+                is_boundary_wp = wp_just_reached.get('is_lane_boundary', False)
+
+                self.visited_waypoints[wp_reached_idx] = True
+                self.num_waypoints_visited_current_episode += 1
                 current_reward += REWARD_WAYPOINT_REACHED
-                self.get_logger().info(f"REWARD_FN: Reached waypoint #{wp_reached_idx} ({self.waypoints[wp_reached_idx].get('is_turn_assist_wp', False)}). Total visited: {self.num_waypoints_visited_current_episode}/{self.num_waypoints_total}")
-                is_assist_wp_just_reached = self.waypoints[wp_reached_idx].get('is_turn_assist_wp', False)
+                self.get_logger().info(f"REWARD_FN: Reached waypoint #{wp_reached_idx}. Visited: {self.num_waypoints_visited_current_episode}/{self.num_waypoints_total}")
+                
+                # --- Update Planning Goals (Local and Distant) ---
                 self._update_local_goals()
+
+                # *** NEW COUNTER-BASED DISTANT GOAL LOGIC ***
+                if is_boundary_wp:
+                    self.boundary_crossing_counter += 1
+                    self.get_logger().info(f"Boundary crossed. Counter is now: {self.boundary_crossing_counter}")
+                    
+                    # If this is the FIRST boundary after a turn was initiated (counter was reset to 0),
+                    # it means we are at the START of the new lane.
+                    if self.boundary_crossing_counter == 1:
+                        current_lane_idx = wp_just_reached.get('original_lane_index')
+                        if current_lane_idx is not None:
+                            new_distant_goal = self._find_end_of_lane(current_lane_idx)
+                            if new_distant_goal:
+                                self.distant_goal_world_coords = new_distant_goal
+                                self.get_logger().info(f"COUNTER=1: At start of lane {current_lane_idx}. New distant goal is END of this lane. {self.distant_goal_world_coords} with index {self.target_waypoint_index}")
+                
+                # --- Update Target Waypoint for Agent ---
                 if self.num_waypoints_visited_current_episode >= self.num_waypoints_total:
-                    current_reward, self.episode_done, self.target_waypoint_index = current_reward + REWARD_ALL_WAYPOINTS_VISITED_BONUS, True, None
+                    current_reward += REWARD_ALL_WAYPOINTS_VISITED_BONUS
+                    self.episode_done = True
+                    self.target_waypoint_index = None
                 else:
+                    is_assist_wp_just_reached = wp_just_reached.get('is_turn_assist_wp', False)
                     if is_assist_wp_just_reached:
-                        next_sequential_idx_in_list = wp_reached_idx + 1
-                        if next_sequential_idx_in_list < len(self.waypoints) and self.waypoints[next_sequential_idx_in_list].get('is_turn_assist_wp', False): self.target_waypoint_index = next_sequential_idx_in_list
-                        else: self.target_waypoint_index, self.original_target_after_turn_idx = self.original_target_after_turn_idx, None
+                        # Follow the chain of turn-assist waypoints
+                        next_sequential_idx = wp_reached_idx + 1
+                        if next_sequential_idx < len(self.waypoints) and self.waypoints[next_sequential_idx].get('is_turn_assist_wp', False):
+                            self.target_waypoint_index = next_sequential_idx
+                        else:
+                            self.target_waypoint_index = self.original_target_after_turn_idx
+                            self.original_target_after_turn_idx = None
                     else:
-                        potential_next_actual_lane_target_idx = self._find_closest_unvisited_waypoint()
-                        if potential_next_actual_lane_target_idx is not None:
-                            lane_reached, lane_next_actual = self.waypoints[wp_reached_idx].get('original_lane_index', -1), self.waypoints[potential_next_actual_lane_target_idx].get('original_lane_index', -2)
-                            if lane_reached != lane_next_actual and self.previous_waypoint_index is not None:
-                                self.original_target_after_turn_idx = potential_next_actual_lane_target_idx
-                                num_turn_wps_added = self._generate_dubins_uturn_waypoints(self.previous_waypoint_index, wp_reached_idx, potential_next_actual_lane_target_idx)
-                                if num_turn_wps_added > 0: self.target_waypoint_index = wp_reached_idx + 1
-                                else: self.target_waypoint_index, self.original_target_after_turn_idx = self.original_target_after_turn_idx, None
-                            else: self.target_waypoint_index, self.original_target_after_turn_idx = potential_next_actual_lane_target_idx, None
-                        else: self.target_waypoint_index = None
+                        # We reached a normal (non-assist) waypoint
+                        potential_next_target_idx = self._find_closest_unvisited_waypoint()
+                        if potential_next_target_idx is not None:
+                            lane_reached = wp_just_reached.get('original_lane_index', -1)
+                            lane_next = self.waypoints[potential_next_target_idx].get('original_lane_index', -2)
+                            
+                            # Check for a lane change, which triggers a U-turn.
+                            # This happens when we are at the END of a lane.
+                            if is_boundary_wp and lane_reached != lane_next and self.previous_waypoint_index is not None:
+                                self.get_logger().info(f"END OF LANE {lane_reached}: Initiating turn.")
+                                
+                                # 1. RESET the counter. This signifies a turn has started.
+                                self.boundary_crossing_counter = 0
+                                
+                                # 2. SET the distant goal to be the START of the next lane.
+                                self.distant_goal_world_coords = self.waypoints[potential_next_target_idx]
+                                self.get_logger().info(f"New distant goal is START of lane {lane_next}.")
+
+                                self.original_target_after_turn_idx = potential_next_target_idx
+                                num_turn_wps_added = self._generate_dubins_uturn_waypoints(self.previous_waypoint_index, wp_reached_idx, potential_next_target_idx)
+                                
+                                self.target_waypoint_index = wp_reached_idx + 1 if num_turn_wps_added > 0 else self.original_target_after_turn_idx
+                                if num_turn_wps_added <= 0: self.original_target_after_turn_idx = None
+
+                            else: # No lane change, just proceed to the next closest waypoint
+                                self.target_waypoint_index = potential_next_target_idx
+                                self.original_target_after_turn_idx = None
+                        else:
+                            self.target_waypoint_index = None # No more waypoints left
+
+                    # Update the distance-to-target for the next step's reward calculation
                     if self.target_waypoint_index is not None:
                         new_target_wp = self.waypoints[self.target_waypoint_index]
                         self.last_distance_to_target = math.sqrt((new_target_wp['x'] - robot_pos.x)**2 + (new_target_wp['y'] - robot_pos.y)**2)
+
                 self.previous_waypoint_index = wp_reached_idx
         return current_reward
     
@@ -408,7 +492,20 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         if self.target_waypoint_index is not None and 0 <= self.target_waypoint_index < len(self.waypoints):
             wp_data = self.waypoints[self.target_waypoint_index]
             current_target_info = f"#{self.target_waypoint_index} (Assist: {wp_data.get('is_turn_assist_wp', False)}) @ ({wp_data['x']:.2f},{wp_data['y']:.2f})"
-        info_dict = {"waypoints_visited": self.num_waypoints_visited_current_episode, "waypoints_total": self.num_waypoints_total, "current_target_wp_info": current_target_info, "distance_to_target": self.last_distance_to_target, "collision_sensor_min_range": min_scan_val, "original_target_after_turn_idx": self.original_target_after_turn_idx if self.original_target_after_turn_idx is not None else -1}
+        ### MODIFIED: Added distant goal info ###
+        distant_goal_info = "None"
+        if self.distant_goal_world_coords:
+            distant_goal_info = f"({self.distant_goal_world_coords.get('x', 0.0):.2f}, {self.distant_goal_world_coords.get('y', 0.0):.2f})"
+
+        info_dict = {
+            "waypoints_visited": self.num_waypoints_visited_current_episode, 
+            "waypoints_total": self.num_waypoints_total, 
+            "current_target_wp_info": current_target_info, 
+            "distant_goal_world_coords": distant_goal_info,
+            "distance_to_target": self.last_distance_to_target, 
+            "collision_sensor_min_range": min_scan_val, 
+            "original_target_after_turn_idx": self.original_target_after_turn_idx if self.original_target_after_turn_idx is not None else -1
+        }
         if self.episode_done:
             if min_scan_val < self.collision_threshold: info_dict["termination_reason"] = "collision"
             elif self.num_waypoints_visited_current_episode >= self.num_waypoints_total: info_dict["termination_reason"] = "all_waypoints_visited"
@@ -518,4 +615,55 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 new_wp = self.waypoints[next_wp_idx].copy()
                 new_wp['master_index'] = next_wp_idx
                 self.local_goal_waypoints.append(new_wp)
-                
+    ### NEW/MODIFIED HELPER FUNCTIONS ###
+    
+    def _get_local_coords_from_world_point(self, world_point: dict | None) -> tuple[float, float]:
+        """
+        Computes the coordinates of a single world point relative to the robot's
+        current position and orientation. Returns (0.0, 0.0) if data is unavailable.
+        """
+        if self.current_odom is None or world_point is None:
+            return (0.0, 0.0)
+
+        robot_pos = self.current_odom.pose.pose.position
+        _roll, _pitch, robot_yaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
+        
+        cos_yaw, sin_yaw = math.cos(robot_yaw), math.sin(robot_yaw)
+        dx, dy = world_point['x'] - robot_pos.x, world_point['y'] - robot_pos.y
+        local_x = dx * cos_yaw + dy * sin_yaw
+        local_y = -dx * sin_yaw + dy * cos_yaw
+            
+        return (local_x, local_y)
+    
+    def _get_relative_local_goals(self) -> np.ndarray:
+        """
+        Computes the coordinates of the next 4 local waypoints relative to the
+        robot's current position and orientation using the generic helper function.
+        """
+        relative_coords = []
+        for wp in self.local_goal_waypoints:
+            # Use the new generic helper function for cleaner code
+            local_coords = self._get_local_coords_from_world_point(wp)
+            relative_coords.append(list(local_coords))
+
+        # Pad the list with [0.0, 0.0] pairs if there are fewer than 4 waypoints
+        for _ in range(len(relative_coords), 4):
+            relative_coords.append([0.0, 0.0])
+        self.get_logger().debug(f"Relative local goals (4): {relative_coords}")
+
+        return np.array(relative_coords, dtype=np.float32)
+    
+    def _find_end_of_lane(self, lane_index: int) -> dict | None:
+        """
+        Finds the waypoint marked as the end-of-lane boundary for a specific lane,
+        ensuring it has not been visited yet.
+        """
+        end_of_lane_wp = None
+        for i, wp in enumerate(self.waypoints):
+            if (wp.get('original_lane_index') == lane_index and
+                wp.get('is_lane_boundary', False) and
+                not self.visited_waypoints[i]):
+                # Because waypoints are ordered, the last one found for a given lane will be its end point.
+                # We create a copy to avoid modifying the master list with temporary data
+                end_of_lane_wp = wp.copy()
+        return end_of_lane_wp

@@ -68,12 +68,16 @@ def get_dense_lane_waypoints() -> list[dict]:
             plant_a = row_a[j]
             plant_b = row_b[j]
             midpoint = (plant_a + plant_b) / 2.0
+            
+            # --- MODIFIED LOGIC ---
+            # The first (j=0) and the last (j=num_wp_in_lane-1) points are boundaries.
+            is_boundary = (j == 0) or (j == num_wp_in_lane - 1)
+            
             all_waypoints.append({
                 'x': float(midpoint[0]), 
                 'y': float(midpoint[1]),
-                'original_lane_index': i 
-                # 'is_turn_assist_wp' will be added in the env if needed,
-                # or assumed False for master_waypoints
+                'original_lane_index': i,
+                'is_lane_boundary': is_boundary # Add the new label
             })
             
     print(f"  Generated {len(all_waypoints)} dense waypoints (simplified structure).")
