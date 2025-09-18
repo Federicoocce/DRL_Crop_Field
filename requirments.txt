@@ -18,3 +18,5 @@ git+https://github.com/rdesc/pydubins.git
 
 # Visualization (used in test scripts like visualize_real_uturn.py)
 matplotlib
+
+torchvision
