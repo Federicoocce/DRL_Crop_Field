@@ -147,6 +147,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.get_logger().info("Resetting environment...")
+        
 
         if not self.master_waypoints:
             self.get_logger().error("Cannot reset: Master waypoint list is empty.")
@@ -321,13 +322,6 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             'state': state_obs,
             'gt_waypoints': gt_waypoints_rel 
         }
-              # --- DEBUG PRINT ---
-        print(f"--- DRL_ENV ---", flush=True)
-        print(f"Image shape: {obs_dict['image'].shape}, dtype: {obs_dict['image'].dtype}", flush=True)
-        print(f"LIDAR BEV shape: {obs_dict['lidar_bev'].shape}, dtype: {obs_dict['lidar_bev'].dtype}", flush=True)
-        print(f"State shape: {obs_dict['state'].shape}", flush=True)
-        print(f"GT Waypoints shape: {obs_dict['gt_waypoints'].shape}", flush=True)
-        # --- END DEBUG ---
         
         return obs_dict
         

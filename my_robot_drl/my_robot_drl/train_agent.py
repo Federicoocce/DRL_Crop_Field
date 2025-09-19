@@ -87,27 +87,32 @@ def main(args=None):
         model = CustomSAC(
             policy=SACPolicy,
             env=train_env,
-            env_node=train_raw_env,  # <-- PASS THE NODE INSTANCE HERE
+            env_node=train_raw_env,
+            # --- NEW SCHEDULING PARAMETERS ---
+            transfuser_train_freq=20,  # Update the big model every 20 training steps
+            sac_train_freq=1,          # Update the small RL policy every training step
+            transfuser_gradient_steps=4, # Number of gradient steps for TransFuser
+            sac_gradient_steps=1,       # Number of gradient steps for SAC
+            # ---
             verbose=1,
             tensorboard_log=log_path,
             learning_rate=0.0003,
-            batch_size=32,
-            buffer_size=2000,
-            learning_starts=2000,
+            batch_size=16,
+            buffer_size=50000, # Increased buffer size for more diverse samples
+            learning_starts=5000, # Increased warm-up period
             gamma=0.99,
             tau=0.005,
-            train_freq=1,
+            train_freq=1, 
             gradient_steps=1,
             policy_kwargs=dict(
                 features_extractor_class=TransFuserFeaturesExtractor,
                 features_extractor_kwargs=dict(
-                    features_dim=72  # 64 from z + 8 from waypoints
+                    features_dim=72
                 ),
                 net_arch=[256, 256]
             )
-            # You can remove aux_loss_weight as it's not a standard SAC parameter
         )
-        train_raw_env.get_logger().info("SAC model defined.")
+        train_raw_env.get_logger().info("CustomSAC model with alternating schedule defined.")
 
         # ... (The rest of the file remains the same) ...
         # 4. Train the model

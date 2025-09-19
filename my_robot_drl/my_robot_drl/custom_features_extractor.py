@@ -33,11 +33,7 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
         image_obs = all_obs_tensors['image'].float() / 255.0
         lidar_obs = all_obs_tensors['lidar_bev'].float() / 255.0
         state_obs = all_obs_tensors['state']
-        print(f"\n--- FEATURE EXTRACTOR (Raw Observations) ---", flush=True)
-        print(f"Image obs shape: {image_obs.shape}, dtype: {image_obs.dtype}", flush=True)
-        print(f"Lidar obs shape: {lidar_obs.shape}, dtype: {lidar_obs.dtype}", flush=True)
-        print(f"State obs shape: {state_obs.shape}, dtype: {state_obs.dtype}", flush=True)  
-        
+
         # --- FIX: REMOVED INCORRECT PERMUTATION ---
         # Stable Baselines 3 automatically converts image observations from (N, H, W, C)
         # to the PyTorch standard (N, C, H, W) before they reach the feature extractor.
@@ -55,21 +51,13 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
              velocity = state_obs[2].unsqueeze(0).unsqueeze(0)
 
 
-        print("\n--- FEATURE EXTRACTOR (Model Input) ---", flush=True)
-        print(f"Image list element shape: {image_list[0].shape}, dtype: {image_list[0].dtype}", flush=True)
-        print(f"Lidar list element shape: {lidar_list[0].shape}, dtype: {lidar_list[0].dtype}", flush=True)
-        print(f"Target point shape: {target_point.shape}, dtype: {target_point.dtype}", flush=True)
-        print(f"Velocity shape: {velocity.shape}, dtype: {velocity.dtype}", flush=True)
+
         
         pred_wp, z = self.transfuser(image_list, lidar_list, target_point, velocity)
 
         self.last_pred_wp = pred_wp
         
         final_features = torch.cat([z.detach(), pred_wp.flatten(start_dim=1).detach()], dim=1)
-        
-        print("\n--- FEATURE EXTRACTOR (Output) ---", flush=True)
-        print(f"Predicted WP shape: {pred_wp.shape}", flush=True)
-        print(f"Hidden state 'z' shape: {z.shape}", flush=True)
-        print(f"Final features shape: {final_features.shape}", flush=True)
+  
         
         return final_features
