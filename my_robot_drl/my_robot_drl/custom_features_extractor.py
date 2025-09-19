@@ -20,8 +20,8 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
         self.last_pred_wp = None
 
     def forward(self, observations: dict) -> torch.Tensor:
-        image_obs = observations['image'].permute(0, 3, 1, 2)
-        lidar_obs = observations['lidar_bev'].permute(0, 3, 1, 2)
+        image_obs = observations['image']
+        lidar_obs = observations['lidar_bev']
         state_obs = observations['state']
         
         image_list, lidar_list = [image_obs], [lidar_obs]
@@ -29,6 +29,13 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
         # State: [distant_goal_x, y, linear_vel, angular_vel]
         target_point = state_obs[:, 0:2]
         velocity = state_obs[:, 2].unsqueeze(1)
+                # --- DEBUG PRINTS for model inputs ---
+        print("\n--- FEATURE EXTRACTOR (Model Input) ---", flush=True)
+        print(f"Image list element shape: {image_list[0].shape}", flush=True)
+        print(f"Lidar list element shape: {lidar_list[0].shape}", flush=True)
+        print(f"Target point shape: {target_point.shape}", flush=True)
+        print(f"Velocity shape: {velocity.shape}", flush=True)
+        # --- END DEBUG ---
 
         # 1. Get predicted waypoints and hidden state `z` from the model
         pred_wp, z = self.transfuser(image_list, lidar_list, target_point, velocity)
@@ -38,5 +45,12 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
         
         # 2. Create the final feature vector for the SAC Actor/Critic
         final_features = torch.cat([z, pred_wp.flatten(start_dim=1)], dim=1)
+        
+        # --- DEBUG PRINTS for output ---
+        print("\n--- FEATURE EXTRACTOR (Output) ---", flush=True)
+        print(f"Predicted WP shape: {pred_wp.shape}", flush=True)
+        print(f"Hidden state 'z' shape: {z.shape}", flush=True)
+        print(f"Final features shape: {final_features.shape}", flush=True)
+        # --- END DEBUG ---
         
         return final_features

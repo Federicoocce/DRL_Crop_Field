@@ -213,7 +213,12 @@ class GPT(nn.Module):
             lidar_tensor (tensor): B*seq_len, C, H, W
             velocity (tensor): ego-velocity
         """
-        
+             # --- DEBUG PRINTS ---
+        print("\n--- GPT FORWARD (Input) ---", flush=True)
+        print(f"image_tensor shape: {image_tensor.shape}", flush=True)
+        print(f"lidar_tensor shape: {lidar_tensor.shape}", flush=True)
+        print(f"velocity shape: {velocity.shape}", flush=True)
+        # --- END DEBUG ---
         bz = lidar_tensor.shape[0] // self.seq_len
         h, w = lidar_tensor.shape[2:4]
         
@@ -226,7 +231,14 @@ class GPT(nn.Module):
         token_embeddings = token_embeddings.view(bz, -1, self.n_embd) # (B, an * T, C)
 
         # project velocity to n_embed
-        velocity_embeddings = self.vel_emb(velocity.unsqueeze(1)) # (B, C)
+        velocity_embeddings = self.vel_emb(velocity) # (B, C)
+                # --- DEBUG PRINTS ---
+        print(f"--- GPT FORWARD (After Embedding) ---", flush=True)
+        print(f"Batch size (bz): {bz}", flush=True)
+        print(f"Token embeddings shape: {token_embeddings.shape}", flush=True)
+        print(f"Velocity embeddings shape: {velocity_embeddings.shape}", flush=True)
+        print(f"Positional embedding shape: {self.pos_emb.shape}", flush=True)
+        # --- END DEBUG ---
 
         # add (learnable) positional embedding and velocity embedding for all tokens
         x = self.drop(self.pos_emb + token_embeddings + velocity_embeddings.unsqueeze(1)) # (B, an * T, C)
@@ -238,7 +250,10 @@ class GPT(nn.Module):
 
         image_tensor_out = x[:, :self.config.n_views*self.seq_len, :, :, :].contiguous().view(bz * self.config.n_views * self.seq_len, -1, h, w)
         lidar_tensor_out = x[:, self.config.n_views*self.seq_len:, :, :, :].contiguous().view(bz * self.seq_len, -1, h, w)
-        
+                # --- DEBUG PRINTS ---
+        print(f"--- GPT FORWARD (Output) ---", flush=True)
+        print(f"Final 'x' shape: {x.shape}", flush=True)
+        # --- END DEBUG ---
         return image_tensor_out, lidar_tensor_out
 
 
@@ -306,21 +321,23 @@ class Encoder(nn.Module):
         '''
         Image + LiDAR feature fusion using transformers
         Args:
-            image_list (list): list of input images
-            lidar_list (list): list of input LiDAR BEV
+            image_list (list): list of input images. For RL, this is a list with ONE tensor of shape (B, C, H, W).
+            lidar_list (list): list of input LiDAR BEV. For RL, this is a list with ONE tensor of shape (B, C, H, W).
             velocity (tensor): input velocity from speedometer
         '''
         if self.image_encoder.normalize:
             image_list = [normalize_imagenet(image_input) for image_input in image_list]
 
-        bz, _, h, w = lidar_list[0].shape
-        img_channel = image_list[0].shape[1]
-        lidar_channel = lidar_list[0].shape[1]
-        self.config.n_views = len(image_list) // self.config.seq_len
-
-        image_tensor = torch.stack(image_list, dim=1).view(bz * self.config.n_views * self.config.seq_len, img_channel, h, w)
-        lidar_tensor = torch.stack(lidar_list, dim=1).view(bz * self.config.seq_len, lidar_channel, h, w)
-
+        # --- THIS IS THE ROBUST FIX ---
+        # The original code used a complex torch.stack().view() sequence that is brittle.
+        # Since our DRL setup (and the original code for seq_len=1) provides a list
+        # containing a single, already-batched tensor, we can just extract it directly.
+        # This is a robust data-handling fix, not an architectural change.
+        image_tensor = image_list[0]
+        lidar_tensor = lidar_list[0]
+        bz = lidar_tensor.shape[0] // self.config.seq_len
+        print("Image tensor shape:", image_tensor.shape)
+        print("LiDAR tensor shape:", lidar_tensor.shape)
         image_features = self.image_encoder.features.conv1(image_tensor)
         image_features = self.image_encoder.features.bn1(image_features)
         image_features = self.image_encoder.features.relu(image_features)

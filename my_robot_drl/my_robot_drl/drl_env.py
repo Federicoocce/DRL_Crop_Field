@@ -239,7 +239,6 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         # If the episode is already marked as done, return the last observation without taking a new action.
         if self.episode_done:
             return self._get_observation(), 0.0, True, True, self._get_info()
-
         # 1. Action Execution
         # Clip the action from the agent to ensure it's within the valid range defined by the action space.
         action = np.clip(action, self.action_space.low, self.action_space.high)
@@ -322,6 +321,13 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             'state': state_obs,
             'gt_waypoints': gt_waypoints_rel 
         }
+              # --- DEBUG PRINT ---
+        print(f"--- DRL_ENV ---", flush=True)
+        print(f"Image shape: {obs_dict['image'].shape}, dtype: {obs_dict['image'].dtype}", flush=True)
+        print(f"LIDAR BEV shape: {obs_dict['lidar_bev'].shape}, dtype: {obs_dict['lidar_bev'].dtype}", flush=True)
+        print(f"State shape: {obs_dict['state'].shape}", flush=True)
+        print(f"GT Waypoints shape: {obs_dict['gt_waypoints'].shape}", flush=True)
+        # --- END DEBUG ---
         
         return obs_dict
         
