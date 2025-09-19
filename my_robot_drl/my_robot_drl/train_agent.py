@@ -48,6 +48,7 @@ def main(args=None):
             sys.exit(1)
 
         episode_length = 20000
+        # --- IMPORTANT: Keep the raw env instance before wrapping it ---
         train_env = TimeLimit(train_raw_env, max_episode_steps=episode_length)
         train_env = Monitor(train_env) # Monitor wraps TimeLimit
         train_raw_env.get_logger().info("Training environment wrapped.")
@@ -82,14 +83,16 @@ def main(args=None):
         train_raw_env.get_logger().info("EvalCallback configured.")
 
         # 3. Define the DRL model
+        # --- MODIFIED MODEL CREATION ---
         model = CustomSAC(
-            SACPolicy,
-            train_env,
+            policy=SACPolicy,
+            env=train_env,
+            env_node=train_raw_env,  # <-- PASS THE NODE INSTANCE HERE
             verbose=1,
             tensorboard_log=log_path,
             learning_rate=0.0003,
-            batch_size=64,
-            buffer_size=5000,
+            batch_size=32,
+            buffer_size=2000,
             learning_starts=2000,
             gamma=0.99,
             tau=0.005,
@@ -98,15 +101,15 @@ def main(args=None):
             policy_kwargs=dict(
                 features_extractor_class=TransFuserFeaturesExtractor,
                 features_extractor_kwargs=dict(
-                    features_dim=72,  # 64 from z + 8 from waypoints
-                    lr=1e-4         # Learning rate for the TransFuser optimizer
+                    features_dim=72  # 64 from z + 8 from waypoints
                 ),
                 net_arch=[256, 256]
-            ),
-            
+            )
+            # You can remove aux_loss_weight as it's not a standard SAC parameter
         )
         train_raw_env.get_logger().info("SAC model defined.")
 
+        # ... (The rest of the file remains the same) ...
         # 4. Train the model
         total_training_steps = 200000
         train_raw_env.get_logger().info(f"Starting DRL training for {total_training_steps} timesteps...")
@@ -136,22 +139,19 @@ def main(args=None):
             rclpy.shutdown()
             train_raw_env.get_logger().info("Shutdown complete.")
 
-    # ===================================================================
-    # --- EVALUATION MODE ---
-    # ===================================================================
+    # ... (Evaluation mode code remains the same) ...
     elif mode == 'eval':
+        # NOTE: The evaluation mode does not need pausing, so it will still work.
+        # However, to load the model properly, we must tell SB3 about our custom SAC class.
         print("\n--- Starting in EVALUATION mode ---\n")
 
-        # --- THIS IS THE ONLY LINE THAT CHANGED ---
         model_to_load_path = os.path.join(model_save_path_dir, 'sac_maize_nav_final.zip')
 
         if not os.path.exists(model_to_load_path):
             print(f"ERROR: Model file not found at '{model_to_load_path}'.")
-            print("Please run in 'train' mode first to generate the final model.")
             rclpy.shutdown()
             sys.exit(1)
 
-        # 1. Create the evaluation environment
         try:
             eval_raw_env = MaizeNavigationEnv()
             eval_raw_env.get_logger().info("Evaluation environment created.")
@@ -162,28 +162,32 @@ def main(args=None):
 
         episode_length = 10000
         eval_env = TimeLimit(eval_raw_env, max_episode_steps=episode_length)
-        eval_env = Monitor(eval_env) # Monitor wraps TimeLimit
+        eval_env = Monitor(eval_env)
         eval_raw_env.get_logger().info("Evaluation environment wrapped.")
-        # 2. Load the pre-trained model
+        
         try:
+            # When loading, we pass the env_node to the constructor via custom_objects
             model = CustomSAC.load(
-            model_to_load_path, 
-            env=eval_env,
-            custom_objects={
-                "policy_kwargs": {
-                    "features_extractor_class": TransFuserFeaturesExtractor,
-                    "features_extractor_kwargs": {"features_dim": 72}
+                model_to_load_path, 
+                env=eval_env,
+                env_node=eval_raw_env, # <-- PASS NODE HERE TOO
+                custom_objects={
+                    "policy_kwargs": {
+                        "features_extractor_class": TransFuserFeaturesExtractor,
+                        "features_extractor_kwargs": {"features_dim": 72}
+                    }
                 }
-            }
-        )
+            )
             eval_raw_env.get_logger().info(f"Successfully loaded model from {model_to_load_path}")
         except Exception as e:
             eval_raw_env.get_logger().error(f"Error loading the model: {e}")
+            import traceback
+            traceback.print_exc()
             eval_env.close()
             rclpy.shutdown()
             sys.exit(1)
 
-        # 3. Run evaluation episodes
+        # ... (rest of eval code) ...
         num_eval_episodes = 10
         episode_rewards = []
         episode_lengths = []
@@ -197,8 +201,6 @@ def main(args=None):
                 action, _states = model.predict(obs, deterministic=True)
                 obs, reward, terminated, truncated, info = eval_env.step(action)
             
-            # The Monitor wrapper logs the episode statistics in the 'info' dictionary
-            # when the episode is done
             ep_info = info.get('episode')
             if ep_info:
                 print(f"Episode {i + 1}/{num_eval_episodes} finished.")
@@ -208,8 +210,6 @@ def main(args=None):
             else:
                  eval_raw_env.get_logger().warn(f"Could not find episode stats for episode {i+1}.")
 
-
-        # 4. Print summary statistics
         if episode_rewards:
             mean_reward = np.mean(episode_rewards)
             std_reward = np.std(episode_rewards)
@@ -221,7 +221,6 @@ def main(args=None):
         else:
             print("\n--- No episodes completed, cannot calculate summary statistics. ---\n")
 
-        # 5. Clean up
         eval_raw_env.get_logger().info("Closing evaluation environment...")
         eval_env.close()
         rclpy.shutdown()
