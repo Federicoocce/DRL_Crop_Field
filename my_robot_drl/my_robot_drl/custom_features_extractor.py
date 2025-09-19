@@ -37,11 +37,13 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
         print(f"Image obs shape: {image_obs.shape}, dtype: {image_obs.dtype}", flush=True)
         print(f"Lidar obs shape: {lidar_obs.shape}, dtype: {lidar_obs.dtype}", flush=True)
         print(f"State obs shape: {state_obs.shape}, dtype: {state_obs.dtype}", flush=True)  
-        # Input shape from SB3 is (N, H, W, C)
-        # We need (N, C, H, W) for PyTorch Conv layers.
-        # The correct permutation is (0, 3, 1, 2).
-        image_obs = image_obs.permute(0, 3, 1, 2)
-        lidar_obs = lidar_obs.permute(0, 3, 1, 2)
+        
+        # --- FIX: REMOVED INCORRECT PERMUTATION ---
+        # Stable Baselines 3 automatically converts image observations from (N, H, W, C)
+        # to the PyTorch standard (N, C, H, W) before they reach the feature extractor.
+        # The permute calls were therefore incorrect and corrupted the tensor shape.
+        # image_obs = image_obs.permute(0, 3, 1, 2) # This line was removed.
+        # lidar_obs = lidar_obs.permute(0, 3, 1, 2) # This line was removed.
         
         image_list, lidar_list = [image_obs], [lidar_obs]
         
