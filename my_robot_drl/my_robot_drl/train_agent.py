@@ -98,11 +98,12 @@ def main(args=None):
             policy_kwargs=dict(
                 features_extractor_class=TransFuserFeaturesExtractor,
                 features_extractor_kwargs=dict(
-                    features_dim=72  # 64 from z + 8 from waypoints
+                    features_dim=72,  # 64 from z + 8 from waypoints
+                    lr=1e-4         # Learning rate for the TransFuser optimizer
                 ),
                 net_arch=[256, 256]
             ),
-            aux_loss_weight=0.75
+            
         )
         train_raw_env.get_logger().info("SAC model defined.")
 
