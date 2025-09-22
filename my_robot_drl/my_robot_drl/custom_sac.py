@@ -56,7 +56,7 @@ class CustomSAC(SAC):
             # --- TRAIN TRANSFUSER (IMITATION LEARNING) ---
             if self.num_timesteps <= self.learning_starts or self._train_step_counter % self.transfuser_train_freq == 0:
                 print(f"\n--- Training Step #{self._train_step_counter}: Updating TransFuser Feature Extractor ---", flush=True)
-                features_extractor = self.policy.features_extractor # Correct way to access it
+                features_extractor = self.policy.actor.features_extractor # Correct way to access it
                 features_extractor.train()
 
                 waypoint_losses = []

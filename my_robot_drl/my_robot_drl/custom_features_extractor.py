@@ -76,6 +76,7 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
         # Perform a forward pass WITH gradient tracking
         pred_wp, _ = self.transfuser(image_list, lidar_list, target_point, velocity)
         
+        
         # Calculate the loss
         waypoint_loss = F.l1_loss(pred_wp, gt_waypoints)
         
