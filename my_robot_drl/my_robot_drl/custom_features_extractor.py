@@ -3,8 +3,8 @@
 import torch
 from torch import optim
 from gymnasium import spaces
+import torch.nn.functional as F
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-import numpy as np
 from .model import TransFuser
 from .config import GlobalConfig
 
@@ -13,7 +13,7 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
         super().__init__(observation_space, features_dim=features_dim)
         self.config = GlobalConfig()
         self.transfuser = TransFuser(self.config, 'cuda') 
-        self.last_pred_wp = None
+        # REMOVED: self.last_pred_wp = None. We will not use this anti-pattern.
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
         print("TransFuserFeaturesExtractor initialized with its own Adam optimizer.", flush=True)
 
@@ -21,43 +21,68 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
     def device(self) -> torch.device:
         return next(self.parameters()).device
 
-    def forward(self, observations: dict) -> torch.Tensor:
+    def _get_transfuser_inputs(self, observations: dict) -> tuple:
+        """Helper to extract and format inputs for the TransFuser model."""
         all_obs_tensors = {}
         current_device = self.device
         
         for key, obs in observations.items():
-            # SB3 handles adding the batch dimension, so obs is usually a tensor
-            # We just need to ensure it's on the right device.
             all_obs_tensors[key] = torch.as_tensor(obs, device=current_device)
 
         image_obs = all_obs_tensors['image'].float() / 255.0
         lidar_obs = all_obs_tensors['lidar_bev'].float() / 255.0
         state_obs = all_obs_tensors['state']
 
-        # --- FIX: REMOVED INCORRECT PERMUTATION ---
-        # Stable Baselines 3 automatically converts image observations from (N, H, W, C)
-        # to the PyTorch standard (N, C, H, W) before they reach the feature extractor.
-        # The permute calls were therefore incorrect and corrupted the tensor shape.
-        # image_obs = image_obs.permute(0, 3, 1, 2) # This line was removed.
-        # lidar_obs = lidar_obs.permute(0, 3, 1, 2) # This line was removed.
-        
         image_list, lidar_list = [image_obs], [lidar_obs]
         
         target_point = state_obs[:, 0:2]
-        # Handle batch vs non-batch case for velocity
         if state_obs.dim() > 1:
              velocity = state_obs[:, 2].unsqueeze(1)
         else:
              velocity = state_obs[2].unsqueeze(0).unsqueeze(0)
+             
+        return image_list, lidar_list, target_point, velocity
 
-
-
+    def forward(self, observations: dict) -> torch.Tensor:
+        """
+        This is the standard forward method used by the SAC actor and critic.
+        It MUST return detached features to prevent SAC from training the backbone.
+        """
+        image_list, lidar_list, target_point, velocity = self._get_transfuser_inputs(observations)
         
-        pred_wp, z = self.transfuser(image_list, lidar_list, target_point, velocity)
-
-        self.last_pred_wp = pred_wp
+        # We need the forward pass to get the features, but we don't want to
+        # train the backbone with the SAC loss, so we use no_grad here.
+        with torch.no_grad():
+            pred_wp, z = self.transfuser(image_list, lidar_list, target_point, velocity)
         
+        # The .detach() calls are technically redundant due to no_grad, but it's
+        # good practice to be explicit. This is the feature vector for the policy.
         final_features = torch.cat([z.detach(), pred_wp.flatten(start_dim=1).detach()], dim=1)
-  
         
         return final_features
+
+    def train_imitation_learning(self, observations: dict) -> torch.Tensor:
+        """
+        A dedicated method for the imitation learning update step.
+        This keeps the computation graph local to this function call.
+        """
+        # Get ground truth waypoints
+        gt_waypoints = torch.as_tensor(observations['gt_waypoints'], device=self.device)
+
+        # Get model inputs
+        image_list, lidar_list, target_point, velocity = self._get_transfuser_inputs(observations)
+
+        # --- CRITICAL ---
+        # Perform a forward pass WITH gradient tracking
+        pred_wp, _ = self.transfuser(image_list, lidar_list, target_point, velocity)
+        
+        # Calculate the loss
+        waypoint_loss = F.l1_loss(pred_wp, gt_waypoints)
+        
+        # Perform the optimization
+        self.optimizer.zero_grad()
+        waypoint_loss.backward()
+        self.optimizer.step()
+        
+        # Return the loss value for logging
+        return waypoint_loss.item()

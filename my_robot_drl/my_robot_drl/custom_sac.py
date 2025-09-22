@@ -10,6 +10,7 @@ from std_srvs.srv import Empty
 
 class CustomSAC(SAC):
 
+    # ... (__init__ is unchanged) ...
     def __init__(self, 
                  policy, 
                  env, 
@@ -43,7 +44,7 @@ class CustomSAC(SAC):
             f"SAC (freq={sac_train_freq}, steps={sac_gradient_steps})."
         )
 
-    # Note: the gradient_steps argument from SB3 is now ignored for our logic
+
     def train(self, gradient_steps: int, batch_size: int) -> None:
         self._train_step_counter += 1
 
@@ -55,29 +56,22 @@ class CustomSAC(SAC):
             # --- TRAIN TRANSFUSER (IMITATION LEARNING) ---
             if self.num_timesteps <= self.learning_starts or self._train_step_counter % self.transfuser_train_freq == 0:
                 print(f"\n--- Training Step #{self._train_step_counter}: Updating TransFuser Feature Extractor ---", flush=True)
-                features_extractor = self.actor.features_extractor
+                features_extractor = self.policy.features_extractor # Correct way to access it
                 features_extractor.train()
 
                 waypoint_losses = []
                 for i in range(self.transfuser_gradient_steps): 
                     replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
-                    _ = features_extractor(replay_data.observations)
-                    pred_waypoints = features_extractor.last_pred_wp
-                    gt_waypoints = replay_data.observations['gt_waypoints']
-                    waypoint_loss = F.l1_loss(pred_waypoints, gt_waypoints)
                     
-                    features_extractor.optimizer.zero_grad()
-                    waypoint_loss.backward()
-                    features_extractor.optimizer.step()
+                    # --- NEW CLEAN METHOD CALL ---
+                    # This call encapsulates the forward pass, loss calculation, and backward pass.
+                    # The computation graph is created and destroyed entirely within this call.
+                    loss_item = features_extractor.train_imitation_learning(replay_data.observations)
                     
-                    loss_item = waypoint_loss.item()
                     waypoint_losses.append(loss_item)
-                    # --- NEW VERBOSE LOGGING ---
                     print(f"    > TransFuser Grad Step {i+1}/{self.transfuser_gradient_steps}, Loss: {loss_item:.6f}", flush=True)
 
-
                 avg_wp_loss = np.mean(waypoint_losses) if waypoint_losses else 0
-                # --- FIX: USE THE CORRECT VARIABLE IN THE PRINT STATEMENT ---
                 print(f"--- Feature Extractor Waypoint Loss (avg over {self.transfuser_gradient_steps} steps): {avg_wp_loss:.6f} ---", flush=True)
                 self.logger.record("train/waypoint_loss", avg_wp_loss)
 
