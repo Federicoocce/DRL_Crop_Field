@@ -11,7 +11,8 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from std_srvs.srv import Empty
-
+from gazebo_msgs.srv import SetEntityState
+from geometry_msgs.msg import Pose, Point, Quaternion, Twist
 ### MODIFIED ###
 # Import the new utility functions and specific sensor message types
 from sensor_msgs.msg import Image, PointCloud2
@@ -19,47 +20,56 @@ import cv2
 from cv_bridge import CvBridge
 from sensor_msgs_py import point_cloud2
 from .transfuser_util import scale_and_crop_image, lidar_to_histogram_features, render_sensor_data, close_windows
-
+from .spawn_point_calculator import get_spawn_points
 # Make sure you have this library installed: pip install dubins or pip install dubins-py
 import dubins 
+import random
+from shapely.geometry import LineString
 
-from .dense_waypoint import get_dense_lane_waypoints
+
+from .dense_waypoint import get_dense_lane_waypoints, WorldDescription, Field2DGenerator
+
+def quaternion_from_euler(roll, pitch, yaw): # <--- ADD THIS HELPER FUNCTION
+    """Converts euler roll, pitch, yaw to a Quaternion."""
+    cy = math.cos(yaw * 0.5)
+    sy = math.sin(yaw * 0.5)
+    cp = math.cos(pitch * 0.5)
+    sp = math.sin(pitch * 0.5)
+    cr = math.cos(roll * 0.5)
+    sr = math.sin(roll * 0.5)
+    q = Quaternion()
+    q.w = cr * cp * cy + sr * sp * sy
+    q.x = sr * cp * cy - cr * sp * sy
+    q.y = cr * sp * cy + sr * cp * sy
+    q.z = cr * cp * sy - sr * sp * cy
+    return q
 
 class MaizeNavigationEnv(gymnasium.Env, Node):
-    """Custom Gymnasium Environment for Maize Field Navigation."""
     metadata = {'render_modes': ['human']}
 
-    def __init__(self):
+    def __init__(self, robot_name='tracked_robot'):
         gymnasium.Env.__init__(self)
         Node.__init__(self, 'maize_drl_environment')
-        
-        ### MODIFIED ###
-        # --- Parameters based on the TransFuser Paper ---
-        self.IMAGE_CROP_SIZE = 256 # From the paper's 'crop' parameter
-        self.LIDAR_CROP_SIZE = 256 # From the paper's 'crop' parameter
+
+        self.robot_name = robot_name
+        self.IMAGE_CROP_SIZE = 256
+        self.LIDAR_CROP_SIZE = 256
 
         self.get_logger().info("Attempting to load waypoints for the environment...")
         self.master_waypoints = get_dense_lane_waypoints()
         if not self.master_waypoints:
             self.get_logger().fatal("CRITICAL: Failed to load waypoints. Cannot proceed.")
-        else:
-            self.get_logger().info(f"Successfully loaded a master set of {len(self.master_waypoints)} waypoints.")
+            rclpy.shutdown()
+            return
 
         self.action_space = spaces.Box(
             low=np.array([0.0, -1.0]), high=np.array([0.5, 1.0]), dtype=np.float32
         )
-        
-        ### MODIFIED: Expanded state space for local and distant goals ###
-        # State vector: [local_goal1_x, local_goal1_y, ..., local_goal4_x, local_goal4_y, 
-        #                distant_goal_x, distant_goal_y, linear_vel, angular_vel]
-        STATE_VECTOR_SIZE = 4 
-
+        STATE_VECTOR_SIZE = 4
         self.observation_space = spaces.Dict({
             'image': spaces.Box(low=0, high=255, shape=(self.IMAGE_CROP_SIZE, self.IMAGE_CROP_SIZE, 3), dtype=np.uint8),
             'lidar_bev': spaces.Box(low=0, high=255, shape=(self.LIDAR_CROP_SIZE, self.LIDAR_CROP_SIZE, 2), dtype=np.uint8),
             'state': spaces.Box(low=-np.inf, high=np.inf, shape=(STATE_VECTOR_SIZE,), dtype=np.float32),
-            # This contains the ground truth for the auxiliary loss.
-            # It is NOT part of the policy's direct state input.
             'gt_waypoints': spaces.Box(low=-np.inf, high=np.inf, shape=(4, 2), dtype=np.float32)
         })
 
@@ -67,35 +77,99 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
         self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
         self.reset_sim_client = self.create_client(Empty, '/reset_simulation')
-        
+        self.set_state_client = self.create_client(SetEntityState, '/set_entity_state')
         self.camera_sub = self.create_subscription(Image, '/tracked_robot/rgb_camera/image_raw', self.camera_callback, 10)
         self.lidar_3d_sub = self.create_subscription(PointCloud2, '/points', self.lidar_3d_callback, 10)
         self.bridge = CvBridge()
         
+        self.get_logger().info("Connecting to Gazebo services...")
+        while not self.set_state_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().info('Service /set_entity_state not available, waiting...')
+        while not self.reset_sim_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().info('Service /reset_simulation not available, waiting...')
+        self.get_logger().info("Successfully connected to Gazebo services.")
+
+        # --- MODIFIED: Prepare for dynamic spawn point initialization ---
+        self.spawn_points = {}
+        self.spawn_point_keys = []
+        self.spawn_points_initialized = False # Flag to run initialization only once
+        
+        # --- Initialize other state variables ---
         self.current_odom = None
         self.current_scan = np.full(360, 2.0, dtype=np.float32)
         self.current_image = np.zeros((self.IMAGE_CROP_SIZE, self.IMAGE_CROP_SIZE, 3), dtype=np.uint8)
         self.current_lidar_bev = np.zeros((self.LIDAR_CROP_SIZE, self.LIDAR_CROP_SIZE, 2), dtype=np.uint8)
-
         self.min_lidar_range = 0.14
         self.collision_threshold = 0.16
         self.too_far_lidar_threshold = 1.8
-        
         self.waypoints, self.visited_waypoints = [], []
-        self.num_waypoints_total, self.num_waypoints_visited_current_episode = 0, 0
-        self.target_waypoint_index, self.previous_waypoint_index = None, None 
+        self.num_waypoints_total = 0
+        self.target_waypoint_index, self.previous_waypoint_index = None, None
         self.last_distance_to_target, self.REWARD_FACTOR_DISTANCE = 0.0, 15.0
         self.episode_done, self.last_action = False, np.array([0.0, 0.0], dtype=np.float32)
         self.waypoint_reach_threshold = 0.3
-
-        self.turning_radius, self.turn_wp_step_distance = 0.7, 0.2
+        self.turning_radius, self.turn_wp_step_distance = 0.6, 0.4
         self.original_target_after_turn_idx = None
         self.local_goal_waypoints = []
         self.distant_goal_world_coords = None
         self.boundary_crossing_counter = 0
-
-        self.get_logger().info("MaizeNavigationEnv initialized with TransFuser data processing.")
         self.debug_counter = 0
+
+    def _initialize_spawn_points_dynamically(self):
+        """
+        Calculates spawn points based on the robot's actual initial odometry.
+        This is run only once on the first reset.
+        """
+        try:
+            self.get_logger().info("First reset: Dynamically initializing spawn points from initial odometry...")
+            Z_OFFSET = 0.1
+            
+            # --- STEP 1: 'start_spawn' is the robot's current position after reset ---
+            initial_pos = self.current_odom.pose.pose.position
+            _roll, _pitch, initial_yaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
+            start_spawn_pos = {
+                "x": initial_pos.x, "y": initial_pos.y, "z": Z_OFFSET, "yaw": initial_yaw
+            }
+            self.spawn_points["start_spawn"] = start_spawn_pos
+
+            # --- STEP 2: Find the 'start_of_lane' by finding the closest waypoint ---
+            start_of_lane_wp, sol_wp_idx = self._find_closest_master_waypoint(start_spawn_pos)
+            if start_of_lane_wp is None:
+                raise ValueError("Could not find a closest waypoint to the initial robot position.")
+
+            next_wp_for_sol = self.master_waypoints[sol_wp_idx + 1]
+            start_lane_yaw = math.atan2(next_wp_for_sol['y'] - start_of_lane_wp['y'], next_wp_for_sol['x'] - start_of_lane_wp['x'])
+            
+            self.spawn_points["start_of_lane"] = {
+                "x": start_of_lane_wp['x'], "y": start_of_lane_wp['y'], "z": Z_OFFSET, "yaw": start_lane_yaw
+            }
+
+            # --- STEP 3: Find the 'end_of_lane' ---
+            first_lane_index = start_of_lane_wp.get('original_lane_index')
+            if first_lane_index is None:
+                raise ValueError("The identified 'start_of_lane' waypoint is missing a lane index.")
+
+            end_of_lane_wp, eol_wp_idx = self._find_end_of_lane_master(first_lane_index)
+            if end_of_lane_wp is None:
+                raise ValueError(f"Could not find the end boundary for lane {first_lane_index}.")
+
+            prev_wp_for_eol = self.master_waypoints[eol_wp_idx - 1]
+            end_lane_yaw = math.atan2(end_of_lane_wp['y'] - prev_wp_for_eol['y'], end_of_lane_wp['x'] - prev_wp_for_eol['x'])
+            
+            self.spawn_points["end_of_lane"] = {
+                "x": end_of_lane_wp['x'], "y": end_of_lane_wp['y'], "z": Z_OFFSET, "yaw": end_lane_yaw,
+                "lane_to_skip": first_lane_index
+            }
+            
+            self.spawn_point_keys = list(self.spawn_points.keys())
+            self.spawn_points_initialized = True
+            for name, data in self.spawn_points.items():
+                self.get_logger().info(f"  - Initialized '{name}': x={data['x']:.2f}, y={data['y']:.2f}, yaw={data['yaw']:.2f}")
+
+        except Exception as e:
+            self.get_logger().fatal(f"CRITICAL: Failed to dynamically initialize spawn points: {e}")
+            self.get_logger().fatal("Cannot proceed with training. Shutting down.")
+            rclpy.shutdown()
 
     def odom_callback(self, msg):
         self.current_odom = msg
@@ -141,90 +215,139 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             import traceback
             traceback.print_exc()
 
-    # The rest of the file (reset, step, _get_observation, etc.) is identical to the
-    # previous version that already handles the Dict observation space.
-    # No changes are needed there.
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.get_logger().info("Resetting environment...")
-        
-
-        if not self.master_waypoints:
-            self.get_logger().error("Cannot reset: Master waypoint list is empty.")
-            return self._get_observation(), self._get_info()
 
         while rclpy.ok():
-            while not self.reset_sim_client.wait_for_service(timeout_sec=1.0):
-                self.get_logger().info('Reset service not available, waiting again...')
-            
+            # 1. Reset the simulation to its default state
             reset_future = self.reset_sim_client.call_async(Empty.Request())
             rclpy.spin_until_future_complete(self, reset_future, timeout_sec=5.0)
-            
             if not reset_future.done() or reset_future.result() is None:
                 self.get_logger().warn("Reset service call failed or timed out. Retrying...")
                 time.sleep(1.0)
                 continue
 
+            # 2. Get initial odometry (for first-time spawn point calculation)
             self.current_odom = None
-            self.current_scan = np.full(360, 2.0, dtype=np.float32)
-            self.current_image = np.zeros((self.IMAGE_CROP_SIZE, self.IMAGE_CROP_SIZE, 3), dtype=np.uint8)
-            self.current_lidar_bev = np.zeros((self.LIDAR_CROP_SIZE, self.LIDAR_CROP_SIZE, 2), dtype=np.uint8)
-            
-            start_time, timeout_seconds, got_fresh_data = time.time(), 10.0, False
-
-            self.get_logger().info(f"Waiting up to {timeout_seconds}s for fresh odom, scan, image, and point cloud...")
+            start_time, timeout_seconds = time.time(), 10.0
             while time.time() - start_time < timeout_seconds:
-                time.sleep(1.0) 
-                rclpy.spin_once(self, timeout_sec=0.05)
-                if (self.current_odom is not None and not np.all(self.current_scan == 2.0) and
-                    not np.all(self.current_image == 0) and not np.all(self.current_lidar_bev == 0)):
-                    self.get_logger().info("Successfully received all fresh sensor data.")
+                rclpy.spin_once(self, timeout_sec=0.1)
+                if self.current_odom is not None: break
+            if self.current_odom is None:
+                self.get_logger().warn("Timed out waiting for initial odom after reset. Retrying.")
+                continue
+                
+            # 3. Initialize spawn points if not already done
+            if not self.spawn_points_initialized:
+                self._initialize_spawn_points_dynamically()
+                if not self.spawn_points_initialized:
+                    self.get_logger().error("Shutting down due to failed spawn point initialization.")
+                    return None, {}
+
+            # 4. Choose a random spawn and teleport
+            chosen_spawn_key = random.choice(self.spawn_point_keys)
+            spawn_loc = self.spawn_points[chosen_spawn_key]
+            self.get_logger().info(f"Attempting to teleport robot to: '{chosen_spawn_key}'")
+
+            pose = Pose(position=Point(x=spawn_loc['x'], y=spawn_loc['y'], z=spawn_loc['z']),
+                        orientation=quaternion_from_euler(0.0, 0.0, spawn_loc['yaw']))
+            req = SetEntityState.Request()
+            req.state.name = self.robot_name
+            req.state.pose = pose
+            req.state.reference_frame = "world"
+            
+            set_state_future = self.set_state_client.call_async(req)
+            rclpy.spin_until_future_complete(self, set_state_future, timeout_sec=5.0)
+            if not set_state_future.done() or not set_state_future.result().success:
+                self.get_logger().warn("Failed to set robot state. Retrying reset...")
+                continue
+            
+            # 5. Wait for the simulation to settle
+            time.sleep(0.5)
+            self.current_odom, self.current_scan = None, np.full(360, 2.0, dtype=np.float32)
+            start_time, got_fresh_data = time.time(), False
+            while time.time() - start_time < timeout_seconds:
+                rclpy.spin_once(self, timeout_sec=0.1)
+                if self.current_odom is not None and not np.all(self.current_scan == 2.0):
                     got_fresh_data = True
                     break
-            
+                time.sleep(0.2)
             if not got_fresh_data:
-                self.get_logger().warn(f"Timed out waiting for sensor data. Retrying full reset process.")
+                self.get_logger().warn("Timed out waiting for sensor data after teleport. Retrying.")
                 continue 
+            
+            # 6. Initialize waypoints and determine the next target
             self.boundary_crossing_counter = 0
             self.waypoints = [wp.copy() for wp in self.master_waypoints]
-            self.num_waypoints_total = len(self.waypoints)
-            self.visited_waypoints = [False] * self.num_waypoints_total
+            self.visited_waypoints = [False] * len(self.waypoints)
             self.num_waypoints_visited_current_episode = 0
-            time.sleep(1.0)
-            self.target_waypoint_index = self._find_closest_unvisited_waypoint()
+            self.num_waypoints_total = len(self.waypoints)
+            
+            self.target_waypoint_index = None
+
+            ### THIS IS THE CORRECTED LOGIC BASED ON YOUR INSTRUCTION ###
+            if 'lane_to_skip' in spawn_loc:
+                # Set up the environment to trigger the U-turn logic on the first step
+                lane_to_skip_idx = spawn_loc['lane_to_skip']
+                self.get_logger().info(f"Staging lane {lane_to_skip_idx} to trigger U-turn on next step.")
+                
+                # Find the index of the very last waypoint in this lane
+                end_of_lane_wp_idx = -1
+                for i, wp in reversed(list(enumerate(self.waypoints))):
+                    if wp.get('original_lane_index') == lane_to_skip_idx:
+                        end_of_lane_wp_idx = i
+                        break
+                
+                if end_of_lane_wp_idx != -1:
+                    # Mark all waypoints in the lane as visited, EXCEPT the last one
+                    for i, wp in enumerate(self.waypoints):
+                        if wp.get('original_lane_index') == lane_to_skip_idx and i != end_of_lane_wp_idx:
+                            if not self.visited_waypoints[i]:
+                                self.visited_waypoints[i] = True
+                                self.num_waypoints_visited_current_episode += 1
+                    
+                    # Set the target to be that single, unvisited, end-of-lane waypoint
+                    self.target_waypoint_index = end_of_lane_wp_idx
+                    # Set the previous waypoint to allow the U-turn logic to calculate direction
+                    self.previous_waypoint_index = end_of_lane_wp_idx - 1
+                    self.boundary_crossing_counter = 1
+                else:
+                    # Fallback if something goes wrong
+                    self.target_waypoint_index = self._find_closest_unvisited_waypoint()
+
+            else:
+                # Standard logic for other spawns
+                self.target_waypoint_index = self._find_closest_unvisited_waypoint()
+            
+            if self.target_waypoint_index is None:
+                self.get_logger().warn(f"Could not find a valid target from spawn '{chosen_spawn_key}'. Retrying reset.")
+                time.sleep(1.0)
+                continue
+            
+            # 7. Finalize the reset process
             self._initialize_local_goals()
-            ### MODIFIED: Set initial distant goal ###
-            if self.target_waypoint_index is not None:
-                initial_lane_idx = self.waypoints[self.target_waypoint_index].get('original_lane_index')
-                if initial_lane_idx is not None:
-                    self.distant_goal_world_coords = self._find_end_of_lane(initial_lane_idx)
-                    if self.distant_goal_world_coords:
-                         self.get_logger().info(f"Initial distant goal set to end of lane {initial_lane_idx}.")
-                else: self.distant_goal_world_coords = None
-            else: self.distant_goal_world_coords = None
-            self.previous_waypoint_index = None
+            initial_lane_idx = self.waypoints[self.target_waypoint_index].get('original_lane_index')
+            self.distant_goal_world_coords = self._find_end_of_lane(initial_lane_idx) if initial_lane_idx is not None else None
+            
+            if self.previous_waypoint_index is None:
+                 self.previous_waypoint_index = self.target_waypoint_index
+
             self.original_target_after_turn_idx = None
 
-            if self.target_waypoint_index is not None:
-                target_wp = self.waypoints[self.target_waypoint_index]
-                robot_pos = self.current_odom.pose.pose.position
-                self.last_distance_to_target = math.sqrt((target_wp['x'] - robot_pos.x)**2 + (target_wp['y'] - robot_pos.y)**2)
-            else:
-                self.last_distance_to_target = 0.0
-
-            if (self.current_scan < self.min_lidar_range).any():
-                self.get_logger().warn("Received scan with values below minimum range. Retrying full reset process.")
-                continue
-
+            target_wp = self.waypoints[self.target_waypoint_index]
+            robot_pos = self.current_odom.pose.pose.position
+            self.last_distance_to_target = math.sqrt((target_wp['x'] - robot_pos.x)**2 + (target_wp['y'] - robot_pos.y)**2)
+            
             self.episode_done = False
             self.last_action = np.array([0.0, 0.0], dtype=np.float32)
-            #self.render()
             break
-
+            
         observation = self._get_observation()
         info = self._get_info()
         self.get_logger().info(f"Reset complete. Initial target: #{self.target_waypoint_index}")
         return observation, info
+
     
     def render(self, mode='human'):
         """
@@ -670,3 +793,34 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 # We create a copy to avoid modifying the master list with temporary data
                 end_of_lane_wp = wp.copy()
         return end_of_lane_wp
+
+
+
+    def _find_end_of_lane_master(self, lane_index: int) -> tuple[dict | None, int | None]:
+        """
+        Finds the last waypoint marked as a boundary for a specific lane from the master list.
+        Returns the waypoint dictionary and its index.
+        """
+        end_wp = None
+        end_idx = None
+        for i, wp in enumerate(self.master_waypoints):
+            if (wp.get('original_lane_index') == lane_index and wp.get('is_lane_boundary', False)):
+                end_wp = wp # The last one found for this lane will be the end
+                end_idx = i
+        return end_wp.copy() if end_wp else None, end_idx
+
+    def _find_closest_master_waypoint(self, position: dict) -> tuple[dict | None, int | None]:
+        """
+        Finds the closest waypoint from the master list to a given world position.
+        Returns the waypoint dictionary and its index.
+        """
+        closest_dist_sq = float('inf')
+        closest_wp = None
+        closest_idx = None
+        for i, wp in enumerate(self.master_waypoints):
+            dist_sq = (wp['x'] - position['x'])**2 + (wp['y'] - position['y'])**2
+            if dist_sq < closest_dist_sq:
+                closest_dist_sq = dist_sq
+                closest_wp = wp
+                closest_idx = i
+        return closest_wp, closest_idx

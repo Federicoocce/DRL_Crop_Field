@@ -3,6 +3,7 @@ import os
 from .drl_env import MaizeNavigationEnv
 from stable_baselines3 import SAC
 from stable_baselines3.common.callbacks import EvalCallback, StopTrainingOnRewardThreshold
+from stable_baselines3.common.callbacks import BaseCallback # <-- THIS IS THE FIX
 from stable_baselines3.common.monitor import Monitor # For EvalCallback
 from gymnasium.wrappers import TimeLimit
 import sys
@@ -11,6 +12,70 @@ import numpy as np # For calculating stats in evaluation mode
 from .custom_sac import CustomSAC
 from .custom_features_extractor import TransFuserFeaturesExtractor
 from stable_baselines3.sac import MlpPolicy as SACPolicy # Use the standard MlpPolicy
+from stable_baselines3.common.evaluation import evaluate_policy
+### NEW: Correctly Implemented Custom Callback ###
+class CustomEvalCallback(BaseCallback):
+    """
+    A custom callback that derives from ``BaseCallback``.
+    It runs periodic evaluations and saves the best model, excluding non-serializable objects.
+
+    :param eval_env: The environment used for initialization
+    :param n_eval_episodes: The number of episodes to test the agent
+    :param eval_freq: Evaluate the agent every ``eval_freq`` call of ``_on_step()``
+    :param log_path: Path to a folder where the evaluations will be saved
+    :param best_model_save_path: Path to a folder where the best model will be saved
+    :param deterministic: Whether the evaluation should use stochastic or deterministic actions
+    :param render: Whether to render the environment during evaluation
+    :param verbose: Verbosity level: 0 for no output, 1 for info messages, 2 for debug messages
+    """
+    def __init__(self, eval_env, n_eval_episodes=5, eval_freq=10000, log_path=None,
+                 best_model_save_path=None, deterministic=True, render=False, verbose=1):
+        super().__init__(verbose)
+        self.eval_env = eval_env
+        self.n_eval_episodes = n_eval_episodes
+        self.eval_freq = eval_freq
+        self.best_mean_reward = -np.inf
+        self.last_mean_reward = -np.inf
+        self.deterministic = deterministic
+        self.render = render
+        self.log_path = log_path
+        self.best_model_save_path = best_model_save_path
+
+    def _on_step(self) -> bool:
+        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
+            # Evaluate the policy
+            episode_rewards, episode_lengths = evaluate_policy(
+                self.model, self.eval_env, n_eval_episodes=self.n_eval_episodes,
+                render=self.render, deterministic=self.deterministic, return_episode_rewards=True
+            )
+            mean_reward, std_reward = np.mean(episode_rewards), np.std(episode_rewards)
+            mean_ep_length = np.mean(episode_lengths)
+            self.last_mean_reward = mean_reward
+
+            if self.verbose > 0:
+                print(f"Eval num_timesteps={self.num_timesteps}, episode_reward={mean_reward:.2f} +/- {std_reward:.2f}")
+                print(f"Episode length: {mean_ep_length:.2f} +/- {np.std(episode_lengths):.2f}")
+
+            # Log results
+            self.logger.record("eval/mean_reward", float(mean_reward))
+            self.logger.record("eval/mean_ep_length", mean_ep_length)
+
+            # Save best model
+            if mean_reward > self.best_mean_reward:
+                self.best_mean_reward = mean_reward
+                if self.verbose > 0:
+                    print("New best mean reward!")
+                if self.best_model_save_path is not None:
+                    save_path = os.path.join(self.best_model_save_path, "best_model")
+                    self.model.save(
+                        save_path,
+                        exclude=["env_node", "env"] # CRITICAL FIX
+                    )
+                    if self.verbose > 0:
+                        print(f"Best model saved to {save_path}.zip")
+
+        return True
+
 def main(args=None):
     rclpy.init(args=args)
 
@@ -69,18 +134,18 @@ def main(args=None):
 
  
 
-        # 2. Define Callbacks
-        eval_callback = EvalCallback(
+        ### MODIFIED: Use the custom callback ###
+        eval_callback = CustomEvalCallback(
             eval_env_callback,
             best_model_save_path=best_model_save_path,
             log_path=log_path,
-            eval_freq=20000,
+            eval_freq=2000000,
             n_eval_episodes=5,
             deterministic=True,
             render=False,
             verbose=1
         )
-        train_raw_env.get_logger().info("EvalCallback configured.")
+        train_raw_env.get_logger().info("CustomEvalCallback configured.")
 
         # 3. Define the DRL model
         # --- MODIFIED MODEL CREATION ---
@@ -91,15 +156,15 @@ def main(args=None):
             # --- NEW SCHEDULING PARAMETERS ---
             transfuser_train_freq=20,  # Update the big model every 20 training steps
             sac_train_freq=1,          # Update the small RL policy every training step
-            transfuser_gradient_steps=4, # Number of gradient steps for TransFuser
+            transfuser_gradient_steps=5, # Number of gradient steps for TransFuser
             sac_gradient_steps=1,       # Number of gradient steps for SAC
             # ---
             verbose=1,
             tensorboard_log=log_path,
             learning_rate=0.0003,
-            batch_size=16,
-            buffer_size=50000, # Increased buffer size for more diverse samples
-            learning_starts=5000, # Increased warm-up period
+            batch_size=32,
+            buffer_size=20000, # Increased buffer size for more diverse samples
+            learning_starts=19900, # More initial random steps to fill buffer
             gamma=0.99,
             tau=0.005,
             train_freq=1, 
