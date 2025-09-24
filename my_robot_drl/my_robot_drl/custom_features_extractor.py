@@ -22,23 +22,49 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
         return next(self.parameters()).device
 
     def _get_transfuser_inputs(self, observations: dict) -> tuple:
-        """Helper to extract and format inputs for the TransFuser model."""
+        """
+        Helper to extract and format inputs for the TransFuser model.
+        This now includes robust permutation for channel ordering.
+        """
         all_obs_tensors = {}
         current_device = self.device
         
         for key, obs in observations.items():
+            # Ensure everything is a tensor on the correct device
             all_obs_tensors[key] = torch.as_tensor(obs, device=current_device)
 
-        image_obs = all_obs_tensors['image'].float() / 255.0
-        lidar_obs = all_obs_tensors['lidar_bev'].float() / 255.0
+        # --- START OF THE ROBUST FIX ---
+        image_obs = all_obs_tensors['image']
+        lidar_obs = all_obs_tensors['lidar_bev']
+
+        # PyTorch expects (B, C, H, W). Gym/NumPy gives (B, H, W, C).
+        # We check if the last dimension is the channel dimension and permute if needed.
+        # This handles both single images (ndim=3) and batches (ndim=4).
+        if image_obs.shape[-1] == 3:
+            if image_obs.ndim == 3: # H, W, C -> C, H, W
+                image_obs = image_obs.permute(2, 0, 1)
+            elif image_obs.ndim == 4: # B, H, W, C -> B, C, H, W
+                image_obs = image_obs.permute(0, 3, 1, 2)
+        
+        if lidar_obs.shape[-1] == 2:
+            if lidar_obs.ndim == 3: # H, W, C -> C, H, W
+                lidar_obs = lidar_obs.permute(2, 0, 1)
+            elif lidar_obs.ndim == 4: # B, H, W, C -> B, C, H, W
+                lidar_obs = lidar_obs.permute(0, 3, 1, 2)
+        # --- END OF THE ROBUST FIX ---
+
+        image_obs = image_obs.float() / 255.0
+        lidar_obs = lidar_obs.float() / 255.0
         state_obs = all_obs_tensors['state']
 
+        # The model expects a list of tensors
         image_list, lidar_list = [image_obs], [lidar_obs]
         
         target_point = state_obs[:, 0:2]
         if state_obs.dim() > 1:
              velocity = state_obs[:, 2].unsqueeze(1)
         else:
+             # Handle the case of a single state vector (not batched)
              velocity = state_obs[2].unsqueeze(0).unsqueeze(0)
              
         return image_list, lidar_list, target_point, velocity
@@ -77,13 +103,29 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
         pred_wp, _ = self.transfuser(image_list, lidar_list, target_point, velocity)
         
         
-        # Calculate the loss
-        waypoint_loss = F.l1_loss(pred_wp, gt_waypoints)
-        
+        # --- START OF MODIFICATION: Weighted L1 Loss ---
+        # Define a weight for the y-axis (lateral) error. 
+        # A value > 1.0 puts more emphasis on it.
+        y_weight = 20.0
+
+        # Separate the x and y components of the waypoints. Shape is (batch, num_waypoints, 2)
+        pred_x = pred_wp[:, :, 0]
+        pred_y = pred_wp[:, :, 1]
+        gt_x = gt_waypoints[:, :, 0]
+        gt_y = gt_waypoints[:, :, 1]
+
+        # Calculate L1 loss for each component separately
+        loss_x = F.l1_loss(pred_x, gt_x)
+        loss_y = F.l1_loss(pred_y, gt_y)
+
+        # Combine the losses with the desired weight on the y-axis
+        waypoint_loss = loss_x + (y_weight * loss_y)
+        # --- END OF MODIFICATION ---
+
         # Perform the optimization
         self.optimizer.zero_grad()
         waypoint_loss.backward()
         self.optimizer.step()
         
-        # Return the loss value for logging
+        # Return the total loss value for logging
         return waypoint_loss.item()

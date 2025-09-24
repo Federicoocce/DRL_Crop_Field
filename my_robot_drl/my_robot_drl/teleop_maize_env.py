@@ -85,7 +85,7 @@ def print_status(env: MaizeNavigationEnv, current_twist: Twist, reward: float, i
 def run_teleop_loop(env: MaizeNavigationEnv, old_terminal_settings):
     """Main loop for teleoperation."""
     tty.setraw(sys.stdin.fileno()) # Set terminal to raw mode
-    print_controls()
+    # print_controls()
 
     observation, info = env.reset() # Initial reset
     current_twist = Twist()
@@ -135,7 +135,7 @@ def run_teleop_loop(env: MaizeNavigationEnv, old_terminal_settings):
         observation = env._get_observation() # Get updated observation
         info = env._get_info()               # Get updated info
 
-        print_status(env, current_twist, reward, info)
+        # print_status(env, current_twist, reward, info)
 
         if env.episode_done:
             reason = info.get('termination_reason', 'unknown')

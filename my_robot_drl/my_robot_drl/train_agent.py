@@ -1,109 +1,44 @@
+# train_agent.py
+
 import rclpy
 import os
+import sys
+import torch
+import math
+import numpy as np
+import gymnasium
+from collections import deque
+import random
+from std_srvs.srv import Empty
+
 from .drl_env import MaizeNavigationEnv
 from stable_baselines3 import SAC
-from stable_baselines3.common.callbacks import EvalCallback, StopTrainingOnRewardThreshold
-from stable_baselines3.common.callbacks import BaseCallback # <-- THIS IS THE FIX
-from stable_baselines3.common.monitor import Monitor # For EvalCallback
+from stable_baselines3.common.monitor import Monitor
 from gymnasium.wrappers import TimeLimit
-import sys
-import gymnasium
-import numpy as np # For calculating stats in evaluation mode
 from .custom_sac import CustomSAC
 from .custom_features_extractor import TransFuserFeaturesExtractor
-from stable_baselines3.sac import MlpPolicy as SACPolicy # Use the standard MlpPolicy
-from stable_baselines3.common.evaluation import evaluate_policy
-### NEW: Correctly Implemented Custom Callback ###
-class CustomEvalCallback(BaseCallback):
-    """
-    A custom callback that derives from ``BaseCallback``.
-    It runs periodic evaluations and saves the best model, excluding non-serializable objects.
-
-    :param eval_env: The environment used for initialization
-    :param n_eval_episodes: The number of episodes to test the agent
-    :param eval_freq: Evaluate the agent every ``eval_freq`` call of ``_on_step()``
-    :param log_path: Path to a folder where the evaluations will be saved
-    :param best_model_save_path: Path to a folder where the best model will be saved
-    :param deterministic: Whether the evaluation should use stochastic or deterministic actions
-    :param render: Whether to render the environment during evaluation
-    :param verbose: Verbosity level: 0 for no output, 1 for info messages, 2 for debug messages
-    """
-    def __init__(self, eval_env, n_eval_episodes=5, eval_freq=10000, log_path=None,
-                 best_model_save_path=None, deterministic=True, render=False, verbose=1):
-        super().__init__(verbose)
-        self.eval_env = eval_env
-        self.n_eval_episodes = n_eval_episodes
-        self.eval_freq = eval_freq
-        self.best_mean_reward = -np.inf
-        self.last_mean_reward = -np.inf
-        self.deterministic = deterministic
-        self.render = render
-        self.log_path = log_path
-        self.best_model_save_path = best_model_save_path
-
-    def _on_step(self) -> bool:
-        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
-            # Evaluate the policy
-            episode_rewards, episode_lengths = evaluate_policy(
-                self.model, self.eval_env, n_eval_episodes=self.n_eval_episodes,
-                render=self.render, deterministic=self.deterministic, return_episode_rewards=True
-            )
-            mean_reward, std_reward = np.mean(episode_rewards), np.std(episode_rewards)
-            mean_ep_length = np.mean(episode_lengths)
-            self.last_mean_reward = mean_reward
-
-            if self.verbose > 0:
-                print(f"Eval num_timesteps={self.num_timesteps}, episode_reward={mean_reward:.2f} +/- {std_reward:.2f}")
-                print(f"Episode length: {mean_ep_length:.2f} +/- {np.std(episode_lengths):.2f}")
-
-            # Log results
-            self.logger.record("eval/mean_reward", float(mean_reward))
-            self.logger.record("eval/mean_ep_length", mean_ep_length)
-
-            # Save best model
-            if mean_reward > self.best_mean_reward:
-                self.best_mean_reward = mean_reward
-                if self.verbose > 0:
-                    print("New best mean reward!")
-                if self.best_model_save_path is not None:
-                    save_path = os.path.join(self.best_model_save_path, "best_model")
-                    self.model.save(
-                        save_path,
-                        exclude=["env_node", "env"] # CRITICAL FIX
-                    )
-                    if self.verbose > 0:
-                        print(f"Best model saved to {save_path}.zip")
-
-        return True
+from stable_baselines3.sac import MlpPolicy as SACPolicy
 
 def main(args=None):
     rclpy.init(args=args)
 
-    # --- Determine Mode (Train vs. Eval) from command-line arguments ---
-    mode = 'train' # Default mode
+    # ... (Mode selection and path definitions are unchanged) ...
+    mode = 'train'
     if len(sys.argv) > 1:
-        if sys.argv[1].lower() == 'eval':
-            mode = 'eval'
-        elif sys.argv[1].lower() != 'train':
+        if sys.argv[1].lower() in ['train', 'eval', 'il_only']:
+            mode = sys.argv[1].lower()
+        else:
             print(f"Warning: Unknown mode '{sys.argv[1]}'. Defaulting to 'train'.")
-
-    # --- Common Paths ---
     home_dir = os.path.expanduser('~')
     log_path = os.path.join(home_dir, 'ros2_ws', 'drl_logs', 'sac_maize_nav_logs')
     model_save_path_dir = os.path.join(home_dir, 'ros2_ws', 'drl_models')
-    best_model_save_path = os.path.join(model_save_path_dir, 'sac_maize_nav_best_model')
 
 
-    # ===================================================================
-    # --- TRAINING MODE ---
-    # ===================================================================
     if mode == 'train':
-        print("\n--- Starting in TRAINING mode ---\n")
+        # ... (This section is unchanged and remains correct) ...
+        print("\n--- Starting in DRL TRAINING mode (SAC + IL) ---\n")
         os.makedirs(log_path, exist_ok=True)
         os.makedirs(model_save_path_dir, exist_ok=True)
-        os.makedirs(best_model_save_path, exist_ok=True)
-
-        # 1. Create the custom training environment
         try:
             train_raw_env = MaizeNavigationEnv()
             train_raw_env.get_logger().info("Training environment created.")
@@ -111,84 +46,33 @@ def main(args=None):
             print(f"Error creating Training MaizeNavigationEnv: {e}")
             rclpy.shutdown()
             sys.exit(1)
-
         episode_length = 20000
-        # --- IMPORTANT: Keep the raw env instance before wrapping it ---
         train_env = TimeLimit(train_raw_env, max_episode_steps=episode_length)
-        train_env = Monitor(train_env) # Monitor wraps TimeLimit
+        train_env = Monitor(train_env)
         train_raw_env.get_logger().info("Training environment wrapped.")
-
-
-        # --- Create a separate evaluation environment for the callback ---
-        try:
-            eval_raw_env_callback = MaizeNavigationEnv()
-            eval_raw_env_callback.get_logger().info("Callback evaluation environment created.")
-        except Exception as e:
-            print(f"Error creating Callback Evaluation MaizeNavigationEnv: {e}")
-            rclpy.shutdown()
-            sys.exit(1)
-
-        eval_env_callback = TimeLimit(eval_raw_env_callback, max_episode_steps=episode_length)
-        eval_env_callback = Monitor(eval_env_callback) # Monitor wraps TimeLimit
-        eval_raw_env_callback.get_logger().info("Callback evaluation environment wrapped.")
-
- 
-
-        ### MODIFIED: Use the custom callback ###
-        eval_callback = CustomEvalCallback(
-            eval_env_callback,
-            best_model_save_path=best_model_save_path,
-            log_path=log_path,
-            eval_freq=2000000,
-            n_eval_episodes=5,
-            deterministic=True,
-            render=False,
-            verbose=1
-        )
-        train_raw_env.get_logger().info("CustomEvalCallback configured.")
-
-        # 3. Define the DRL model
-        # --- MODIFIED MODEL CREATION ---
+        train_raw_env.get_logger().info("Periodic evaluation is DISABLED.")
         model = CustomSAC(
             policy=SACPolicy,
             env=train_env,
             env_node=train_raw_env,
-            # --- NEW SCHEDULING PARAMETERS ---
-            transfuser_train_freq=20,  # Update the big model every 20 training steps
-            sac_train_freq=1,          # Update the small RL policy every training step
-            transfuser_gradient_steps=5, # Number of gradient steps for TransFuser
-            sac_gradient_steps=1,       # Number of gradient steps for SAC
-            # ---
-            verbose=1,
-            tensorboard_log=log_path,
-            learning_rate=0.0003,
-            batch_size=32,
-            buffer_size=20000, # Increased buffer size for more diverse samples
-            learning_starts=19900, # More initial random steps to fill buffer
-            gamma=0.99,
-            tau=0.005,
-            train_freq=1, 
-            gradient_steps=1,
+            transfuser_train_freq=20, sac_train_freq=1,
+            transfuser_gradient_steps=5, sac_gradient_steps=1,
+            verbose=1, tensorboard_log=log_path,
+            learning_rate=0.0003, batch_size=32,
+            buffer_size=20000, learning_starts=19900,
+            gamma=0.99, tau=0.005,
+            train_freq=1, gradient_steps=1,
             policy_kwargs=dict(
                 features_extractor_class=TransFuserFeaturesExtractor,
-                features_extractor_kwargs=dict(
-                    features_dim=72
-                ),
+                features_extractor_kwargs=dict(features_dim=72),
                 net_arch=[256, 256]
             )
         )
         train_raw_env.get_logger().info("CustomSAC model with alternating schedule defined.")
-
-        # ... (The rest of the file remains the same) ...
-        # 4. Train the model
         total_training_steps = 200000
         train_raw_env.get_logger().info(f"Starting DRL training for {total_training_steps} timesteps...")
         try:
-            model.learn(
-                total_timesteps=total_training_steps,
-                log_interval=10,
-                callback=eval_callback
-            )
+            model.learn(total_timesteps=total_training_steps, log_interval=10)
         except Exception as e:
             train_raw_env.get_logger().error(f"Error during model training: {e}")
             import traceback
@@ -201,27 +85,164 @@ def main(args=None):
                 train_raw_env.get_logger().info(f"Final model saved to {final_model_path}.zip")
             except Exception as e:
                 train_raw_env.get_logger().error(f"Error saving final model: {e}")
-
-            # 6. Clean up
-            train_raw_env.get_logger().info("Closing environments...")
+            train_raw_env.get_logger().info("Closing environment...")
             train_env.close()
-            eval_env_callback.close()
             rclpy.shutdown()
             train_raw_env.get_logger().info("Shutdown complete.")
 
-    # ... (Evaluation mode code remains the same) ...
+    # ===================================================================
+    # --- IMITATION LEARNING ONLY MODE ---
+    # ===================================================================
+    elif mode == 'il_only':
+        print("\n--- Starting in IMITATION LEARNING ONLY mode ---\n")
+        os.makedirs(log_path, exist_ok=True)
+        
+        # 1. Environment and Service Setup
+        try:
+            il_raw_env = MaizeNavigationEnv()
+            il_raw_env.get_logger().info("IL-Only environment created.")
+        except Exception as e:
+            print(f"Error creating IL-Only MaizeNavigationEnv: {e}")
+            rclpy.shutdown()
+            sys.exit(1)
+
+        il_raw_env.get_logger().info("IL-Only: Initializing Gazebo service clients...")
+        pause_client = il_raw_env.create_client(Empty, "/pause_physics")
+        unpause_client = il_raw_env.create_client(Empty, "/unpause_physics")
+        while not pause_client.wait_for_service(timeout_sec=2.0):
+            il_raw_env.get_logger().warn('/pause_physics service not available, waiting...')
+        while not unpause_client.wait_for_service(timeout_sec=2.0):
+            il_raw_env.get_logger().warn('/unpause_physics service not available, waiting...')
+        il_raw_env.get_logger().info("IL-Only: Gazebo service clients connected.")
+        
+        episode_length = 20000
+        il_env = TimeLimit(il_raw_env, max_episode_steps=episode_length)
+        il_env = Monitor(il_env)
+        il_raw_env.get_logger().info("IL-Only environment wrapped.")
+
+        # 2. Model Setup
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        features_extractor = TransFuserFeaturesExtractor(il_env.observation_space, features_dim=72, lr=1e-4)
+        features_extractor.to(device)
+        il_raw_env.get_logger().info(f"TransFuser model loaded on device: {device}")
+
+        # --- START OF MODIFICATION ---
+        # 3. PID Controller and Replay Buffer Configuration
+        KP_ANGULAR = 2.0
+        TARGET_LINEAR_VEL = 0.2
+        
+        IL_BUFFER_SIZE = 15000  # Increased buffer size
+        IL_LEARNING_STARTS = 10000 # Number of random steps before training
+        
+        replay_buffer = deque(maxlen=IL_BUFFER_SIZE)
+        batch_size = 32
+        train_freq = 4
+        
+        il_raw_env.get_logger().info(f"IL-Only Params: Buffer Size={IL_BUFFER_SIZE}, Learning Starts={IL_LEARNING_STARTS}")
+        # --- END OF MODIFICATION ---
+        
+        # 4. Main Execution Loop
+        total_timesteps = 200000
+        obs, info = il_env.reset()
+        ep_reward = 0
+        ep_len = 0
+        
+        il_raw_env.get_logger().info(f"Starting IL-Only run for {total_timesteps} timesteps...")
+
+        for step in range(total_timesteps):
+            
+            # --- START OF MODIFICATION ---
+            # A. Action Selection: Random exploration or PID control
+            if step < IL_LEARNING_STARTS:
+                # Take a random action to explore and fill the buffer
+                action = il_env.action_space.sample()
+                if step % 500 == 0: # Log progress during exploration
+                    il_raw_env.get_logger().info(f"Random exploration phase: {step}/{IL_LEARNING_STARTS} steps...")
+            else:
+                if step == IL_LEARNING_STARTS: # Log when training starts
+                     il_raw_env.get_logger().info(f"LEARNING STARTS: Buffer filled. Switching to PID actions and training.")
+                # Use PID controller based on TransFuser prediction
+                batch_obs = {key: torch.as_tensor(np.expand_dims(val, axis=0)).to(device) for key, val in obs.items()}
+                image_list, lidar_list, target_point, velocity = features_extractor._get_transfuser_inputs(batch_obs)
+                with torch.no_grad():
+                    pred_wp, _ = features_extractor.transfuser(image_list, lidar_list, target_point, velocity)
+                
+                all_pred_wp = pred_wp[0].cpu().numpy()
+                first_wp = all_pred_wp[0] # Get the first one for the controller
+                angle_to_target = math.atan2(first_wp[1], first_wp[0])
+                angular_vel = KP_ANGULAR * angle_to_target
+                linear_vel = TARGET_LINEAR_VEL
+                action = np.array([linear_vel, angular_vel], dtype=np.float32)
+                action = np.clip(action, il_env.action_space.low, il_env.action_space.high)
+                # --- START OF MODIFIED DEBUGGING BLOCK ---
+                if step % 20 == 0: # Log periodically
+                    all_gt_wp = obs['gt_waypoints']
+                    distant_goal_local = obs['state'][:2]
+                    angle_to_target_deg = math.degrees(angle_to_target)
+
+                    il_raw_env.get_logger().info("--- WP Prediction Debug ---")
+                    il_raw_env.get_logger().info(f"  Distant Goal (Local):   x={distant_goal_local[0]:.2f}, y={distant_goal_local[1]:.2f}")
+                    
+                    # Loop and print all 4 waypoints for easy comparison
+                    for i in range(4):
+                        gt_wp = all_gt_wp[i]
+                        pred_wp = all_pred_wp[i]
+                        il_raw_env.get_logger().info(f"  GT   WP #{i+1}: x={gt_wp[0]:.2f}, y={gt_wp[1]:.2f}")
+                        il_raw_env.get_logger().info(f"  Pred WP #{i+1}: x={pred_wp[0]:.2f}, y={pred_wp[1]:.2f}")
+
+                    il_raw_env.get_logger().info(f"  Resulting Angle (from WP #1): {angle_to_target_deg:.1f} degrees")
+                    il_raw_env.get_logger().info(f"  Final Action: [Lin: {action[0]:.2f}, Ang: {action[1]:.2f}]")
+                    il_raw_env.get_logger().info("---------------------------")
+                # --- END OF MODIFIED DEBUGGING BLOCK ---
+            # --- END OF MODIFICATION ---
+
+            # B. Step the environment
+            next_obs, reward, terminated, truncated, info = il_env.step(action)
+            ep_reward += reward
+            ep_len += 1
+            
+            # C. Store experience in buffer (always)
+            replay_buffer.append(obs.copy())
+
+            # D. Train the model (only after learning_starts)
+            if step >= IL_LEARNING_STARTS and len(replay_buffer) > batch_size and step % train_freq == 0:
+                
+                
+                pause_future = pause_client.call_async(Empty.Request())
+                rclpy.spin_until_future_complete(il_raw_env, pause_future, timeout_sec=2.0)
+
+                try:
+                    samples = random.sample(replay_buffer, batch_size)
+                    training_batch = {key: np.array([s[key] for s in samples]) for key in samples[0].keys()}
+                    loss = features_extractor.train_imitation_learning(training_batch)
+                    
+                    if step % (train_freq * 10) == 0:
+                         il_raw_env.get_logger().info(f"Step {step}, IL Loss: {loss:.6f}")
+                finally:
+                    
+                    unpause_future = unpause_client.call_async(Empty.Request())
+                    rclpy.spin_until_future_complete(il_raw_env, unpause_future, timeout_sec=2.0)
+
+            # E. Handle episode end
+            obs = next_obs
+            if terminated or truncated:
+                il_raw_env.get_logger().info(f"Episode finished after {ep_len} steps. Reward: {ep_reward:.2f}")
+                ep_reward = 0
+                ep_len = 0
+                obs, info = il_env.reset()
+        
+        il_raw_env.get_logger().info("IL-Only run finished.")
+        il_env.close()
+        rclpy.shutdown()
+
     elif mode == 'eval':
-        # NOTE: The evaluation mode does not need pausing, so it will still work.
-        # However, to load the model properly, we must tell SB3 about our custom SAC class.
+        # ... (This section is unchanged and remains correct) ...
         print("\n--- Starting in EVALUATION mode ---\n")
-
         model_to_load_path = os.path.join(model_save_path_dir, 'sac_maize_nav_final.zip')
-
         if not os.path.exists(model_to_load_path):
             print(f"ERROR: Model file not found at '{model_to_load_path}'.")
             rclpy.shutdown()
             sys.exit(1)
-
         try:
             eval_raw_env = MaizeNavigationEnv()
             eval_raw_env.get_logger().info("Evaluation environment created.")
@@ -229,24 +250,14 @@ def main(args=None):
             print(f"Error creating Evaluation MaizeNavigationEnv: {e}")
             rclpy.shutdown()
             sys.exit(1)
-
         episode_length = 10000
         eval_env = TimeLimit(eval_raw_env, max_episode_steps=episode_length)
         eval_env = Monitor(eval_env)
         eval_raw_env.get_logger().info("Evaluation environment wrapped.")
-        
         try:
-            # When loading, we pass the env_node to the constructor via custom_objects
             model = CustomSAC.load(
-                model_to_load_path, 
-                env=eval_env,
-                env_node=eval_raw_env, # <-- PASS NODE HERE TOO
-                custom_objects={
-                    "policy_kwargs": {
-                        "features_extractor_class": TransFuserFeaturesExtractor,
-                        "features_extractor_kwargs": {"features_dim": 72}
-                    }
-                }
+                model_to_load_path, env=eval_env, env_node=eval_raw_env,
+                custom_objects={"policy_kwargs": {"features_extractor_class": TransFuserFeaturesExtractor, "features_extractor_kwargs": {"features_dim": 72}}}
             )
             eval_raw_env.get_logger().info(f"Successfully loaded model from {model_to_load_path}")
         except Exception as e:
@@ -256,21 +267,15 @@ def main(args=None):
             eval_env.close()
             rclpy.shutdown()
             sys.exit(1)
-
-        # ... (rest of eval code) ...
         num_eval_episodes = 10
-        episode_rewards = []
-        episode_lengths = []
-
+        episode_rewards, episode_lengths = [], []
         eval_raw_env.get_logger().info(f"Starting evaluation for {num_eval_episodes} episodes...")
-
         for i in range(num_eval_episodes):
             obs, info = eval_env.reset()
             terminated, truncated = False, False
             while not terminated and not truncated:
                 action, _states = model.predict(obs, deterministic=True)
                 obs, reward, terminated, truncated, info = eval_env.step(action)
-            
             ep_info = info.get('episode')
             if ep_info:
                 print(f"Episode {i + 1}/{num_eval_episodes} finished.")
@@ -279,10 +284,8 @@ def main(args=None):
                 episode_lengths.append(ep_info['l'])
             else:
                  eval_raw_env.get_logger().warn(f"Could not find episode stats for episode {i+1}.")
-
         if episode_rewards:
-            mean_reward = np.mean(episode_rewards)
-            std_reward = np.std(episode_rewards)
+            mean_reward, std_reward = np.mean(episode_rewards), np.std(episode_rewards)
             mean_length = np.mean(episode_lengths)
             print("\n--- Evaluation Summary ---")
             print(f"Average Reward: {mean_reward:.2f} +/- {std_reward:.2f}")
@@ -290,7 +293,6 @@ def main(args=None):
             print("--------------------------\n")
         else:
             print("\n--- No episodes completed, cannot calculate summary statistics. ---\n")
-
         eval_raw_env.get_logger().info("Closing evaluation environment...")
         eval_env.close()
         rclpy.shutdown()

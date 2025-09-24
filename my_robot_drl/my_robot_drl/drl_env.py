@@ -101,14 +101,14 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.current_lidar_bev = np.zeros((self.LIDAR_CROP_SIZE, self.LIDAR_CROP_SIZE, 2), dtype=np.uint8)
         self.min_lidar_range = 0.14
         self.collision_threshold = 0.16
-        self.too_far_lidar_threshold = 1.8
+        self.too_far_lidar_threshold = 1.2
         self.waypoints, self.visited_waypoints = [], []
         self.num_waypoints_total = 0
         self.target_waypoint_index, self.previous_waypoint_index = None, None
         self.last_distance_to_target, self.REWARD_FACTOR_DISTANCE = 0.0, 15.0
         self.episode_done, self.last_action = False, np.array([0.0, 0.0], dtype=np.float32)
         self.waypoint_reach_threshold = 0.3
-        self.turning_radius, self.turn_wp_step_distance = 0.6, 0.4
+        self.turning_radius, self.turn_wp_step_distance = 0.5, 0.4
         self.original_target_after_turn_idx = None
         self.local_goal_waypoints = []
         self.distant_goal_world_coords = None
@@ -245,13 +245,54 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                     self.get_logger().error("Shutting down due to failed spawn point initialization.")
                     return None, {}
 
-            # 4. Choose a random spawn and teleport
-            chosen_spawn_key = random.choice(self.spawn_point_keys)
+            # --- START OF MODIFICATION: WEIGHTED SPAWN SELECTION ---
+            # 4. Choose a spawn point with a higher probability for 'end_of_lane'
+            
+            # Define the desired probability for the 'end_of_lane' spawn
+            end_of_lane_prob = 0.6
+            
+            # Get all spawn point keys except for 'end_of_lane'
+            other_keys = [key for key in self.spawn_point_keys if key != 'end_of_lane']
+            
+            if not other_keys: # Safety check in case 'end_of_lane' is the only key
+                num_other_keys = 0
+                other_prob_total = 0.0
+            else:
+                num_other_keys = len(other_keys)
+                # The remaining probability is distributed equally among the other keys
+                other_prob_total = 1.0 - end_of_lane_prob
+
+            # Create the list of spawn keys and their corresponding weights
+            spawn_candidates = []
+            spawn_weights = []
+
+            if 'end_of_lane' in self.spawn_point_keys:
+                spawn_candidates.append('end_of_lane')
+                spawn_weights.append(end_of_lane_prob)
+            
+            if num_other_keys > 0:
+                prob_per_other = other_prob_total / num_other_keys
+                for key in other_keys:
+                    spawn_candidates.append(key)
+                    spawn_weights.append(prob_per_other)
+
+            # Use random.choices() to select one spawn key based on the weights
+            # The [0] is because random.choices returns a list (e.g., ['end_of_lane'])
+            chosen_spawn_key = random.choices(spawn_candidates, weights=spawn_weights, k=1)[0]
+            
+            # --- END OF MODIFICATION ---
+
             spawn_loc = self.spawn_points[chosen_spawn_key]
-            self.get_logger().info(f"Attempting to teleport robot to: '{chosen_spawn_key}'")
+            self.get_logger().info(f"Attempting to teleport robot to: '{chosen_spawn_key}' (Selected with weighted probability)")
+            # --- START OF NOISE MODIFICATION ---
+            # Add random noise to the spawn orientation (+-10 degrees)
+            noise_degrees = 15.0
+            noise_radians = math.radians(random.uniform(-noise_degrees, noise_degrees))
+            noisy_yaw = spawn_loc['yaw'] + noise_radians
+            # --- END OF NOISE MODIFICATION ---
 
             pose = Pose(position=Point(x=spawn_loc['x'], y=spawn_loc['y'], z=spawn_loc['z']),
-                        orientation=quaternion_from_euler(0.0, 0.0, spawn_loc['yaw']))
+                        orientation=quaternion_from_euler(0.0, 0.0, noisy_yaw))
             req = SetEntityState.Request()
             req.state.name = self.robot_name
             req.state.pose = pose
@@ -341,8 +382,9 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             
             self.episode_done = False
             self.last_action = np.array([0.0, 0.0], dtype=np.float32)
+            self.render()
             break
-            
+        
         observation = self._get_observation()
         info = self._get_info()
         self.get_logger().info(f"Reset complete. Initial target: #{self.target_waypoint_index}")
@@ -418,7 +460,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         
         # Increment a debug counter (optional)
         self.debug_counter += 1
-        #self.render()
+        self.render()
         # 5. Return the standard 5-tuple for Gymnasium environments
         return observation, reward, terminated, truncated, self._get_info()
     
@@ -578,39 +620,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 self.previous_waypoint_index = wp_reached_idx
         return current_reward
     
-    def _generate_dubins_uturn_waypoints(self, prev_wp_idx, end_of_lane_wp_idx, start_of_next_actual_lane_wp_idx):
-        try:
-            if prev_wp_idx is None: return 0
-            wp_prev, wp_end_lane, wp_start_next_lane_proper = self.waypoints[prev_wp_idx], self.waypoints[end_of_lane_wp_idx], self.waypoints[start_of_next_actual_lane_wp_idx]
-            x0, y0 = wp_end_lane['x'], wp_end_lane['y']
-            dx_start, dy_start = wp_end_lane['x'] - wp_prev['x'], wp_end_lane['y'] - wp_prev['y']
-            if abs(dx_start) < 1e-6 and abs(dy_start) < 1e-6:
-                 if self.current_odom: _, _, yaw_start = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
-                 else: return 0
-            else: yaw_start = math.atan2(dy_start, dx_start)
-            q0 = (x0, y0, yaw_start)
-            wp_start_next_lane_proper_next = self.waypoints[start_of_next_actual_lane_wp_idx + 1]
-            x1, y1 = wp_start_next_lane_proper['x'], wp_start_next_lane_proper['y']
-            dx_next, dy_next = wp_start_next_lane_proper_next['x'] - wp_start_next_lane_proper['x'], wp_start_next_lane_proper_next['y'] - wp_start_next_lane_proper['y']
-            yaw_end = math.atan2(dy_next, dx_next)
-            if yaw_end - yaw_start < 20 * math.pi / 180.0:
-                wp_start_next_lane_proper_prev = self.waypoints[start_of_next_actual_lane_wp_idx - 1]
-                dx_next, dy_next = wp_start_next_lane_proper_prev['x'] - wp_start_next_lane_proper['x'], wp_start_next_lane_proper_prev['y'] - wp_start_next_lane_proper['y']
-                yaw_end = math.atan2(dy_next, dx_next)
-            q1 = (x1, y1, yaw_end)
-            path = dubins.shortest_path(q0, q1, self.turning_radius)
-            configurations, _ = path.sample_many(self.turn_wp_step_distance)
-            if not configurations or len(configurations) < 2: return 0
-            new_turn_waypoints, lane_id_of_turn = [], wp_end_lane.get('original_lane_index', -1)
-            if len(configurations) > 2:
-                for i in range(1, len(configurations) - 1): new_turn_waypoints.append({'x': float(configurations[i][0]), 'y': float(configurations[i][1]), 'original_lane_index': lane_id_of_turn, 'is_turn_assist_wp': True})
-            if not new_turn_waypoints: return 0
-            insertion_point_idx = end_of_lane_wp_idx + 1
-            for i, turn_wp in enumerate(new_turn_waypoints): self.waypoints.insert(insertion_point_idx + i, turn_wp), self.visited_waypoints.insert(insertion_point_idx + i, False)
-            self.num_waypoints_total += len(new_turn_waypoints)
-            self.get_logger().info(f"Dubins: Inserted {len(new_turn_waypoints)} U-turn waypoints. New total: {self.num_waypoints_total}. Path type: {path.path_type()}")
-            return len(new_turn_waypoints)
-        except Exception as e: self.get_logger().error(f"Error during Dubins U-turn generation: {e}"); import traceback; traceback.print_exc(); return 0
+
 
     def _get_info(self):
         min_scan_val = float(np.min(self.current_scan)) if self.current_scan is not None and len(self.current_scan) > 0 else -1.0
@@ -695,52 +705,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 
         return closest_idx
 
-    def _initialize_local_goals(self):
-        """
-        Initializes the 4-waypoint plan at the start of an episode.
-        """
-        self.local_goal_waypoints.clear()
 
-        # 1. Use your existing function to find the first waypoint closest to the robot.
-        first_wp_idx = self._find_closest_unvisited_waypoint()
-        
-        if first_wp_idx is None: return
-
-        # 2. Add it to the plan and set it as the reference for the next search.
-        ref_wp = self.waypoints[first_wp_idx].copy()
-        ref_wp['master_index'] = first_wp_idx
-        self.local_goal_waypoints.append(ref_wp)
-        
-        # 3. Chain the next 3 waypoints.
-        for _ in range(3):
-            current_plan_indices = {wp['master_index'] for wp in self.local_goal_waypoints}
-            next_wp_idx = self._find_next_waypoint_from_ref(ref_wp, current_plan_indices)
-
-            if next_wp_idx is not None:
-                ref_wp = self.waypoints[next_wp_idx].copy()
-                ref_wp['master_index'] = next_wp_idx
-                self.local_goal_waypoints.append(ref_wp)
-            else:
-                break
-
-    def _update_local_goals(self):
-        """
-        Removes the reached waypoint and adds the next one to the end of the plan.
-        """
-        # 1. Remove the first waypoint (the one that was just reached).
-        if self.local_goal_waypoints:
-            self.local_goal_waypoints.pop(0)
-
-        # 2. Find the next waypoint relative to the end of the current plan.
-        if self.local_goal_waypoints:
-            ref_wp = self.local_goal_waypoints[-1]
-            current_plan_indices = {wp['master_index'] for wp in self.local_goal_waypoints}
-            next_wp_idx = self._find_next_waypoint_from_ref(ref_wp, current_plan_indices)
-
-            if next_wp_idx is not None:
-                new_wp = self.waypoints[next_wp_idx].copy()
-                new_wp['master_index'] = next_wp_idx
-                self.local_goal_waypoints.append(new_wp)
     ### NEW/MODIFIED HELPER FUNCTIONS ###
     
     def _get_local_coords_from_world_point(self, world_point: dict | None) -> tuple[float, float]:
@@ -761,23 +726,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             
         return (local_x, local_y)
     
-    def _get_relative_local_goals(self) -> np.ndarray:
-        """
-        Computes the coordinates of the next 4 local waypoints relative to the
-        robot's current position and orientation using the generic helper function.
-        """
-        relative_coords = []
-        for wp in self.local_goal_waypoints:
-            # Use the new generic helper function for cleaner code
-            local_coords = self._get_local_coords_from_world_point(wp)
-            relative_coords.append(list(local_coords))
 
-        # Pad the list with [0.0, 0.0] pairs if there are fewer than 4 waypoints
-        for _ in range(len(relative_coords), 4):
-            relative_coords.append([0.0, 0.0])
-        self.get_logger().debug(f"Relative local goals (4): {relative_coords}")
-
-        return np.array(relative_coords, dtype=np.float32)
     
     def _find_end_of_lane(self, lane_index: int) -> dict | None:
         """
@@ -824,3 +773,257 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 closest_wp = wp
                 closest_idx = i
         return closest_wp, closest_idx
+
+
+    def _calculate_dubins_path(self, prev_wp_idx, end_of_lane_wp_idx, start_of_next_lane_wp_idx):
+        """
+        Calculates a Dubins path for a U-turn using the original, trusted logic.
+        This function does NOT modify the environment's waypoint list.
+        """
+        try:
+            # --- Ensure all required indices are valid ---
+            if prev_wp_idx is None or end_of_lane_wp_idx is None or start_of_next_lane_wp_idx is None:
+                self.get_logger().error("[DubinsCalc] Failed: One or more waypoint indices are None.")
+                return []
+
+            # --- Get the waypoint data ---
+            wp_prev = self.waypoints[prev_wp_idx]
+            wp_end_lane = self.waypoints[end_of_lane_wp_idx]
+            wp_start_next_lane = self.waypoints[start_of_next_lane_wp_idx]
+
+            # --- Define the start configuration (q0) - LOGIC FROM ORIGINAL FUNCTION ---
+            x0, y0 = wp_end_lane['x'], wp_end_lane['y']
+            dx_start, dy_start = wp_end_lane['x'] - wp_prev['x'], wp_end_lane['y'] - wp_prev['y']
+            
+            # Handle case where start and previous waypoints are the same
+            if abs(dx_start) < 1e-6 and abs(dy_start) < 1e-6:
+                 if self.current_odom: 
+                     _, _, yaw_start = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
+                 else: 
+                     self.get_logger().warn("[DubinsCalc] Could not determine start yaw, prev and end waypoints are identical.")
+                     return []
+            else: 
+                yaw_start = math.atan2(dy_start, dx_start)
+            q0 = (x0, y0, yaw_start)
+
+            # --- Define the end configuration (q1) - LOGIC FROM ORIGINAL FUNCTION ---
+            x1, y1 = wp_start_next_lane['x'], wp_start_next_lane['y']
+            
+            # This logic needs access to waypoints around the start of the next lane
+            # Ensure indices are valid before accessing
+            if (start_of_next_lane_wp_idx + 1) >= len(self.waypoints):
+                 self.get_logger().error(f"[DubinsCalc] Cannot determine end yaw, next waypoint index {start_of_next_lane_wp_idx + 1} is out of bounds.")
+                 return []
+            
+            wp_after_start_next = self.waypoints[start_of_next_lane_wp_idx + 1]
+            dx_next, dy_next = wp_after_start_next['x'] - x1, wp_after_start_next['y'] - y1
+            yaw_end = math.atan2(dy_next, dx_next)
+
+            # !!! THIS IS THE CRITICAL LOGIC THAT WAS MISSING !!!
+            # If the angle change is too small, it implies the robot is already facing the right way
+            # but the pathing requires a turn. This logic corrects the target yaw by looking "backwards"
+            # from the target point to ensure the turn is calculated correctly for parallel lanes.
+            if yaw_end - yaw_start < 20 * math.pi / 180.0:
+                if (start_of_next_lane_wp_idx - 1) < 0:
+                    self.get_logger().error(f"[DubinsCalc] Cannot determine corrected end yaw, prev waypoint index {start_of_next_lane_wp_idx - 1} is out of bounds.")
+                    return []
+                
+                self.get_logger().info(f"[DubinsCalc] Small angle detected. Correcting target yaw.")
+                wp_before_start_next = self.waypoints[start_of_next_lane_wp_idx - 1]
+                dx_next, dy_next = wp_before_start_next['x'] - x1, wp_before_start_next['y'] - y1
+                yaw_end = math.atan2(dy_next, dx_next)
+
+            q1 = (x1, y1, yaw_end)
+
+            # --- Generate the path ---
+            path = dubins.shortest_path(q0, q1, self.turning_radius)
+            configurations, _ = path.sample_many(self.turn_wp_step_distance)
+            
+            if not configurations or len(configurations) < 2:
+                return []
+
+            # --- Format the generated points into waypoint dictionaries ---
+            new_turn_waypoints = []
+            lane_id_of_turn = wp_end_lane.get('original_lane_index', -1)
+            if len(configurations) > 2:
+                for config in configurations[1:-1]:
+                    new_turn_waypoints.append({
+                        'x': float(config[0]),
+                        'y': float(config[1]),
+                        'original_lane_index': lane_id_of_turn,
+                        'is_turn_assist_wp': True,
+                        'is_planned_wp': True
+                    })
+            
+            return new_turn_waypoints
+
+        except Exception as e:
+            self.get_logger().error(f"Error during Dubins path calculation: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+            
+    def _generate_dubins_uturn_waypoints(self, prev_wp_idx, end_of_lane_wp_idx, start_of_next_actual_lane_wp_idx):
+        """
+        Calculates and INSERTS new U-turn waypoints into the environment's main waypoint list.
+        This function modifies the state of the environment for the current episode.
+        """
+        # 1. Calculate the path using the new helper. This separates planning from execution.
+        new_turn_waypoints = self._calculate_dubins_path(prev_wp_idx, end_of_lane_wp_idx, start_of_next_actual_lane_wp_idx)
+
+        if not new_turn_waypoints:
+            return 0
+
+        # 2. If waypoints were generated, insert them into the master lists for this episode.
+        insertion_point_idx = end_of_lane_wp_idx + 1
+        for i, turn_wp in enumerate(new_turn_waypoints):
+            # Remove the temporary 'is_planned_wp' flag before inserting
+            turn_wp.pop('is_planned_wp', None)
+            self.waypoints.insert(insertion_point_idx + i, turn_wp)
+            self.visited_waypoints.insert(insertion_point_idx + i, False)
+
+        # 3. Update the total waypoint count for the episode.
+        self.num_waypoints_total += len(new_turn_waypoints)
+        self.get_logger().info(f"Dubins: Inserted {len(new_turn_waypoints)} U-turn waypoints. New total: {self.num_waypoints_total}.")
+        
+        return len(new_turn_waypoints)
+
+    def _find_previous_waypoint_in_lane(self, current_wp_idx: int) -> int | None:
+        """Finds the index of the waypoint just before the current one in the same lane."""
+        current_lane = self.waypoints[current_wp_idx].get('original_lane_index')
+        if current_lane is None:
+            return None
+        # Search backwards from the waypoint before the current one
+        for i in range(current_wp_idx - 1, -1, -1):
+            if self.waypoints[i].get('original_lane_index') == current_lane:
+                return i
+        return None
+
+    def _populate_local_goals_plan(self):
+        """
+        Intelligently fills the self.local_goal_waypoints list up to 4 waypoints.
+        This function handles pre-planning U-turns when it detects a lane boundary.
+        """
+        # --- DEBUG LOG: Show the state of the plan at the start of the function call ---
+        initial_plan_indices = [wp.get('master_index', 'P') for wp in self.local_goal_waypoints]
+      
+
+        # This loop ensures we always try to have a 4-waypoint plan.
+        while len(self.local_goal_waypoints) < 4:
+            if not self.local_goal_waypoints:
+                # Plan is empty. Initialize it with the closest waypoint to the robot.
+              
+                first_wp_idx = self._find_closest_unvisited_waypoint()
+                if first_wp_idx is None:
+                    self.get_logger().info("[LocalPlan] No unvisited waypoints available to initialize the plan.")
+                    return # Cannot initialize, no unvisited waypoints left
+
+                
+                new_wp = self.waypoints[first_wp_idx].copy()
+                new_wp['master_index'] = first_wp_idx
+                self.local_goal_waypoints.append(new_wp)
+                continue # Restart loop to add the next waypoint.
+
+            # --- Use the last waypoint in the current plan as the reference for finding the next one ---
+            last_real_wp_in_plan = None
+            for wp in reversed(self.local_goal_waypoints):
+                if not wp.get('is_planned_wp', False):
+                    last_real_wp_in_plan = wp
+                    break
+            
+            if last_real_wp_in_plan is None:
+                self.get_logger().warn("[LocalPlan] Could not find a 'real' waypoint in plan to use as reference. Breaking.")
+                return 
+
+            ref_idx = last_real_wp_in_plan['master_index']
+            
+            current_plan_indices = {wp['master_index'] for wp in self.local_goal_waypoints if 'master_index' in wp}
+
+            # Find the next geometrically closest waypoint from the master list
+            potential_next_wp_idx = self._find_next_waypoint_from_ref(last_real_wp_in_plan, current_plan_indices)
+            if potential_next_wp_idx is None:
+                self.get_logger().info("[LocalPlan] No more subsequent waypoints found. Plan is as full as it can be.")
+                return # No more waypoints available in the entire route
+
+            
+
+            # --- Check if this next waypoint triggers a U-turn ---
+            last_real_lane = last_real_wp_in_plan.get('original_lane_index')
+            next_lane = self.waypoints[potential_next_wp_idx].get('original_lane_index')
+            is_boundary = last_real_wp_in_plan.get('is_lane_boundary', False)
+
+           
+
+            if is_boundary and last_real_lane is not None and next_lane is not None and last_real_lane != next_lane:
+                
+                
+                prev_wp_idx = self._find_previous_waypoint_in_lane(last_real_wp_in_plan['master_index'])
+                if prev_wp_idx is not None:
+                    
+                    planned_turn_wps = self._calculate_dubins_path(
+                        prev_wp_idx, last_real_wp_in_plan['master_index'], potential_next_wp_idx
+                    )
+                    
+                    self.local_goal_waypoints.extend(planned_turn_wps)
+                
+                # After the turn, add the start of the next lane as well.
+                if potential_next_wp_idx not in current_plan_indices:
+   
+                    next_wp_after_turn = self.waypoints[potential_next_wp_idx].copy()
+                    next_wp_after_turn['master_index'] = potential_next_wp_idx
+                    self.local_goal_waypoints.append(next_wp_after_turn)
+                
+                # --- DEBUG LOG: Show the plan state after adding the turn waypoints ---
+                turn_plan_indices = [wp.get('master_index', 'P') for wp in self.local_goal_waypoints]
+    
+                continue
+
+            # --- NO U-TURN ---
+            # Just add the next closest waypoint from the master list to the plan.
+           
+            next_wp = self.waypoints[potential_next_wp_idx].copy()
+            next_wp['master_index'] = potential_next_wp_idx
+            self.local_goal_waypoints.append(next_wp)
+
+        # --- DEBUG LOG: Show the final state of the plan before the function returns ---
+        final_plan_indices = [wp.get('master_index', 'P') for wp in self.local_goal_waypoints]
+     
+
+    def _initialize_local_goals(self):
+        """
+        Initializes the 4-waypoint plan at the start of an episode by clearing the
+        old plan and calling the new intelligent populator.
+        """
+        self.local_goal_waypoints.clear()
+        self._populate_local_goals_plan()
+
+    def _update_local_goals(self):
+        """
+        Updates the 4-waypoint plan during an episode by removing the reached waypoint
+        and then calling the intelligent populator to fill the plan back up to 4.
+        """
+        if self.local_goal_waypoints:
+            self.local_goal_waypoints.pop(0)
+        
+        self._populate_local_goals_plan()
+
+    def _get_relative_local_goals(self) -> np.ndarray:
+        """
+        Computes the coordinates of the next 4 local waypoints relative to the
+        robot's current position and orientation using the generic helper function.
+        """
+        relative_coords = []
+        # Take only the first 4 waypoints from the plan for the observation
+        plan_for_obs = self.local_goal_waypoints[:4]
+
+        for wp in plan_for_obs:
+            local_coords = self._get_local_coords_from_world_point(wp)
+            relative_coords.append(list(local_coords))
+
+        # Pad the list with [0.0, 0.0] pairs if the plan has fewer than 4 waypoints
+        while len(relative_coords) < 4:
+            relative_coords.append([0.0, 0.0])
+        
+        
+        # self.get_logger().debug(f"Relative local goals (4): {relative_coords}")
+        return np.array(relative_coords, dtype=np.float32)

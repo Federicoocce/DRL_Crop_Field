@@ -46,6 +46,14 @@
     <xacro:property name="camera_z_offset" value="0.1"/>
 
     <!-- #################### ROBOT LINKS AND JOINTS #################### -->
+    <!-- NEW: This is the new root link at the front edge of the robot. -->
+<!-- It has no visual or collision properties because it's just a reference frame. -->
+    <link name="base_footprint"/>
+    <joint name="base_link_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="-${chassis_length / 2.0} 0 0" rpy="0 0 0"/>
+    </joint>
     
     <link name="base_link">
         <visual>
@@ -160,7 +168,7 @@
             <max_wheel_torque>20</max_wheel_torque>
             <max_wheel_acceleration>1.0</max_wheel_acceleration>
             <odometry_frame>odom</odometry_frame>
-            <robot_base_frame>base_link</robot_base_frame>
+            <robot_base_frame>base_footprint</robot_base_frame>
             <publish_odom>true</publish_odom>
             <publish_odom_tf>true</publish_odom_tf>
         </plugin>
@@ -169,7 +177,7 @@
     <!-- Gazebo Plugin for 2D LiDAR -->
     <gazebo reference="lidar_2d_link">
         <sensor name="lidar_2d_sensor" type="ray">
-            <visualize>true</visualize><update_rate>10</update_rate>
+            <visualize>false</visualize><update_rate>10</update_rate>
             <ray>
                 <scan>
                     <horizontal><samples>360</samples><min_angle>-${PI}</min_angle><max_angle>${PI}</max_angle></horizontal>
@@ -194,8 +202,8 @@
                     <horizontal>
                         <samples>720</samples>
                         <resolution>1</resolution>
-                        <min_angle>-${2.00}</min_angle>
-                        <max_angle>${2.00}</max_angle>
+                        <min_angle>-${2.0}</min_angle>
+                        <max_angle>${2.0}</max_angle>
                     </horizontal>
                     <vertical>
                         <samples>14</samples>

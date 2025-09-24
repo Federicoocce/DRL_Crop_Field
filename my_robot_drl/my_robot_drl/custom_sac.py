@@ -7,6 +7,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from std_srvs.srv import Empty
+import time
 
 class CustomSAC(SAC):
 
@@ -48,9 +49,9 @@ class CustomSAC(SAC):
     def train(self, gradient_steps: int, batch_size: int) -> None:
         self._train_step_counter += 1
 
-        self.env_node.get_logger().info("--- Pausing simulation for training step... ---")
+ 
         pause_future = self.pause_client.call_async(Empty.Request())
-        rclpy.spin_until_future_complete(self.env_node, pause_future, timeout_sec=2.0)
+        rclpy.spin_until_future_complete(self.env_node, pause_future, timeout_sec=5.0)
 
         try:
             # --- TRAIN TRANSFUSER (IMITATION LEARNING) ---
@@ -78,13 +79,13 @@ class CustomSAC(SAC):
             # --- TRAIN SAC (REINFORCEMENT LEARNING) ---
             if self._train_step_counter % self.sac_train_freq == 0:
                 if self.num_timesteps > self.learning_starts:
-                    print(f"\n--- Training Step #{self._train_step_counter}: Updating SAC Actor-Critic ---", flush=True)
+      
                     self.policy.set_training_mode(True)
                     super().train(self.sac_gradient_steps, batch_size)
 
         finally:
-            self.env_node.get_logger().info("--- Training step complete. Unpausing simulation... ---")
             unpause_future = self.unpause_client.call_async(Empty.Request())
-            rclpy.spin_until_future_complete(self.env_node, unpause_future, timeout_sec=2.0)
+            rclpy.spin_until_future_complete(self.env_node, unpause_future, timeout_sec=5.0)
+            time.sleep(0.1)
 
   
