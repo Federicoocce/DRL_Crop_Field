@@ -132,11 +132,11 @@ def main(args=None):
         TARGET_LINEAR_VEL = 0.1
         
         IL_BUFFER_SIZE = 15000  # Increased buffer size
-        IL_LEARNING_STARTS = 0 # Number of random steps before training
+        IL_LEARNING_STARTS = 1000 # Number of random steps before training
         
         replay_buffer = deque(maxlen=IL_BUFFER_SIZE)
         batch_size = 32
-        train_freq = 1000
+        train_freq = 3
         
         il_raw_env.get_logger().info(f"IL-Only Params: Buffer Size={IL_BUFFER_SIZE}, Learning Starts={IL_LEARNING_STARTS}")
         # --- END OF MODIFICATION ---
@@ -176,22 +176,22 @@ def main(args=None):
                 action = np.clip(action, il_env.action_space.low, il_env.action_space.high)
                 #START OF CONTROLLER DEBUGGING BLOCK
                 # Log detailed debugging info every 20 steps
-                if step % 20 == 0: # Log periodically
-                    distant_goal_local = obs['state'][:2]
+                # if step % 20 == 0: # Log periodically
+                #     distant_goal_local = obs['state'][:2]
                     
 
-                    il_raw_env.get_logger().info("--- WP Prediction Debug ---")
-                    il_raw_env.get_logger().info(f"  Distant Goal (Local):   x={distant_goal_local[0]:.2f}, y={distant_goal_local[1]:.2f}")
+                #     il_raw_env.get_logger().info("--- WP Prediction Debug ---")
+                #     il_raw_env.get_logger().info(f"  Distant Goal (Local):   x={distant_goal_local[0]:.2f}, y={distant_goal_local[1]:.2f}")
                     
-                    # Loop and print all 4 waypoints for easy comparison
-                    for i in range(4):
-                        gt_wp = all_gt_wp[i]
-                        il_raw_env.get_logger().info(f"  GT   WP #{i+1}: x={gt_wp[0]:.2f}, y={gt_wp[1]:.2f}")
+                #     # Loop and print all 4 waypoints for easy comparison
+                #     for i in range(4):
+                #         gt_wp = all_gt_wp[i]
+                #         il_raw_env.get_logger().info(f"  GT   WP #{i+1}: x={gt_wp[0]:.2f}, y={gt_wp[1]:.2f}")
 
-                    il_raw_env.get_logger().info(f"  Resulting Angle (from WP #1): {angle_to_target:.1f} RADIANS")
-                    il_raw_env.get_logger().info(f"  Final Action: [Lin: {action[0]:.2f}, Ang: {action[1]:.2f}]")
-                    il_raw_env.get_logger().info("---------------------------")
-                # --- START OF MODIFIED DEBUGGING BLOCK ---
+                #     il_raw_env.get_logger().info(f"  Resulting Angle (from WP #1): {angle_to_target:.1f} RADIANS")
+                #     il_raw_env.get_logger().info(f"  Final Action: [Lin: {action[0]:.2f}, Ang: {action[1]:.2f}]")
+                #     il_raw_env.get_logger().info("---------------------------")
+                # # --- START OF MODIFIED DEBUGGING BLOCK ---
                 # if step % 20 == 0: # Log periodically
                     
                 #     distant_goal_local = obs['state'][:2]

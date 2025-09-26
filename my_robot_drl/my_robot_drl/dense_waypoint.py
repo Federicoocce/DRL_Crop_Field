@@ -119,8 +119,8 @@ def get_dense_lane_waypoints() -> tuple[list[dict], list]:
 
     # --- NEW: Call the plotting function from inside this function ---
     # This will visualize the generated waypoints and plant rows immediately.
-    print("\n  >>> Triggering visualization from within get_dense_lane_waypoints...")
-    plot_all_waypoints(all_waypoints, fgen.rows)
+    # print("\n  >>> Triggering visualization from within get_dense_lane_waypoints...")
+    # plot_all_waypoints(all_waypoints, fgen.rows)
 
     return all_waypoints, fgen.rows
 
@@ -325,14 +325,14 @@ def main():
         print("\nNot enough lanes to demonstrate a U-turn.")
         return
 
-    # 4. Demonstrate the FIRST U-turn (e.g., from lane 0 to 1 at the far end)
-    plot_specific_uturn(master_waypoints, plant_rows, from_lane_idx=available_lanes[0], to_lane_idx=available_lanes[1])
+    # # 4. Demonstrate the FIRST U-turn (e.g., from lane 0 to 1 at the far end)
+    # plot_specific_uturn(master_waypoints, plant_rows, from_lane_idx=available_lanes[0], to_lane_idx=available_lanes[1])
 
-    # 5. Demonstrate the SECOND, ALTERNATING U-turn (e.g., from lane 1 to 2 at the near end)
-    if len(available_lanes) > 2:
-        plot_specific_uturn(master_waypoints, plant_rows, from_lane_idx=available_lanes[1], to_lane_idx=available_lanes[2])
-    else:
-        print("\nSkipping second U-turn plot: Only 2 lanes found in the data.")
+    # # 5. Demonstrate the SECOND, ALTERNATING U-turn (e.g., from lane 1 to 2 at the near end)
+    # if len(available_lanes) > 2:
+    #     plot_specific_uturn(master_waypoints, plant_rows, from_lane_idx=available_lanes[1], to_lane_idx=available_lanes[2])
+    # else:
+    #     print("\nSkipping second U-turn plot: Only 2 lanes found in the data.")
 
 if __name__ == '__main__':
     main()

@@ -101,15 +101,15 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.current_image = np.zeros((self.IMAGE_CROP_SIZE, self.IMAGE_CROP_SIZE, 3), dtype=np.uint8)
         self.current_lidar_bev = np.zeros((self.LIDAR_CROP_SIZE, self.LIDAR_CROP_SIZE, 2), dtype=np.uint8)
         self.min_lidar_range = 0.14
-        self.collision_threshold = 0.1   #era 0.16 disattivato per test
+        self.collision_threshold = 0.16   #era 0.16 disattivato per test
         self.too_far_lidar_threshold = 1.8
         self.waypoints, self.visited_waypoints = [], []
         self.num_waypoints_total = 0
         self.target_waypoint_index, self.previous_waypoint_index = None, None
         self.last_distance_to_target, self.REWARD_FACTOR_DISTANCE = 0.0, 15.0
         self.episode_done, self.last_action = False, np.array([0.0, 0.0], dtype=np.float32)
-        self.waypoint_reach_threshold = 0.05
-        self.turning_radius, self.turn_wp_step_distance = 0.7, 0.4
+        self.waypoint_reach_threshold = 0.1
+        self.turning_radius, self.turn_wp_step_distance = 0.55, 0.3
         self.original_target_after_turn_idx = None
         self.local_goal_waypoints = []
         self.distant_goal_world_coords = None
@@ -250,7 +250,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             # 4. Choose a spawn point with a higher probability for 'end_of_lane'
             
             # Define the desired probability for the 'end_of_lane' spawn
-            end_of_lane_prob = 0.8
+            end_of_lane_prob = 0.01
             
             # Get all spawn point keys except for 'end_of_lane'
             other_keys = [key for key in self.spawn_point_keys if key != 'end_of_lane']
@@ -666,10 +666,10 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
                                 self.original_target_after_turn_idx = potential_next_target_idx
                                 num_turn_wps_added = self._generate_dubins_uturn_waypoints(self.previous_waypoint_index, wp_reached_idx, potential_next_target_idx)
-                                self._plot_waypoint_debug_state(
-                                    trigger_wp_idx=wp_reached_idx,
-                                    next_lane_target_idx=potential_next_target_idx
-                                )
+                                # self._plot_waypoint_debug_state(
+                                #     trigger_wp_idx=wp_reached_idx,
+                                #     next_lane_target_idx=potential_next_target_idx
+                                # )
                                 self.target_waypoint_index = wp_reached_idx + 1 if num_turn_wps_added > 0 else self.original_target_after_turn_idx
                                 if num_turn_wps_added <= 0: self.original_target_after_turn_idx = None
 
@@ -1030,27 +1030,19 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         Intelligently fills the self.local_goal_waypoints list up to 4 waypoints.
         This function handles pre-planning U-turns when it detects a lane boundary.
         """
-        # --- DEBUG LOG: Show the state of the plan at the start of the function call ---
-        initial_plan_indices = [wp.get('master_index', 'P') for wp in self.local_goal_waypoints]
-      
-
-        # This loop ensures we always try to have a 4-waypoint plan.
         while len(self.local_goal_waypoints) < 4:
             if not self.local_goal_waypoints:
-                # Plan is empty. Initialize it with the closest waypoint to the robot.
-              
                 first_wp_idx = self._find_closest_unvisited_waypoint()
                 if first_wp_idx is None:
                     self.get_logger().info("[LocalPlan] No unvisited waypoints available to initialize the plan.")
-                    return # Cannot initialize, no unvisited waypoints left
-
+                    return 
                 
                 new_wp = self.waypoints[first_wp_idx].copy()
                 new_wp['master_index'] = first_wp_idx
                 self.local_goal_waypoints.append(new_wp)
-                continue # Restart loop to add the next waypoint.
+                continue 
 
-            # --- Use the last waypoint in the current plan as the reference for finding the next one ---
+            # --- Use the last waypoint in the current plan as the reference ---
             last_real_wp_in_plan = None
             for wp in reversed(self.local_goal_waypoints):
                 if not wp.get('is_planned_wp', False):
@@ -1061,59 +1053,68 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 self.get_logger().warn("[LocalPlan] Could not find a 'real' waypoint in plan to use as reference. Breaking.")
                 return 
 
-            ref_idx = last_real_wp_in_plan['master_index']
-            
             current_plan_indices = {wp['master_index'] for wp in self.local_goal_waypoints if 'master_index' in wp}
-
-            # Find the next geometrically closest waypoint from the master list
             potential_next_wp_idx = self._find_next_waypoint_from_ref(last_real_wp_in_plan, current_plan_indices)
+            
             if potential_next_wp_idx is None:
                 self.get_logger().info("[LocalPlan] No more subsequent waypoints found. Plan is as full as it can be.")
-                return # No more waypoints available in the entire route
-
-            
+                return 
 
             # --- Check if this next waypoint triggers a U-turn ---
             last_real_lane = last_real_wp_in_plan.get('original_lane_index')
-            next_lane = self.waypoints[potential_next_wp_idx].get('original_lane_index')
+            next_wp_data = self.waypoints[potential_next_wp_idx]
+            next_lane = next_wp_data.get('original_lane_index')
             is_boundary = last_real_wp_in_plan.get('is_lane_boundary', False)
-
-           
 
             if is_boundary and last_real_lane is not None and next_lane is not None and last_real_lane != next_lane:
                 
+                # Correction logic for target (this part is correct)
+                if not next_wp_data.get('is_lane_boundary', False):
+                     ref_point = Point(x=last_real_wp_in_plan['x'], y=last_real_wp_in_plan['y'], z=0.0)
+                     corrected_idx = self._find_closest_boundary_of_lane(next_lane, ref_point)
+                     if corrected_idx is not None:
+                         potential_next_wp_idx = corrected_idx
+                     else:
+                         self.get_logger().error(f"[LocalPlan] CRITICAL: Could not find boundary for lane {next_lane}.")
                 
-                prev_wp_idx = self._find_previous_waypoint_in_lane(last_real_wp_in_plan['master_index'])
-                if prev_wp_idx is not None:
-                    
+                # --- START OF YOUR CORRECT FIX ---
+                # Find the waypoint *before* the end-of-lane trigger directly from the current plan.
+                prev_wp_for_turn = None
+                # The plan has at least one waypoint. If it has more than one, the second to last is our previous point.
+                if len(self.local_goal_waypoints) > 1:
+                    # We iterate backwards to find the last "real" waypoint before the trigger point.
+                    for i in range(len(self.local_goal_waypoints) - 2, -1, -1):
+                        wp = self.local_goal_waypoints[i]
+                        if not wp.get('is_planned_wp', False):
+                            prev_wp_for_turn = wp
+                            break
+                
+                if prev_wp_for_turn is not None:
+                    self.get_logger().info(f"[LocalPlan] U-Turn detected. Planning turn from #{last_real_wp_in_plan['master_index']} to #{potential_next_wp_idx} using prev #{prev_wp_for_turn['master_index']}.")
                     planned_turn_wps = self._calculate_dubins_path(
-                        prev_wp_idx, last_real_wp_in_plan['master_index'], potential_next_wp_idx
+                        prev_wp_for_turn['master_index'], last_real_wp_in_plan['master_index'], potential_next_wp_idx
                     )
-                    
                     self.local_goal_waypoints.extend(planned_turn_wps)
+                else:
+                    self.get_logger().warn(f"[LocalPlan] Could not determine previous waypoint to calculate U-Turn. Skipping Dubins path generation.")
+                # --- END OF YOUR CORRECT FIX ---
                 
                 # After the turn, add the start of the next lane as well.
-                if potential_next_wp_idx not in current_plan_indices:
-   
+                if potential_next_wp_idx not in {wp.get('master_index') for wp in self.local_goal_waypoints}:
                     next_wp_after_turn = self.waypoints[potential_next_wp_idx].copy()
                     next_wp_after_turn['master_index'] = potential_next_wp_idx
                     self.local_goal_waypoints.append(next_wp_after_turn)
                 
-                # --- DEBUG LOG: Show the plan state after adding the turn waypoints ---
-                turn_plan_indices = [wp.get('master_index', 'P') for wp in self.local_goal_waypoints]
-    
                 continue
 
             # --- NO U-TURN ---
             # Just add the next closest waypoint from the master list to the plan.
-           
             next_wp = self.waypoints[potential_next_wp_idx].copy()
             next_wp['master_index'] = potential_next_wp_idx
             self.local_goal_waypoints.append(next_wp)
-
         # --- DEBUG LOG: Show the final state of the plan before the function returns ---
         final_plan_indices = [wp.get('master_index', 'P') for wp in self.local_goal_waypoints]
-     
+        
 
     def _initialize_local_goals(self):
         """
