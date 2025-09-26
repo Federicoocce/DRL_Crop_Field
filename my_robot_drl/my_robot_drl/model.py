@@ -482,15 +482,22 @@ class TransFuser(nn.Module):
 
         # flip y is (forward is negative in our waypoints)
         waypoints[:,1] *= -1
-        speed = velocity[0].data.cpu().numpy()
+        
+        # --- FIX #1: Use .item() to extract a scalar ---
+        # OLD: speed = velocity[0].data.cpu().numpy() # This created an array
+        speed = velocity[0].item() # This correctly extracts a scalar float
 
         desired_speed = np.linalg.norm(waypoints[0] - waypoints[1]) * 2.0
         brake = desired_speed < self.config.brake_speed or (speed / desired_speed) > self.config.brake_ratio
 
         aim = (waypoints[1] + waypoints[0]) / 2.0
         angle = np.degrees(np.pi / 2 - np.arctan2(aim[1], aim[0])) / 90
-        if(speed < 0.01):
-            angle = np.array(0.0) # When we don't move we don't want the angle error to accumulate in the integral
+        
+        # --- FIX #2: Assign a scalar float, not a numpy array ---
+        # OLD: if(speed < 0.01): angle = np.array(0.0)
+        if speed < 0.01:
+            angle = 0.0 # Assign a simple float
+            
         steer = self.turn_controller.step(angle)
         steer = np.clip(steer, -1.0, 1.0)
 
@@ -500,16 +507,16 @@ class TransFuser(nn.Module):
         throttle = throttle if not brake else 0.0
 
         metadata = {
-            'speed': float(speed.astype(np.float64)),
+            'speed': float(speed),
             'steer': float(steer),
             'throttle': float(throttle),
             'brake': float(brake),
             'wp_2': tuple(waypoints[1].astype(np.float64)),
             'wp_1': tuple(waypoints[0].astype(np.float64)),
-            'desired_speed': float(desired_speed.astype(np.float64)),
-            'angle': float(angle.astype(np.float64)),
+            'desired_speed': float(desired_speed),
+            'angle': float(angle),
             'aim': tuple(aim.astype(np.float64)),
-            'delta': float(delta.astype(np.float64)),
+            'delta': float(delta),
         }
 
         return steer, throttle, brake, metadata

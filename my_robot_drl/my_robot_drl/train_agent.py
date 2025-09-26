@@ -128,15 +128,15 @@ def main(args=None):
 
         # --- START OF MODIFICATION ---
         # 3. PID Controller and Replay Buffer Configuration
-        KP_ANGULAR = 2.0
-        TARGET_LINEAR_VEL = 0.2
+        KP_ANGULAR = 1.0
+        TARGET_LINEAR_VEL = 0.1
         
         IL_BUFFER_SIZE = 15000  # Increased buffer size
-        IL_LEARNING_STARTS = 10000 # Number of random steps before training
+        IL_LEARNING_STARTS = 0 # Number of random steps before training
         
         replay_buffer = deque(maxlen=IL_BUFFER_SIZE)
         batch_size = 32
-        train_freq = 4
+        train_freq = 1000
         
         il_raw_env.get_logger().info(f"IL-Only Params: Buffer Size={IL_BUFFER_SIZE}, Learning Starts={IL_LEARNING_STARTS}")
         # --- END OF MODIFICATION ---
@@ -166,19 +166,19 @@ def main(args=None):
                 image_list, lidar_list, target_point, velocity = features_extractor._get_transfuser_inputs(batch_obs)
                 with torch.no_grad():
                     pred_wp, _ = features_extractor.transfuser(image_list, lidar_list, target_point, velocity)
-                
+                all_gt_wp = obs['gt_waypoints']
                 all_pred_wp = pred_wp[0].cpu().numpy()
-                first_wp = all_pred_wp[0] # Get the first one for the controller
+                first_wp = all_gt_wp[0] # Get the first one for the controller
                 angle_to_target = math.atan2(first_wp[1], first_wp[0])
                 angular_vel = KP_ANGULAR * angle_to_target
                 linear_vel = TARGET_LINEAR_VEL
                 action = np.array([linear_vel, angular_vel], dtype=np.float32)
                 action = np.clip(action, il_env.action_space.low, il_env.action_space.high)
-                # --- START OF MODIFIED DEBUGGING BLOCK ---
+                #START OF CONTROLLER DEBUGGING BLOCK
+                # Log detailed debugging info every 20 steps
                 if step % 20 == 0: # Log periodically
-                    all_gt_wp = obs['gt_waypoints']
                     distant_goal_local = obs['state'][:2]
-                    angle_to_target_deg = math.degrees(angle_to_target)
+                    
 
                     il_raw_env.get_logger().info("--- WP Prediction Debug ---")
                     il_raw_env.get_logger().info(f"  Distant Goal (Local):   x={distant_goal_local[0]:.2f}, y={distant_goal_local[1]:.2f}")
@@ -186,14 +186,31 @@ def main(args=None):
                     # Loop and print all 4 waypoints for easy comparison
                     for i in range(4):
                         gt_wp = all_gt_wp[i]
-                        pred_wp = all_pred_wp[i]
                         il_raw_env.get_logger().info(f"  GT   WP #{i+1}: x={gt_wp[0]:.2f}, y={gt_wp[1]:.2f}")
-                        il_raw_env.get_logger().info(f"  Pred WP #{i+1}: x={pred_wp[0]:.2f}, y={pred_wp[1]:.2f}")
 
-                    il_raw_env.get_logger().info(f"  Resulting Angle (from WP #1): {angle_to_target_deg:.1f} degrees")
+                    il_raw_env.get_logger().info(f"  Resulting Angle (from WP #1): {angle_to_target:.1f} RADIANS")
                     il_raw_env.get_logger().info(f"  Final Action: [Lin: {action[0]:.2f}, Ang: {action[1]:.2f}]")
                     il_raw_env.get_logger().info("---------------------------")
-                # --- END OF MODIFIED DEBUGGING BLOCK ---
+                # --- START OF MODIFIED DEBUGGING BLOCK ---
+                # if step % 20 == 0: # Log periodically
+                    
+                #     distant_goal_local = obs['state'][:2]
+                #     angle_to_target_deg = math.degrees(angle_to_target)
+
+                #     il_raw_env.get_logger().info("--- WP Prediction Debug ---")
+                #     il_raw_env.get_logger().info(f"  Distant Goal (Local):   x={distant_goal_local[0]:.2f}, y={distant_goal_local[1]:.2f}")
+                    
+                #     # Loop and print all 4 waypoints for easy comparison
+                #     for i in range(4):
+                #         gt_wp = all_gt_wp[i]
+                #         pred_wp = all_pred_wp[i]
+                #         il_raw_env.get_logger().info(f"  GT   WP #{i+1}: x={gt_wp[0]:.2f}, y={gt_wp[1]:.2f}")
+                #         il_raw_env.get_logger().info(f"  Pred WP #{i+1}: x={pred_wp[0]:.2f}, y={pred_wp[1]:.2f}")
+
+                #     il_raw_env.get_logger().info(f"  Resulting Angle (from WP #1): {angle_to_target_deg:.1f} degrees")
+                #     il_raw_env.get_logger().info(f"  Final Action: [Lin: {action[0]:.2f}, Ang: {action[1]:.2f}]")
+                #     il_raw_env.get_logger().info("---------------------------")
+                # # --- END OF MODIFIED DEBUGGING BLOCK ---
             # --- END OF MODIFICATION ---
 
             # B. Step the environment
