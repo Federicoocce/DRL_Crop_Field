@@ -1,5 +1,3 @@
-# train_imitation.py
-
 import rclpy
 import os
 import sys
@@ -20,18 +18,19 @@ from .custom_features_extractor import TransFuserFeaturesExtractor
 # ===================================================================
 
 # --- Data Collection & Expert Controller ---
-DATA_COLLECTION_FPS = 10.0 # <--- NEW: Target FPS for saving data
+DATA_COLLECTION_FPS = 2.0 # Target FPS for saving expert data
 EXPERT_KP_ANGULAR = 1.0
 EXPERT_TARGET_LINEAR_VEL = 0.2
 
 # --- Model Training ---
-IL_EPOCHS = 1
+IL_EPOCHS = 10
 IL_BATCH_SIZE = 32
 IL_LEARNING_RATE = 1e-4
 
 # --- Evaluation Controller ---
+EVALUATION_FPS = 2.0 # <--- NEW: Target FPS for agent's decision-making and data logging
 AGENT_KP_ANGULAR = 1.0
-AGENT_TARGET_LINEAR_VEL = 0.2
+AGENT_TARGET_LINEAR_VEL = 0.1
 
 # --- File Paths ---
 HOME_DIR = os.path.expanduser('~')
@@ -39,7 +38,6 @@ MODEL_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_models', 'imitation_lear
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_model.pth')
 
 
-# --- MODIFIED FUNCTION: Now collects data at a fixed rate ---
 def collect_expert_data(env, logger):
     """
     Phase 1: Navigate the field using an expert controller and record
@@ -49,14 +47,12 @@ def collect_expert_data(env, logger):
     logger.info(f"PHASE 1: Starting Expert Data Collection (at {DATA_COLLECTION_FPS} FPS)")
     logger.info("="*50)
     
-    # --- NEW: Rate-limiting logic setup ---
     collection_interval = 1.0 / DATA_COLLECTION_FPS
     
     while True:
         obs, info = env.reset()
         dataset = []
         
-        # --- NEW: Always save the very first observation of the trajectory ---
         dataset.append(obs.copy())
         last_collection_time = time.time()
         
@@ -73,14 +69,12 @@ def collect_expert_data(env, logger):
             action = np.array([linear_vel, angular_vel], dtype=np.float32)
             action = np.clip(action, env.action_space.low, env.action_space.high)
             
-            # --- MODIFIED: Time-based data saving ---
             current_time = time.time()
             if current_time - last_collection_time >= collection_interval:
                 dataset.append(obs.copy())
-                last_collection_time = current_time # Reset the timer
+                last_collection_time = current_time 
                 logger.info(f"  [Collection] Step {step}, Sampled data point. Dataset size: {len(dataset)}")
 
-            # Step the environment (this runs as fast as possible for smooth control)
             next_obs, reward, terminated, truncated, info = env.step(action)
             obs = next_obs
             done = terminated or truncated
@@ -100,7 +94,7 @@ def train_model(model, dataset, logger, pause_client, unpause_client, env_node, 
     """
     Phase 2: Train the model offline and plot the loss.
     """
-    # ... (This function is unchanged) ...
+    # This function is unchanged
     logger.info("="*50)
     logger.info(f"PHASE 2: Starting Model Training for {IL_EPOCHS} Epochs (Run #{run_count})")
     logger.info(f"         Current dataset size: {len(dataset)}")
@@ -147,53 +141,76 @@ def train_model(model, dataset, logger, pause_client, unpause_client, env_node, 
     logger.info("Model training complete.")
 
 
-def evaluate_model(env, model, logger, device, pause_client, unpause_client, env_node):
+# --- MODIFIED FUNCTION ---
+def evaluate_model(env, model, logger, device):
     """
-    Phase 3: Test the trained model with a synchronized "stop-think-act" loop.
+    Phase 3: Test the trained model with continuous control, where the agent
+    "thinks" and logs data at a fixed FPS rate.
     """
-    # ... (This function is unchanged) ...
     logger.info("="*50)
-    logger.info("PHASE 3: Starting Evaluation (with pause-on-inference)")
+    logger.info(f"PHASE 3: Starting Evaluation (at {EVALUATION_FPS} FPS)")
     logger.info("="*50)
     logger.info("Resetting environment for evaluation.")
+    
     obs, info = env.reset()
     done = False
     step = 0
     evaluation_data = []
+
+    # --- NEW: Rate-limiting logic for agent's decision-making ---
+    evaluation_interval = 1.0 / EVALUATION_FPS
+    last_evaluation_time = time.time()
+    
+    # Initialize a default action (e.g., stay still)
+    action = np.array([0.0, 0.0], dtype=np.float32)
+
     while not done:
-        evaluation_data.append(obs.copy())
-        pause_future = pause_client.call_async(Empty.Request())
-        rclpy.spin_until_future_complete(env_node, pause_future, timeout_sec=2.0)
-        try:
-            batch_obs = {key: torch.as_tensor(np.expand_dims(val, axis=0)).to(device) for key, val in obs.items()}
-            image_list, lidar_list, target_point, velocity = model._get_transfuser_inputs(batch_obs)
+        current_time = time.time()
+
+        # --- "Think" and update action at the target FPS ---
+        if current_time - last_evaluation_time >= evaluation_interval:
+            # 1. Store the current observation for potential data aggregation later
+            evaluation_data.append(obs.copy())
+            
+            # 2. Run model inference to decide on the next action
             with torch.no_grad():
+                batch_obs = {key: torch.as_tensor(np.expand_dims(val, axis=0)).to(device) for key, val in obs.items()}
+                image_list, lidar_list, target_point, velocity = model._get_transfuser_inputs(batch_obs)
                 pred_wp_tensor, _ = model.transfuser(image_list, lidar_list, target_point, velocity)
-            if step % 30 == 0:
-                all_gt_wp = obs['gt_waypoints']
-                all_pred_wp = pred_wp_tensor[0].cpu().numpy()
-                logger.info(f"--- Waypoint Debug @ Step {step} (Paused State) ---")
-                for i in range(4):
-                    gt_x, gt_y = all_gt_wp[i]; pred_x, pred_y = all_pred_wp[i]
-                    logger.info(f"  WP #{i+1} | GT: (x={gt_x:6.2f}, y={gt_y:6.2f}) | Pred: (x={pred_x:6.2f}, y={pred_y:6.2f})")
-                logger.info("-------------------------------------------------")
+            
+            # 3. Calculate the action based on the model's prediction
             predicted_first_wp = pred_wp_tensor[0].cpu().numpy()[0]
             angle_to_target = math.atan2(predicted_first_wp[1], predicted_first_wp[0])
             angular_vel = AGENT_KP_ANGULAR * angle_to_target
             linear_vel = AGENT_TARGET_LINEAR_VEL
             action = np.array([linear_vel, angular_vel], dtype=np.float32)
             action = np.clip(action, env.action_space.low, env.action_space.high)
-        finally:
-            unpause_future = unpause_client.call_async(Empty.Request())
-            rclpy.spin_until_future_complete(env_node, unpause_future, timeout_sec=2.0)
+            
+            
+            last_evaluation_time = current_time
+
+            # Optional: Keep the debug waypoint printout
+            if len(evaluation_data) % 15 == 0: # Log every 15 decisions (e.g., every 3s at 5FPS)
+                all_gt_wp = obs['gt_waypoints']
+                distant_goal_relative = obs['state'][:2]  # First two elements are [x, y]
+                all_pred_wp = pred_wp_tensor[0].cpu().numpy()
+                logger.info(f"  Distant Goal (Relative): x={distant_goal_relative[0]:6.2f}, y={distant_goal_relative[1]:6.2f}")
+                logger.info(f"--- Waypoint Debug @ Step {step} ---")
+                for i in range(4):
+                    gt_x, gt_y = all_gt_wp[i]; pred_x, pred_y = all_pred_wp[i]
+                    logger.info(f"  WP #{i+1} | GT: (x={gt_x:6.2f}, y={gt_y:6.2f}) | Pred: (x={pred_x:6.2f}, y={pred_y:6.2f})")
+                logger.info("------------------------------------")
+
+        # --- Continuously step the environment with the most recent action ---
+        # This loop runs as fast as possible, ensuring smooth physics.
         next_obs, reward, terminated, truncated, info = env.step(action)
         obs = next_obs
         done = terminated or truncated
         step += 1
-        if step % 50 == 0 and step > 0:
-            logger.info(f"  [Evaluation] Step {step}...")
+
+    # Final result logging
     if info.get("termination_reason") == "all_waypoints_visited":
-        logger.info(f"SUCCESS! Model completed the course in {step} steps.")
+        logger.info(f"SUCCESS! Model completed the course in {step} simulation steps.")
         return True, evaluation_data
     else:
         reason = info.get("termination_reason", "unknown")
@@ -202,7 +219,7 @@ def evaluate_model(env, model, logger, device, pause_client, unpause_client, env
 
 
 def main(args=None):
-    # ... (This function is unchanged) ...
+    # This function is mostly unchanged, except for the call to evaluate_model
     rclpy.init(args=args)
     try:
         env = MaizeNavigationEnv()
@@ -230,7 +247,10 @@ def main(args=None):
         logger.info(f"STARTING IMITATION LEARNING ATTEMPT #{run_count}")
         logger.info("#"*60 + "\n")
         train_model(model, dataset, logger, pause_client, unpause_client, env_node=env, run_count=run_count)
-        successful_run, new_data = evaluate_model(env, model, logger, device, pause_client, unpause_client, env_node=env)
+        
+        # --- MODIFIED: Simplified call to the reworked evaluate_model ---
+        successful_run, new_data = evaluate_model(env, model, logger, device)
+        
         if not successful_run:
             logger.warn("Evaluation failed. Aggregating new data from the failed run.")
             logger.info(f"  - Current dataset size: {len(dataset)}")

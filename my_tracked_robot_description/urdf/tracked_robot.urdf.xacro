@@ -15,7 +15,7 @@
     <xacro:property name="wheel_radius" value="0.1"/>
     <xacro:property name="wheel_width" value="0.05"/>
     <xacro:property name="wheel_mass" value="0.5"/>
-    <xacro:property name="wheel_separation" value="0.35"/>
+    <xacro:property name="wheel_separation" value="0.25"/>
     <xacro:property name="wheel_x_offset" value="-0.2"/>
     <xacro:property name="wheel_z_offset" value="-0.05"/>
 
