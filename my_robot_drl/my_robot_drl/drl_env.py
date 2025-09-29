@@ -1005,12 +1005,12 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.num_waypoints_total += len(new_turn_waypoints)
         self.get_logger().info(f"Dubins: Inserted {len(new_turn_waypoints)} U-turn waypoints. New total: {self.num_waypoints_total}.")
         # debug: log a sample of generated turn waypoints (world + local)
-        for j, turn_wp in enumerate(new_turn_waypoints[:10]):  # limit to first 10 to avoid spamming
-            try:
-                lx, ly = self._get_local_coords_from_world_point(turn_wp)
-            except Exception as e:
-                lx, ly = None, None
-            self.get_logger().info(f"[Dubins DEBUG] Generated turn WP #{j}: world=({turn_wp['x']:.3f},{turn_wp['y']:.3f}) local=({lx},{ly})")
+        # for j, turn_wp in enumerate(new_turn_waypoints[:10]):  # limit to first 10 to avoid spamming
+        #     try:
+        #         lx, ly = self._get_local_coords_from_world_point(turn_wp)
+        #     except Exception as e:
+        #         lx, ly = None, None
+        #     self.get_logger().info(f"[Dubins DEBUG] Generated turn WP #{j}: world=({turn_wp['x']:.3f},{turn_wp['y']:.3f}) local=({lx},{ly})")
 
         return len(new_turn_waypoints)
 

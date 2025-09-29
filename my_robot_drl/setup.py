@@ -31,6 +31,7 @@ setup(
         'field_data_reader = my_robot_drl.get_field_data:main',
         'waypoint_visualizer = my_robot_drl.waypoint_visualizer:main',
         'train_agent = my_robot_drl.train_agent:main',
+        'train_imitation = my_robot_drl.train_imitation:main',
         'teleop_maize_env = my_robot_drl.teleop_maize_env:main',
         'test_uturn = my_robot_drl.test_uturn:main',
         'visualize_real_uturn = my_robot_drl.visualize_real_uturn:main',
