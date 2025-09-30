@@ -26,7 +26,7 @@ EXPERT_TARGET_LINEAR_VEL = 0.2
 IL_EPOCHS = 10
 IL_BATCH_SIZE = 128
 IL_LEARNING_RATE = 1e-4
-print(f"IL Learning Rate: {IL_LEARNING_RATE}", flush=True)
+
 
 # --- Evaluation Controller ---
 EVALUATION_FPS = 2.0 # <--- NEW: Target FPS for agent's decision-making and data logging
@@ -100,6 +100,7 @@ def train_model(model, dataset, logger, pause_client, unpause_client, env_node, 
     logger.info(f"PHASE 2: Starting Model Training for {IL_EPOCHS} Epochs (Run #{run_count})")
     logger.info(f"         Current dataset size: {len(dataset)}")
     logger.info("="*50)
+    logger.info(f"Batch size: {IL_BATCH_SIZE}, Learning rate: {IL_LEARNING_RATE}")  
     logger.info("Pausing simulation for training...")
     pause_future = pause_client.call_async(Empty.Request())
     rclpy.spin_until_future_complete(env_node, pause_future, timeout_sec=5.0)
