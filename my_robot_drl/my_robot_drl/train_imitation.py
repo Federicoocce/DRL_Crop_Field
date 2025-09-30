@@ -30,7 +30,7 @@ IL_LEARNING_RATE = 1e-4
 
 # --- Evaluation Controller ---
 EVALUATION_FPS = 2.0 # <--- NEW: Target FPS for agent's decision-making and data logging
-AGENT_KP_ANGULAR = 1.0
+AGENT_KP_ANGULAR = 0.8
 AGENT_TARGET_LINEAR_VEL = 0.1
 
 # --- File Paths ---
