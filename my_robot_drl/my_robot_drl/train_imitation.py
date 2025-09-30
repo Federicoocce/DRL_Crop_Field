@@ -24,7 +24,7 @@ EXPERT_TARGET_LINEAR_VEL = 0.2
 
 # --- Model Training ---
 IL_EPOCHS = 10
-IL_BATCH_SIZE = 32
+IL_BATCH_SIZE = 128
 IL_LEARNING_RATE = 1e-4
 
 # --- Evaluation Controller ---
