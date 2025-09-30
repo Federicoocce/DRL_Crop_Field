@@ -1,110 +1,91 @@
 # custom_sac.py
 
+from stable_baselines3 import SAC
 import torch
 import torch.nn.functional as F
 import numpy as np
-from stable_baselines3 import SAC
-from stable_baselines3.common.type_aliases import ReplayBufferSamples
+import rclpy
+from rclpy.node import Node
+from std_srvs.srv import Empty
+import time
 
 class CustomSAC(SAC):
-    def __init__(self, *args, aux_loss_weight: float = 0.5, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.aux_loss_weight = aux_loss_weight
+
+    # ... (__init__ is unchanged) ...
+    def __init__(self, 
+                 policy, 
+                 env, 
+                 env_node: Node, 
+                 transfuser_train_freq: int = 20,
+                 transfuser_gradient_steps: int = 5,
+                 sac_train_freq: int = 1,
+                 sac_gradient_steps: int = 1,
+                 **kwargs):
+        
+        super().__init__(policy, env, **kwargs)
+        
+        self.env_node = env_node
+        self.env_node.get_logger().info("CustomSAC is initializing Gazebo service clients...")
+
+        self.pause_client = self.env_node.create_client(Empty, "/pause_physics")
+        self.unpause_client = self.env_node.create_client(Empty, "/unpause_physics")
+        while not self.pause_client.wait_for_service(timeout_sec=2.0):
+            self.env_node.get_logger().warn('/pause_physics service not available, waiting...')
+        while not self.unpause_client.wait_for_service(timeout_sec=2.0):
+            self.env_node.get_logger().warn('/unpause_physics service not available, waiting...')
+        self.env_node.get_logger().info("Gazebo service clients connected successfully.")
+
+        self.transfuser_train_freq = transfuser_train_freq
+        self.transfuser_gradient_steps = transfuser_gradient_steps
+        self.sac_train_freq = sac_train_freq
+        self.sac_gradient_steps = sac_gradient_steps
+        self._train_step_counter = 0 
+        self.env_node.get_logger().info(
+            f"Schedule: TransFuser (freq={transfuser_train_freq}, steps={transfuser_gradient_steps}), "
+            f"SAC (freq={sac_train_freq}, steps={sac_gradient_steps})."
+        )
+
 
     def train(self, gradient_steps: int, batch_size: int) -> None:
-        # Switch to train mode
-        self.policy.set_training_mode(True)
-        # Update learning rate
-        self._update_learning_rate(self.policy.optimizer)
+        self._train_step_counter += 1
 
-        # Initialize lists to store losses for logging
-        actor_losses, critic_losses, ent_losses, waypoint_losses = [], [], [], []
+ 
+        pause_future = self.pause_client.call_async(Empty.Request())
+        rclpy.spin_until_future_complete(self.env_node, pause_future, timeout_sec=5.0)
 
-        for _ in range(gradient_steps):
-            # Sample replay buffer
-            replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
+        try:
+            # --- TRAIN TRANSFUSER (IMITATION LEARNING) ---
+            if self.num_timesteps <= self.learning_starts or self._train_step_counter % self.transfuser_train_freq == 0:
+                print(f"\n--- Training Step #{self._train_step_counter}: Updating TransFuser Feature Extractor ---", flush=True)
+                features_extractor = self.policy.actor.features_extractor # Correct way to access it
+                features_extractor.train()
 
-            # --- Calculate all losses ---
-            sac_losses = self._get_sac_losses(replay_data)
-            
-            # Append SAC losses to their lists
-            actor_losses.append(sac_losses['actor_loss'].item())
-            critic_losses.append(sac_losses['critic_loss'].item())
-            ent_losses.append(sac_losses['ent_loss'].item())
-            
-            # --- Calculate our custom auxiliary loss ---
-            # The features_extractor has been run during the SAC loss calculation,
-            # so `last_pred_wp` is populated and ready.
-            pred_waypoints = self.policy.features_extractor.last_pred_wp
-            gt_waypoints = replay_data.observations['gt_waypoints']
-            waypoint_loss = F.l1_loss(pred_waypoints, gt_waypoints)
-            
-            # Append the waypoint loss to its list
-            waypoint_losses.append(waypoint_loss.item())
-            
-            # --- Combine all losses for backpropagation ---
-            total_loss = sac_losses['actor_loss'] + sac_losses['critic_loss'] + sac_losses['ent_loss']
-            total_loss += self.aux_loss_weight * waypoint_loss
+                waypoint_losses = []
+                for i in range(self.transfuser_gradient_steps): 
+                    replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
+                    
+                    # --- NEW CLEAN METHOD CALL ---
+                    # This call encapsulates the forward pass, loss calculation, and backward pass.
+                    # The computation graph is created and destroyed entirely within this call.
+                    loss_item = features_extractor.train_imitation_learning(replay_data.observations)
+                    
+                    waypoint_losses.append(loss_item)
+                    print(f"    > TransFuser Grad Step {i+1}/{self.transfuser_gradient_steps}, Loss: {loss_item:.6f}", flush=True)
 
-            # --- Optimization ---
-            self.policy.optimizer.zero_grad()
-            total_loss.backward()
-            self.policy.optimizer.step()
+                avg_wp_loss = np.mean(waypoint_losses) if waypoint_losses else 0
+                print(f"--- Feature Extractor Waypoint Loss (avg over {self.transfuser_gradient_steps} steps): {avg_wp_loss:.6f} ---", flush=True)
+                self.logger.record("train/waypoint_loss", avg_wp_loss)
 
-            # --- Update Entropy Coefficient ---
-            if self.ent_coef_optimizer is not None:
-                with torch.no_grad():
-                     _, log_prob = self.actor.action_log_prob(replay_data.observations)
-                ent_loss_alpha = -torch.mean(self.log_ent_coef * (log_prob + self.target_entropy).detach())
-                self.ent_coef_optimizer.zero_grad()
-                ent_loss_alpha.backward()
-                self.ent_coef_optimizer.step()
+            # --- TRAIN SAC (REINFORCEMENT LEARNING) ---
+            if self._train_step_counter % self.sac_train_freq == 0:
+                if self.num_timesteps > self.learning_starts:
+      
+                    self.policy.set_training_mode(True)
+                    super().train(self.sac_gradient_steps, batch_size)
 
-            # --- Update Target Networks ---
-            if self._n_updates % self.target_update_interval == 0:
-                self.update_target_networks()
-            
-            self._n_updates += 1
+        finally:
+            unpause_future = self.unpause_client.call_async(Empty.Request())
+            rclpy.spin_until_future_complete(self.env_node, unpause_future, timeout_sec=5.0)
+            time.sleep(0.1)
 
-        # --- Log the mean of all collected losses ---
-        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
-        self.logger.record("train/actor_loss", np.mean(actor_losses))
-        self.logger.record("train/critic_loss", np.mean(critic_losses))
-        self.logger.record("train/ent_loss", np.mean(ent_losses))
-        self.logger.record("train/waypoint_loss", np.mean(waypoint_losses))
-        if self.ent_coef_optimizer is not None:
-             self.logger.record("train/ent_coef", self.log_ent_coef.exp().item())
-
-    def _get_sac_losses(self, replay_data: ReplayBufferSamples) -> dict:
-        """
-        Calculates the standard actor, critic, and entropy losses for SAC.
-        This forward pass through the policy also populates the 
-        `self.policy.features_extractor.last_pred_wp` attribute.
-        """
-        # --- Critic Loss ---
-        with torch.no_grad():
-            next_actions, next_log_prob = self.actor.action_log_prob(replay_data.next_observations)
-            target_q_values_list = self.critic_target(replay_data.next_observations, next_actions)
-            target_q_values, _ = torch.min(torch.cat(target_q_values_list, dim=1), dim=1, keepdim=True)
-            target_q_values = target_q_values - self.alpha * next_log_prob
-            target_q = replay_data.rewards + (1 - replay_data.dones) * self.gamma * target_q_values
-        
-        current_q_values_list = self.critic(replay_data.observations, replay_data.actions)
-        critic_loss = sum(F.mse_loss(current_q, target_q) for current_q in current_q_values_list)
-
-        # --- Actor and Entropy Loss ---
-        actions_pi, log_prob = self.actor.action_log_prob(replay_data.observations)
-        q_values_pi_list = self.critic(replay_data.observations, actions_pi)
-        q_values_pi, _ = torch.min(torch.cat(q_values_pi_list, dim=1), dim=1, keepdim=True)
-        
-        actor_loss = (self.alpha * log_prob - q_values_pi).mean()
-        ent_loss = -self.alpha.detach() * log_prob.mean()
-
-        return {'actor_loss': actor_loss, 'critic_loss': critic_loss, 'ent_loss': ent_loss}
-
-    def update_target_networks(self) -> None:
-        """Helper function to update the critic target networks."""
-        with torch.no_grad():
-            for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
-                target_param.data.mul_(1.0 - self.tau)
-                torch.add(target_param.data, param.data, alpha=self.tau, out=target_param.data)
+  

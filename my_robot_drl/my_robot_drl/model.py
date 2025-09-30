@@ -213,7 +213,7 @@ class GPT(nn.Module):
             lidar_tensor (tensor): B*seq_len, C, H, W
             velocity (tensor): ego-velocity
         """
-        
+
         bz = lidar_tensor.shape[0] // self.seq_len
         h, w = lidar_tensor.shape[2:4]
         
@@ -226,7 +226,8 @@ class GPT(nn.Module):
         token_embeddings = token_embeddings.view(bz, -1, self.n_embd) # (B, an * T, C)
 
         # project velocity to n_embed
-        velocity_embeddings = self.vel_emb(velocity.unsqueeze(1)) # (B, C)
+        velocity_embeddings = self.vel_emb(velocity) # (B, C)
+
 
         # add (learnable) positional embedding and velocity embedding for all tokens
         x = self.drop(self.pos_emb + token_embeddings + velocity_embeddings.unsqueeze(1)) # (B, an * T, C)
@@ -238,7 +239,8 @@ class GPT(nn.Module):
 
         image_tensor_out = x[:, :self.config.n_views*self.seq_len, :, :, :].contiguous().view(bz * self.config.n_views * self.seq_len, -1, h, w)
         lidar_tensor_out = x[:, self.config.n_views*self.seq_len:, :, :, :].contiguous().view(bz * self.seq_len, -1, h, w)
-        
+
+
         return image_tensor_out, lidar_tensor_out
 
 
@@ -306,21 +308,22 @@ class Encoder(nn.Module):
         '''
         Image + LiDAR feature fusion using transformers
         Args:
-            image_list (list): list of input images
-            lidar_list (list): list of input LiDAR BEV
+            image_list (list): list of input images. For RL, this is a list with ONE tensor of shape (B, C, H, W).
+            lidar_list (list): list of input LiDAR BEV. For RL, this is a list with ONE tensor of shape (B, C, H, W).
             velocity (tensor): input velocity from speedometer
         '''
         if self.image_encoder.normalize:
             image_list = [normalize_imagenet(image_input) for image_input in image_list]
 
-        bz, _, h, w = lidar_list[0].shape
-        img_channel = image_list[0].shape[1]
-        lidar_channel = lidar_list[0].shape[1]
-        self.config.n_views = len(image_list) // self.config.seq_len
-
-        image_tensor = torch.stack(image_list, dim=1).view(bz * self.config.n_views * self.config.seq_len, img_channel, h, w)
-        lidar_tensor = torch.stack(lidar_list, dim=1).view(bz * self.config.seq_len, lidar_channel, h, w)
-
+        # --- THIS IS THE ROBUST FIX ---
+        # The original code used a complex torch.stack().view() sequence that is brittle.
+        # Since our DRL setup (and the original code for seq_len=1) provides a list
+        # containing a single, already-batched tensor, we can just extract it directly.
+        # This is a robust data-handling fix, not an architectural change.
+        image_tensor = image_list[0]
+        lidar_tensor = lidar_list[0]
+        bz = lidar_tensor.shape[0] // self.config.seq_len
+    
         image_features = self.image_encoder.features.conv1(image_tensor)
         image_features = self.image_encoder.features.bn1(image_features)
         image_features = self.image_encoder.features.relu(image_features)
@@ -479,15 +482,22 @@ class TransFuser(nn.Module):
 
         # flip y is (forward is negative in our waypoints)
         waypoints[:,1] *= -1
-        speed = velocity[0].data.cpu().numpy()
+        
+        # --- FIX #1: Use .item() to extract a scalar ---
+        # OLD: speed = velocity[0].data.cpu().numpy() # This created an array
+        speed = velocity[0].item() # This correctly extracts a scalar float
 
         desired_speed = np.linalg.norm(waypoints[0] - waypoints[1]) * 2.0
         brake = desired_speed < self.config.brake_speed or (speed / desired_speed) > self.config.brake_ratio
 
         aim = (waypoints[1] + waypoints[0]) / 2.0
         angle = np.degrees(np.pi / 2 - np.arctan2(aim[1], aim[0])) / 90
-        if(speed < 0.01):
-            angle = np.array(0.0) # When we don't move we don't want the angle error to accumulate in the integral
+        
+        # --- FIX #2: Assign a scalar float, not a numpy array ---
+        # OLD: if(speed < 0.01): angle = np.array(0.0)
+        if speed < 0.01:
+            angle = 0.0 # Assign a simple float
+            
         steer = self.turn_controller.step(angle)
         steer = np.clip(steer, -1.0, 1.0)
 
@@ -497,16 +507,16 @@ class TransFuser(nn.Module):
         throttle = throttle if not brake else 0.0
 
         metadata = {
-            'speed': float(speed.astype(np.float64)),
+            'speed': float(speed),
             'steer': float(steer),
             'throttle': float(throttle),
             'brake': float(brake),
             'wp_2': tuple(waypoints[1].astype(np.float64)),
             'wp_1': tuple(waypoints[0].astype(np.float64)),
-            'desired_speed': float(desired_speed.astype(np.float64)),
-            'angle': float(angle.astype(np.float64)),
+            'desired_speed': float(desired_speed),
+            'angle': float(angle),
             'aim': tuple(aim.astype(np.float64)),
-            'delta': float(delta.astype(np.float64)),
+            'delta': float(delta),
         }
 
         return steer, throttle, brake, metadata

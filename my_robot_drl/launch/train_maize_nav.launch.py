@@ -7,8 +7,9 @@ from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchD
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node
-from launch.substitutions import LaunchConfiguration, PythonExpression # Added PythonExpression
-from launch.conditions import IfCondition, UnlessCondition # Added conditions
+from launch.substitutions import LaunchConfiguration, PythonExpression
+# --- CORRECTED IMPORTS ---
+from launch.conditions import IfCondition, UnlessCondition
 
 def generate_launch_description():
     # Define package paths
@@ -19,17 +20,16 @@ def generate_launch_description():
     # --- Declare Launch Argument for Headless Mode ---
     headless_arg = DeclareLaunchArgument(
         'headless',
-        default_value='true', # Default to headless for training
+        default_value='true', 
         description='Run Gazebo in headless mode (no GUI). Set to "false" for GUI.'
     )
 
-    # --- NEW: Declare Launch Argument for Train/Eval Mode ---
+    # --- Declare Launch Argument for Train/Eval/IL Mode ---
     mode_arg = DeclareLaunchArgument(
         'mode',
         default_value='train',
-        description='Mode to run the DRL agent: train or eval'
+        description="Mode to run: 'train' (SAC), 'eval' (SAC), or 'il' (Imitation Learning)"
     )
-    # ---
 
     # --- 1. Generate the World ---
     world_config_name = 'my_world'
@@ -43,22 +43,20 @@ def generate_launch_description():
 
     # Action to launch Gazebo Server (headless)
     gazebo_server_cmd = ExecuteProcess(
-        cmd=['gzserver',
-             '--verbose',
-             '-s', 'libgazebo_ros_init.so',
-             '-s', 'libgazebo_ros_factory.so',
-             world_file_path],
+        cmd=['gzserver', '--verbose', '-s', 'libgazebo_ros_init.so', '-s', 'libgazebo_ros_factory.so', world_file_path],
         output='screen',
-        condition=IfCondition(LaunchConfiguration('headless')) # Only run if headless is true
+        condition=IfCondition(LaunchConfiguration('headless'))
     )
 
+    # --- THIS IS THE CORRECTED PART ---
     # Action to launch Gazebo with GUI (not headless)
-    gazebo_gui_launch_file = os.path.join(maize_field_pkg, 'launch', 'simulation.launch.py')
     gazebo_gui_sim = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(gazebo_gui_launch_file),
-        launch_arguments={'world': world_file_path}.items(), # Pass world file as argument
-        condition=UnlessCondition(LaunchConfiguration('headless')) # Only run if headless is false
+        PythonLaunchDescriptionSource(os.path.join(maize_field_pkg, 'launch', 'simulation.launch.py')),
+        launch_arguments={'world': world_file_path}.items(),
+        # Use UnlessCondition, which is the direct opposite of IfCondition
+        condition=UnlessCondition(LaunchConfiguration('headless'))
     )
+    # --- END OF CORRECTION ---
     
     # Action to launch robot spawner
     robot_bringup_launch_file = os.path.join(maize_robot_bringup_pkg, 'launch', 'spawn_tracked_robot.launch.py')
@@ -66,27 +64,38 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(robot_bringup_launch_file),
     )
 
-    # --- MODIFIED: Action to start DRL Training Script ---
+    # Node for the ORIGINAL DRL training script (SAC)
     train_agent_node = Node(
         package='my_robot_drl',
         executable='train_agent',
-        name='drl_trainer',
+        name='drl_trainer_sac',
         output='screen',
         parameters=[{'use_sim_time': True}],
-        # This 'arguments' field passes the launch argument to the Python script
-        arguments=[LaunchConfiguration('mode')]
+        arguments=[LaunchConfiguration('mode')],
+        condition=IfCondition(
+            PythonExpression(["'", LaunchConfiguration('mode'), "' != 'il'"])
+        )
     )
-    # ---
 
-    # --- Orchestration Logic (Unchanged) ---
+    # Node for the IMITATION LEARNING script
+    train_imitation_node = Node(
+        package='my_robot_drl',
+        executable='train_imitation',
+        name='drl_trainer_il',
+        output='screen',
+        parameters=[{'use_sim_time': True}],
+        condition=IfCondition(
+            PythonExpression(["'", LaunchConfiguration('mode'), "' == 'il'"])
+        )
+    )
+
+    # --- Orchestration Logic ---
     return LaunchDescription([
-        headless_arg, # Declare the headless argument
-        mode_arg,     # Declare the new mode argument
+        headless_arg,
+        mode_arg,
 
-        # Step 1: Run world generation.
         generate_world_cmd,
         
-        # Step 2: When world generation finishes, start Gazebo (either server or full sim).
         RegisterEventHandler(
             event_handler=OnProcessExit(
                 target_action=generate_world_cmd,
@@ -98,7 +107,6 @@ def generate_launch_description():
             )
         ),
 
-        # Step 3: After Gazebo is assumed to be ready (using a delay), spawn the robot.
         TimerAction(
             period=8.0, 
             actions=[
@@ -107,12 +115,12 @@ def generate_launch_description():
             ]
         ),
         
-        # Step 4: After robot is assumed to be spawned, start training.
         TimerAction(
             period=16.0,
             actions=[
-                LogInfo(msg="Robot likely spawned. Starting DRL training..."),
-                train_agent_node
+                LogInfo(msg="Robot likely spawned. Starting selected training script..."),
+                train_agent_node,
+                train_imitation_node
             ]
         )
     ])

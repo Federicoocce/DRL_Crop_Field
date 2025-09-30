@@ -36,6 +36,18 @@
       <grid>false</grid>
       <shadows>1</shadows>
     </scene>
+    <!-- ============================================= -->
+    <!-- === ADD THIS PLUGIN BLOCK FOR ROS SERVICES ==== -->
+    <!-- ============================================= -->
+    <plugin name="gazebo_ros_init" filename="libgazebo_ros_state.so">
+      <ros>
+        <namespace>/</namespace>
+      </ros>
+      <update_rate>1</update_rate>
+    </plugin>
+    <!-- ============================================= -->
+    <!-- ============== END OF ADDITION ============== -->
+    <!-- ============================================= -->
     <audio>
       <device>default</device>
     </audio>
