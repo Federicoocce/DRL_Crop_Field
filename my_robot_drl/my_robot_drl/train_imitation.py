@@ -20,12 +20,12 @@ import random
 
 # --- Data Collection & Expert Controller ---
 DATA_COLLECTION_FPS = 2.0 # Target FPS for saving expert data
-DATA_COLLECTION_FPS_TURNING = 20.0 # HIGHER target FPS for turning maneuvers
+DATA_COLLECTION_FPS_TURNING = 15.0 # HIGHER target FPS for turning maneuvers
 EXPERT_KP_ANGULAR = 1.0
 EXPERT_TARGET_LINEAR_VEL = 0.2
 
 # --- Model Training ---
-IL_EPOCHS = 50
+IL_EPOCHS = 10
 IL_BATCH_SIZE = 128  
 IL_LEARNING_RATE = 1e-4
 VISUALIZE_TRAINING_SAMPLE = False # <-- NEW: Control flag for visualization
@@ -42,7 +42,7 @@ MODEL_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_models', 'imitation_lear
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_model.pth')
 
 # Add Augmentation Config
-AUGMENT_ROTATION_DEG = 20.0 # +/- 20 degrees
+AUGMENT_ROTATION_DEG = 30.0 # +/- 30 degrees
 FINAL_PROCESS_SIZE = 256
 
 # ... (CONFIG PARAMETERS) ...
@@ -294,9 +294,7 @@ def evaluate_model(env, model, logger, device):
         action = np.array([linear_vel, angular_vel], dtype=np.float32)
         action = np.clip(action, env.action_space.low, env.action_space.high)
         #debug waypoint prediction
-        if step % 40 == 0:
-            gt_waypoints = raw_obs['gt_waypoints']
-            logger.info(f"  [Step {step}] Predicted WP #1: (x={predicted_first_wp[0]:.3f}, y={predicted_first_wp[1]:.3f}) | GT WP #1: (x={gt_waypoints[0,0]:.3f}, y={gt_waypoints[0,1]:.3f})")
+        if step % 30 == 0:
             evaluation_data.append(raw_obs.copy())
         # --- Continuously step the environment with the most recent action ---
         # This loop runs as fast as possible, ensuring smooth physics.
