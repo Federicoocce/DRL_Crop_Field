@@ -26,9 +26,9 @@ EXPERT_TARGET_LINEAR_VEL = 0.2
 
 # --- Model Training ---
 IL_EPOCHS = 10
-IL_BATCH_SIZE = 128  
+IL_BATCH_SIZE = 16  
 IL_LEARNING_RATE = 1e-4
-VISUALIZE_TRAINING_SAMPLE = False # <-- NEW: Control flag for visualization
+VISUALIZE_TRAINING_SAMPLE = True # <-- NEW: Control flag for visualization
 
 
 # --- Evaluation Controller ---
@@ -49,61 +49,75 @@ FINAL_PROCESS_SIZE = 256
 # Add a parameter for the camera's horizontal FOV in degrees.
 # From your XACRO, the FOV is 2.2689 radians.
 CAMERA_H_FOV_DEG = np.rad2deg(2.2689) # Approx 130 degrees
+CAMERA_H_FOV_DEG_REAR = 100.0 # <-- NEW: Rear camera FOV in degrees
 DEBUG_AUGMENTATION = False # <-- NEW: Control flag for debug prints
 # ===================================================================
 # --- Data Preprocessor Class (with Debug Prints) ---
 # ===================================================================
 class DataPreprocessor:
     """Handles augmentation and conversion from raw env obs to model inputs."""
-    def __init__(self, crop_size=256, camera_fov_deg=130.0):
+    # --- MODIFIED __init__ ---
+    def __init__(self, crop_size=256, camera_fov_deg_front=130.0, camera_fov_deg_rear=100.0):
         self.crop_size = crop_size
-        self.camera_fov_deg = camera_fov_deg
+        self.camera_fov_deg_front = camera_fov_deg_front
+        self.camera_fov_deg_rear = camera_fov_deg_rear # <-- NEW
 
+    # --- MODIFIED process_observation ---
     def process_observation(self, raw_obs_dict, apply_augmentation=False):
         """
         Takes one raw observation dict, optionally augments, and returns processed dict.
         """
         angle = 0.0
-        crop_shift = 0.0
+        crop_shift_front = 0.0
+        crop_shift_rear = 0.0 # <-- NEW
         
-        # --- NEW: Flag to trigger debug prints ---
-        is_debugging_this_sample = apply_augmentation and DEBUG_AUGMENTATION
-
         if apply_augmentation:
             angle = random.uniform(-AUGMENT_ROTATION_DEG, AUGMENT_ROTATION_DEG)
             raw_img_width = raw_obs_dict['image_raw'].shape[1]
-            crop_shift = (angle / self.camera_fov_deg) * raw_img_width
+            
+            # Calculate shift for FRONT camera
+            crop_shift_front = (angle / self.camera_fov_deg_front) * raw_img_width
+            
+            # Calculate shift for REAR camera (note the inverted sign for the angle)
+            crop_shift_rear = (-angle / self.camera_fov_deg_rear) * raw_img_width # <-- NEW
 
-        # --- Get raw data (unchanged) ---
-        img_raw = raw_obs_dict['image_raw']
+        # --- Get raw data ---
+        img_raw_front = raw_obs_dict['image_raw']
+        img_raw_rear = raw_obs_dict.get('image_rear_raw') # Use .get for safety
         pc_raw = raw_obs_dict['lidar_raw']
         gt_wp_raw = raw_obs_dict['gt_waypoints']
         state_raw = raw_obs_dict['state']
 
+        # --- Apply Transformations ---
+        img_processed_front = scale_and_crop_image(img_raw_front, scale=1, crop=self.crop_size, crop_shift=crop_shift_front)
+        
+        # Process rear image if it exists
+        img_processed_rear = None
+        if img_raw_rear is not None:
+             img_processed_rear = scale_and_crop_image(img_raw_rear, scale=1, crop=self.crop_size, crop_shift=crop_shift_rear)
 
-        # --- Apply Transformations (unchanged) ---
-        img_processed = scale_and_crop_image(img_raw, scale=1, crop=self.crop_size, crop_shift=crop_shift)
         pc_rot = rotate_point_cloud(pc_raw, angle)
         bev_processed = lidar_to_histogram_features(pc_rot, crop=self.crop_size)
         gt_wp_rot = rotate_waypoints(gt_wp_raw, angle)
         
-        # --- Rotation logic for state (unchanged) ---
+        # ... (state rotation logic remains the same) ...
         state_rot = state_raw.copy()
         if apply_augmentation and abs(angle) > 1e-6:
             distant_goal_point_batch = state_raw[0:2].reshape(1, 2)
             rotated_goal_batch = rotate_waypoints(distant_goal_point_batch, angle)
             state_rot[0:2] = rotated_goal_batch.flatten()
-        
 
-
-        # --- Return dictionary (unchanged) ---
-        return {
-            'image': img_processed,
+        # --- Return dictionary ---
+        processed_data = {
+            'image': img_processed_front,
             'lidar_bev': bev_processed,
             'state': state_rot,
             'gt_waypoints': gt_wp_rot
         }
-
+        if img_processed_rear is not None:
+            processed_data['image_rear'] = img_processed_rear
+        
+        return processed_data
 ### START OF MODIFIED FUNCTION ###
 def collect_expert_data(env, logger):
     """
@@ -181,7 +195,11 @@ def train_model(model, dataset, logger, pause_client, unpause_client, env_node, 
     pause_future = pause_client.call_async(Empty.Request())
     rclpy.spin_until_future_complete(env_node, pause_future, timeout_sec=5.0)
     loss_history = []
-    preprocessor = DataPreprocessor(crop_size=FINAL_PROCESS_SIZE, camera_fov_deg=CAMERA_H_FOV_DEG)
+    preprocessor = DataPreprocessor(
+        crop_size=FINAL_PROCESS_SIZE, 
+        camera_fov_deg_front=CAMERA_H_FOV_DEG,
+        camera_fov_deg_rear=CAMERA_H_FOV_DEG_REAR
+    )
     try:
         for epoch in range(IL_EPOCHS):
             random.shuffle(dataset)
@@ -217,7 +235,7 @@ def train_model(model, dataset, logger, pause_client, unpause_client, env_node, 
                     # Get the first sample from the processed list
                     sample_to_show = processed_batch_list[0]
                     # Render it. The function handles cv2.waitKey(1) internally.
-                    render_sensor_data(sample_to_show['image'], sample_to_show['lidar_bev'])
+                    render_sensor_data(sample_to_show['image'], sample_to_show['lidar_bev'], sample_to_show.get('image_rear'))
                     visualized_this_epoch = True
                 # Collate into batch dictionary of numpy arrays
                 training_batch = {
@@ -263,7 +281,11 @@ def evaluate_model(env, model, logger, device):
     logger.info(f"PHASE 3: Starting Evaluation ")
     logger.info("="*50)
     logger.info("Resetting environment for evaluation.")
-    preprocessor = DataPreprocessor(crop_size=FINAL_PROCESS_SIZE, camera_fov_deg=CAMERA_H_FOV_DEG)
+    preprocessor = DataPreprocessor(
+        crop_size=FINAL_PROCESS_SIZE, 
+        camera_fov_deg_front=CAMERA_H_FOV_DEG,
+        camera_fov_deg_rear=CAMERA_H_FOV_DEG_REAR
+    )
     
     raw_obs, info = env.reset() # Get RAW
     done = False

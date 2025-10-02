@@ -155,29 +155,51 @@ def lidar_to_histogram_features(point_cloud_np, crop=256):
     
     return output
 
-# ... (render_sensor_data and close_windows remain unchanged) ...
-def render_sensor_data(camera_image, lidar_bev):
-    """Displays the camera image and the LiDAR BEV in pop-up windows."""
+def render_sensor_data(camera_image, lidar_bev, camera_image_rear=None):
+    """
+    Displays sensor data in pop-up windows.
+    This version is updated to show the front camera, an optional rear camera,
+    and the LiDAR BEV.
+    
+    Args:
+        camera_image (np.array): The front camera image (H, W, 3).
+        lidar_bev (np.array): The processed LiDAR BEV (H, W, 2).
+        camera_image_rear (np.array, optional): The rear camera image. Defaults to None.
+    """
     try:
+        # --- Front Camera Visualization ---
         if camera_image is not None:
-            # Handle both raw (large) and processed (256x256) images
             img_bgr = cv2.cvtColor(camera_image, cv2.COLOR_RGB2BGR)
-            # Resize for display purposes only
             img_display = cv2.resize(img_bgr, (400, 400), interpolation=cv2.INTER_AREA)
-            cv2.imshow("Camera View", img_display)
+            cv2.imshow("Front Camera View", img_display) # Renamed for clarity
 
+        # --- NEW: Rear Camera Visualization ---
+        if camera_image_rear is not None:
+            img_rear_bgr = cv2.cvtColor(camera_image_rear, cv2.COLOR_RGB2BGR)
+            img_rear_display = cv2.resize(img_rear_bgr, (400, 400), interpolation=cv2.INTER_AREA)
+            cv2.imshow("Rear Camera View", img_rear_display)
+
+        # --- BEV Visualization ---
         if lidar_bev is not None:
-            # Only display if it's the processed BEV (H, W, 2)
+            # Ensure it's the 2-channel processed BEV
             if lidar_bev.ndim == 3 and lidar_bev.shape[2] == 2:
                 bev_h, bev_w, _ = lidar_bev.shape
                 bev_display = np.zeros((bev_h, bev_w, 3), dtype=np.uint8)
-                bev_display[:, :, 0] = lidar_bev[:, :, 0] # Blue
-                bev_display[:, :, 2] = lidar_bev[:, :, 1] # Red
+                
+                # Channel 0 (below points) -> Mapped to Blue channel
+                bev_display[:, :, 0] = lidar_bev[:, :, 0]
+                # Channel 1 (above points) -> Mapped to Red channel
+                bev_display[:, :, 2] = lidar_bev[:, :, 1]
+                
                 bev_display_resized = cv2.resize(bev_display, (400, 400), interpolation=cv2.INTER_NEAREST)
                 cv2.imshow("LiDAR BEV", bev_display_resized)
 
+        # Update all OpenCV windows if any of them have been created
+        if camera_image is not None or lidar_bev is not None or camera_image_rear is not None:
             cv2.waitKey(1)
+
     except Exception as e:
+        # Using print here as this is a utility file without a ROS logger
         print(f"Error in render_sensor_data: {e}")
 
 def close_windows():

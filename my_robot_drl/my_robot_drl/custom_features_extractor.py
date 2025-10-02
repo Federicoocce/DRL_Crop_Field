@@ -30,43 +30,40 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
         current_device = self.device
         
         for key, obs in observations.items():
-            # Ensure everything is a tensor on the correct device
             all_obs_tensors[key] = torch.as_tensor(obs, device=current_device)
 
-        # --- START OF THE ROBUST FIX ---
-        image_obs = all_obs_tensors['image']
+        # --- Get tensors for each view ---
+        image_obs_front = all_obs_tensors['image']
+        image_obs_rear = all_obs_tensors['image_rear'] # <-- NEW
         lidar_obs = all_obs_tensors['lidar_bev']
 
-        # PyTorch expects (B, C, H, W). Gym/NumPy gives (B, H, W, C).
-        # We check if the last dimension is the channel dimension and permute if needed.
-        # This handles both single images (ndim=3) and batches (ndim=4).
-        if image_obs.shape[-1] == 3:
-            if image_obs.ndim == 3: # H, W, C -> C, H, W
-                image_obs = image_obs.permute(2, 0, 1)
-            elif image_obs.ndim == 4: # B, H, W, C -> B, C, H, W
-                image_obs = image_obs.permute(0, 3, 1, 2)
-        
-        if lidar_obs.shape[-1] == 2:
-            if lidar_obs.ndim == 3: # H, W, C -> C, H, W
-                lidar_obs = lidar_obs.permute(2, 0, 1)
-            elif lidar_obs.ndim == 4: # B, H, W, C -> B, C, H, W
-                lidar_obs = lidar_obs.permute(0, 3, 1, 2)
-        # --- END OF THE ROBUST FIX ---
+        # --- Permute both image tensors ---
+        if image_obs_front.shape[-1] == 3: # B, H, W, C -> B, C, H, W
+            image_obs_front = image_obs_front.permute(0, 3, 1, 2)
+        if image_obs_rear.shape[-1] == 3: # B, H, W, C -> B, C, H, W
+            image_obs_rear = image_obs_rear.permute(0, 3, 1, 2)
+            
+        if lidar_obs.shape[-1] == 2: # B, H, W, C -> B, C, H, W
+            lidar_obs = lidar_obs.permute(0, 3, 1, 2)
 
-        image_obs = image_obs.float() / 255.0
+        # --- Normalize all sensor inputs ---
+        image_obs_front = image_obs_front.float() / 255.0
+        image_obs_rear = image_obs_rear.float() / 255.0 # <-- NEW
         lidar_obs = lidar_obs.float() / 255.0
-        state_obs = all_obs_tensors['state']
-
-        # The model expects a list of tensors
-        image_list, lidar_list = [image_obs], [lidar_obs]
         
+        # --- CRITICAL: Stack the views into a single tensor ---
+        # The model expects a tensor of shape (B * n_views, C, H, W)
+        # We concatenate along the batch dimension (dim=0)
+        image_obs_stacked = torch.cat([image_obs_front, image_obs_rear], dim=0) # <-- NEW
+        
+        # The model expects a list of tensors
+        image_list, lidar_list = [image_obs_stacked], [lidar_obs] # <-- MODIFIED
+        
+        # ... (state processing remains the same) ...
+        state_obs = all_obs_tensors['state']
         target_point = state_obs[:, 0:2]
-        if state_obs.dim() > 1:
-             velocity = state_obs[:, 2].unsqueeze(1)
-        else:
-             # Handle the case of a single state vector (not batched)
-             velocity = state_obs[2].unsqueeze(0).unsqueeze(0)
-             
+        velocity = state_obs[:, 2].unsqueeze(1) if state_obs.dim() > 1 else state_obs[2].unsqueeze(0).unsqueeze(0)
+            
         return image_list, lidar_list, target_point, velocity
 
     def forward(self, observations: dict) -> torch.Tensor:

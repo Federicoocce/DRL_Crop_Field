@@ -25,7 +25,7 @@ class GlobalConfig:
 
     ignore_sides = True # don't consider side cameras
     ignore_rear = True # don't consider rear cameras
-    n_views = 1 # no. of camera views
+    n_views = 2 # no. of camera views
 
     input_resolution = 256
 

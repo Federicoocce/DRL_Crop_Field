@@ -74,7 +74,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.observation_space = spaces.Dict({
             # Raw image: High/variable resolution
             'image_raw': spaces.Box(low=0, high=255, shape=(RAW_IMG_HEIGHT, RAW_IMG_WIDTH, 3), dtype=np.uint8),
-            # Raw LiDAR: Variable number of points (N, 3). Represented as high-dim box.
+            'image_rear_raw': spaces.Box(low=0, high=255, shape=(RAW_IMG_HEIGHT, RAW_IMG_WIDTH, 3), dtype=np.uint8),
+        
             'lidar_raw': spaces.Box(low=-np.inf, high=np.inf, shape=(self.MAX_LIDAR_POINTS, 3), dtype=np.float32),
             'state': spaces.Box(low=-np.inf, high=np.inf, shape=(STATE_VECTOR_SIZE,), dtype=np.float32),
             'gt_waypoints': spaces.Box(low=-np.inf, high=np.inf, shape=(4, 2), dtype=np.float32)
@@ -87,6 +88,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.set_state_client = self.create_client(SetEntityState, '/set_entity_state')
         self.camera_sub = self.create_subscription(Image, '/tracked_robot/rgb_camera/image_raw', self.camera_callback, 10)
         self.lidar_3d_sub = self.create_subscription(PointCloud2, '/points', self.lidar_3d_callback, 10)
+        self.rear_camera_sub = self.create_subscription(Image, '/tracked_robot/rear_camera/image_raw', self.rear_camera_callback, 10)
+       
         self.bridge = CvBridge()
         
         self.get_logger().info("Connecting to Gazebo services...")
@@ -106,6 +109,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.current_scan = np.full(360, 2.0, dtype=np.float32)
         # Initialize with expected raw camera size
         self.current_image_raw = np.zeros((576, 1024, 3), dtype=np.uint8) 
+        # Initialize a placeholder for the image
+        self.current_rear_image_raw = np.zeros((576, 1024, 3), dtype=np.uint8)
         # Initialize empty point cloud
         self.current_lidar_raw = np.zeros((0, 3), dtype=np.float32) 
         self.min_lidar_range = 0.14
@@ -199,6 +204,14 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             self.current_image_raw = self.bridge.imgmsg_to_cv2(msg, "rgb8")
         except Exception as e:
             self.get_logger().error(f"Error in camera_callback: {e}")
+
+        
+    def rear_camera_callback(self, msg):
+        """Stores raw incoming rear camera images."""
+        try:
+            self.current_rear_image_raw = self.bridge.imgmsg_to_cv2(msg, "rgb8")
+        except Exception as e:
+            self.get_logger().error(f"Error in rear_camera_callback: {e}")
 
     def lidar_3d_callback(self, msg):
         try:
@@ -411,10 +424,12 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
     
     def render(self, mode='human'):
-        # Pass raw image. Pass None for BEV (it's not generated in env anymore)
-        # or generate it specifically for rendering if desired (expensive).
-        # For now, let's just visualize the camera.
-        render_sensor_data(self.current_image_raw, None)
+        # This will now show both cameras during data collection and evaluation steps
+        render_sensor_data(
+            camera_image=self.current_image_raw, 
+            lidar_bev=None, # We don't generate BEV here
+            camera_image_rear=self.current_rear_image_raw
+        )
 
     def step(self, action):
         """
@@ -497,6 +512,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         # --- MODIFIED: Return RAW data ---
         obs_dict = {
             'image_raw': self.current_image_raw, # (H_raw, W_raw, 3)
+            'image_rear_raw': self.current_rear_image_raw,
             'lidar_raw': self.current_lidar_raw, # (N, 3)
             'state': state_obs,
             'gt_waypoints': gt_waypoints_rel 
