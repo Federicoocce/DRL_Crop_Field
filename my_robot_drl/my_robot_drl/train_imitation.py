@@ -19,12 +19,13 @@ import random
 # ===================================================================
 
 # --- Data Collection & Expert Controller ---
-DATA_COLLECTION_FPS = 10.0 # Target FPS for saving expert data
+DATA_COLLECTION_FPS = 2.0 # Target FPS for saving expert data
+DATA_COLLECTION_FPS_TURNING = 20.0 # HIGHER target FPS for turning maneuvers
 EXPERT_KP_ANGULAR = 1.0
 EXPERT_TARGET_LINEAR_VEL = 0.2
 
 # --- Model Training ---
-IL_EPOCHS = 10
+IL_EPOCHS = 50
 IL_BATCH_SIZE = 128  
 IL_LEARNING_RATE = 1e-4
 VISUALIZE_TRAINING_SAMPLE = False # <-- NEW: Control flag for visualization
@@ -103,17 +104,21 @@ class DataPreprocessor:
             'gt_waypoints': gt_wp_rot
         }
 
+### START OF MODIFIED FUNCTION ###
 def collect_expert_data(env, logger):
     """
     Phase 1: Navigate the field using an expert controller and record
-    observations at a fixed rate (e.g., 2 FPS) to avoid redundant data.
+    observations. Samples more frequently during U-turns to balance the dataset.
     """
     logger.info("="*50)
-    logger.info(f"PHASE 1: Starting Expert Data Collection (at {DATA_COLLECTION_FPS} FPS)")
+    logger.info(f"PHASE 1: Starting Expert Data Collection")
+    logger.info(f"         Normal FPS: {DATA_COLLECTION_FPS}, Turning FPS: {DATA_COLLECTION_FPS_TURNING}")
     logger.info("="*50)
-    
-    collection_interval = 1.0 / DATA_COLLECTION_FPS
-    
+
+    # Calculate the two sampling intervals
+    collection_interval_normal = 1.0 / DATA_COLLECTION_FPS
+    collection_interval_turning = 1.0 / DATA_COLLECTION_FPS_TURNING
+
     while True:
         obs, info = env.reset()
         dataset = []
@@ -134,11 +139,17 @@ def collect_expert_data(env, logger):
             action = np.array([linear_vel, angular_vel], dtype=np.float32)
             action = np.clip(action, env.action_space.low, env.action_space.high)
             
+            # Check the robot's turning state to select the correct sampling rate
+            is_currently_turning = env.is_turning
+            current_collection_interval = collection_interval_turning if is_currently_turning else collection_interval_normal
+            
             current_time = time.time()
-            if current_time - last_collection_time >= collection_interval:
+            if current_time - last_collection_time >= current_collection_interval:
                 dataset.append(obs.copy())
                 last_collection_time = current_time 
-                logger.info(f"  [Collection] Step {step}, Sampled data point. Dataset size: {len(dataset)}")
+                # Modified log message to be more informative
+                log_prefix = "[Collection - TURNING]" if is_currently_turning else "[Collection]"
+                logger.info(f"  {log_prefix} Step {step}, Sampled data point. Dataset size: {len(dataset)}")
 
             next_obs, reward, terminated, truncated, info = env.step(action)
             obs = next_obs
@@ -147,12 +158,13 @@ def collect_expert_data(env, logger):
             
         if info.get("termination_reason") == "all_waypoints_visited":
             logger.info(f"SUCCESS: Expert completed the field in {step} steps.")
-            logger.info(f"Final dataset size (sampled at {DATA_COLLECTION_FPS} FPS): {len(dataset)}")
+            logger.info(f"Final dataset size: {len(dataset)}")
             return dataset
         else:
             reason = info.get("termination_reason", "unknown")
             logger.error(f"FAILURE: Expert failed (Reason: {reason}). Restarting collection.")
             time.sleep(2)
+### END OF MODIFIED FUNCTION ###
 
 
 def train_model(model, dataset, logger, pause_client, unpause_client, env_node, run_count):
@@ -285,7 +297,7 @@ def evaluate_model(env, model, logger, device):
         if step % 40 == 0:
             gt_waypoints = raw_obs['gt_waypoints']
             logger.info(f"  [Step {step}] Predicted WP #1: (x={predicted_first_wp[0]:.3f}, y={predicted_first_wp[1]:.3f}) | GT WP #1: (x={gt_waypoints[0,0]:.3f}, y={gt_waypoints[0,1]:.3f})")
-            evaluation_data.append(raw_obs.copy())
+            #evaluation_data.append(raw_obs.copy())
         # --- Continuously step the environment with the most recent action ---
         # This loop runs as fast as possible, ensuring smooth physics.
         next_raw_obs, reward, terminated, truncated, info = env.step(action) # Get RAW

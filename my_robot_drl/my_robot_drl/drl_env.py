@@ -104,8 +104,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         # --- Initialize other state variables ---
         self.current_odom = None
         self.current_scan = np.full(360, 2.0, dtype=np.float32)
-        # Initialize with expected raw camera size (e.g., 640x480)
-        self.current_image_raw = np.zeros((480, 640, 3), dtype=np.uint8) 
+        # Initialize with expected raw camera size
+        self.current_image_raw = np.zeros((576, 1024, 3), dtype=np.uint8) 
         # Initialize empty point cloud
         self.current_lidar_raw = np.zeros((0, 3), dtype=np.float32) 
         self.min_lidar_range = 0.14
@@ -123,6 +123,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.distant_goal_world_coords = None
         self.boundary_crossing_counter = 0
         self.debug_counter = 0
+        self.is_turning = False # Flag to detect when the robot is executing a U-turn
 
     def _initialize_spawn_points_dynamically(self):
         """
@@ -234,6 +235,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         super().reset(seed=seed)
         self.get_logger().info("Resetting environment...")
         self.previous_waypoint_index = None
+        self.is_turning = False
 
         while rclpy.ok():
             # 1. Reset the simulation to its default state
@@ -635,6 +637,9 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                             self.original_target_after_turn_idx = None
                     else:
                         # We reached a normal (non-assist) waypoint
+                        if self.is_turning:
+                            self.get_logger().info("U-turn sequence completed.")
+                            self.is_turning = False
                         potential_next_target_idx = self._find_closest_unvisited_waypoint()
                         if potential_next_target_idx is not None:
                             lane_reached = wp_just_reached.get('original_lane_index', -1)
@@ -644,6 +649,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                             # This happens when we are at the END of a lane.
                             if is_boundary_wp and lane_reached != lane_next and self.previous_waypoint_index is not None:
                                 self.get_logger().info(f"END OF LANE {lane_reached}: Initiating turn.")
+                                self.is_turning = True
+
                                
                                 potential_wp = self.waypoints[potential_next_target_idx]
                                 start_of_next_lane_idx = potential_next_target_idx
