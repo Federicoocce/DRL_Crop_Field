@@ -49,6 +49,9 @@ echo "source /usr/share/gazebo/setup.bash" >> /root/.bashrc
 echo "source /root/ros2_ws/install/setup.bash" >> /root/.bashrc
 
 echo "--- VAST.AI SETUP COMPLETE ---"
+source /opt/ros/humble/setup.bash
+source /usr/share/gazebo/setup.bash
+source ~/ros2_ws/install/setup.bash
 colcon build
 source ~/ros2_ws/install/setup.bash
 echo "source ~/ros2_ws/install/setup.bash" >> ~/.bashrc

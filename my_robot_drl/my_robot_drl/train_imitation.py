@@ -297,7 +297,7 @@ def evaluate_model(env, model, logger, device):
         if step % 40 == 0:
             gt_waypoints = raw_obs['gt_waypoints']
             logger.info(f"  [Step {step}] Predicted WP #1: (x={predicted_first_wp[0]:.3f}, y={predicted_first_wp[1]:.3f}) | GT WP #1: (x={gt_waypoints[0,0]:.3f}, y={gt_waypoints[0,1]:.3f})")
-            #evaluation_data.append(raw_obs.copy())
+            evaluation_data.append(raw_obs.copy())
         # --- Continuously step the environment with the most recent action ---
         # This loop runs as fast as possible, ensuring smooth physics.
         next_raw_obs, reward, terminated, truncated, info = env.step(action) # Get RAW
