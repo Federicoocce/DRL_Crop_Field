@@ -24,7 +24,7 @@ class GlobalConfig:
         viz_data.append(os.path.join(viz_root, town))
 
     ignore_sides = True # don't consider side cameras
-    ignore_rear = True # don't consider rear cameras
+    ignore_rear = False # don't consider rear cameras
     n_views = 2 # no. of camera views
 
     input_resolution = 256
