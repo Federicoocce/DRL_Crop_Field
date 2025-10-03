@@ -1,5 +1,5 @@
 # Update system and install prerequisite tools
-sudo apt update && sudo apt upgrade -y
+sudo apt update -y && sudo apt upgrade -y
 sudo apt install -y git python3-pip curl software-properties-common locales -y
 
 # Configure system locale for ROS 2
@@ -34,7 +34,7 @@ sudo pip3 install torch torchvision torchaudio
 # Create the workspace and clone the repository
 mkdir -p ~/ros2_ws/src
 cd ~/ros2_ws/src
-git clone -b tranformer-implementation-rear-camera https://github.com/Federicoocce/DRL_Crop_Field.git
+git clone -b transformer-implementation-rear-camera https://github.com/Federicoocce/DRL_Crop_Field.git
 
 # Install ROS dependencies and build the workspace
 cd ~/ros2_ws

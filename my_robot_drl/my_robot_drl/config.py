@@ -23,9 +23,17 @@ class GlobalConfig:
     for town in viz_towns:
         viz_data.append(os.path.join(viz_root, town))
 
-    ignore_sides = True # don't consider side cameras
-    ignore_rear = False # don't consider rear cameras
-    n_views = 2 # no. of camera views
+    # --- START OF MODIFIED CAMERA CONFIG ---
+    ignore_sides = True  # don't consider side cameras
+    ignore_rear = True   # SET THIS TO True or False to control the rear camera
+
+    # Dynamically set n_views based on the flags.
+    # This is a cleaner approach.
+    n_views = 1  # Start with the front camera
+    if not ignore_sides:
+        n_views += 2  # Add left and right
+    if not ignore_rear:
+        n_views += 1  # Add rear
 
     input_resolution = 256
 
@@ -68,3 +76,4 @@ class GlobalConfig:
     def __init__(self, **kwargs):
         for k,v in kwargs.items():
             setattr(self, k, v)
+config = GlobalConfig()

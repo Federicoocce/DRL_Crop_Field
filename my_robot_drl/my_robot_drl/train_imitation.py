@@ -14,6 +14,7 @@ from .drl_env import MaizeNavigationEnv
 from .custom_features_extractor import TransFuserFeaturesExtractor
 from .transfuser_util import rotate_point_cloud, rotate_waypoints, scale_and_crop_image, lidar_to_histogram_features, render_sensor_data, close_windows
 import random
+from .config import config
 # ===================================================================
 # --- CONFIGURATION PARAMETERS ---
 # ===================================================================
@@ -26,7 +27,7 @@ EXPERT_TARGET_LINEAR_VEL = 0.2
 
 # --- Model Training ---
 IL_EPOCHS = 10
-IL_BATCH_SIZE = 128 
+IL_BATCH_SIZE = 16
 IL_LEARNING_RATE = 1e-4
 VISUALIZE_TRAINING_SAMPLE = True # <-- NEW: Control flag for visualization
 
@@ -77,13 +78,11 @@ class DataPreprocessor:
             
             # Calculate shift for FRONT camera
             crop_shift_front = (angle / self.camera_fov_deg_front) * raw_img_width
-            
-            # Calculate shift for REAR camera (note the inverted sign for the angle)
-            crop_shift_rear = (-angle / self.camera_fov_deg_rear) * raw_img_width # <-- NEW
+
 
         # --- Get raw data ---
         img_raw_front = raw_obs_dict['image_raw']
-        img_raw_rear = raw_obs_dict.get('image_rear_raw') # Use .get for safety
+        
         pc_raw = raw_obs_dict['lidar_raw']
         gt_wp_raw = raw_obs_dict['gt_waypoints']
         state_raw = raw_obs_dict['state']
@@ -91,9 +90,13 @@ class DataPreprocessor:
         # --- Apply Transformations ---
         img_processed_front = scale_and_crop_image(img_raw_front, scale=1, crop=self.crop_size, crop_shift=crop_shift_front)
         
-        # Process rear image if it exists
+                # --- MODIFICATION: Check config before processing ---
+        img_raw_rear = raw_obs_dict.get('image_rear_raw') # Safely get the data
         img_processed_rear = None
-        if img_raw_rear is not None:
+
+        if not config.ignore_rear and img_raw_rear is not None:
+             # Calculate shift for REAR camera
+             crop_shift_rear = (-angle / self.camera_fov_deg_rear) * raw_img_width if apply_augmentation else 0
              img_processed_rear = scale_and_crop_image(img_raw_rear, scale=1, crop=self.crop_size, crop_shift=crop_shift_rear)
 
         pc_rot = rotate_point_cloud(pc_raw, angle)
@@ -107,13 +110,14 @@ class DataPreprocessor:
             rotated_goal_batch = rotate_waypoints(distant_goal_point_batch, angle)
             state_rot[0:2] = rotated_goal_batch.flatten()
 
-        # --- Return dictionary ---
         processed_data = {
             'image': img_processed_front,
             'lidar_bev': bev_processed,
             'state': state_rot,
             'gt_waypoints': gt_wp_rot
         }
+
+        # --- MODIFICATION: Conditionally add the key ---
         if img_processed_rear is not None:
             processed_data['image_rear'] = img_processed_rear
         

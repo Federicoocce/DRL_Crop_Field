@@ -34,30 +34,36 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
 
         # --- Get tensors for each view ---
         image_obs_front = all_obs_tensors['image']
-        image_obs_rear = all_obs_tensors['image_rear'] # <-- NEW
+        # --- MODIFICATION: Get rear image conditionally ---
+        image_obs_rear = all_obs_tensors.get('image_rear') # Use .get(), will be None if not present
+        
         lidar_obs = all_obs_tensors['lidar_bev']
 
-        # --- Permute both image tensors ---
-        if image_obs_front.shape[-1] == 3: # B, H, W, C -> B, C, H, W
+        # ... (permute front image and lidar) ...
+        if image_obs_front.shape[-1] == 3:
             image_obs_front = image_obs_front.permute(0, 3, 1, 2)
-        if image_obs_rear.shape[-1] == 3: # B, H, W, C -> B, C, H, W
-            image_obs_rear = image_obs_rear.permute(0, 3, 1, 2)
-            
-        if lidar_obs.shape[-1] == 2: # B, H, W, C -> B, C, H, W
+        if lidar_obs.shape[-1] == 2:
             lidar_obs = lidar_obs.permute(0, 3, 1, 2)
-
-        # --- Normalize all sensor inputs ---
+            
+        # Normalize
         image_obs_front = image_obs_front.float() / 255.0
-        image_obs_rear = image_obs_rear.float() / 255.0 # <-- NEW
         lidar_obs = lidar_obs.float() / 255.0
-        
-        # --- CRITICAL: Stack the views into a single tensor ---
-        # The model expects a tensor of shape (B * n_views, C, H, W)
-        # We concatenate along the batch dimension (dim=0)
-        image_obs_stacked = torch.cat([image_obs_front, image_obs_rear], dim=0) # <-- NEW
-        
-        # The model expects a list of tensors
-        image_list, lidar_list = [image_obs_stacked], [lidar_obs] # <-- MODIFIED
+
+        # --- MODIFICATION: Conditional Stacking ---
+        if not self.config.ignore_rear and image_obs_rear is not None:
+            # Permute and normalize rear image only if it exists
+            if image_obs_rear.shape[-1] == 3:
+                image_obs_rear = image_obs_rear.permute(0, 3, 1, 2)
+            image_obs_rear = image_obs_rear.float() / 255.0
+            
+            # Stack front and rear
+            image_obs_stacked = torch.cat([image_obs_front, image_obs_rear], dim=0)
+        else:
+            # If ignoring rear, just use the front
+            image_obs_stacked = image_obs_front
+
+        image_list = [image_obs_stacked]
+        lidar_list = [lidar_obs]
         
         # ... (state processing remains the same) ...
         state_obs = all_obs_tensors['state']

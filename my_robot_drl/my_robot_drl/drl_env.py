@@ -29,6 +29,7 @@ import matplotlib.pyplot as plt
 
 
 from .dense_waypoint import get_dense_lane_waypoints, WorldDescription, Field2DGenerator
+from .config import config
 
 def quaternion_from_euler(roll, pitch, yaw): # <--- ADD THIS HELPER FUNCTION
     """Converts euler roll, pitch, yaw to a Quaternion."""
@@ -51,7 +52,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
     def __init__(self, robot_name='tracked_robot'):
         gymnasium.Env.__init__(self)
         Node.__init__(self, 'maize_drl_environment')
-
+        self.config = config
         self.robot_name = robot_name
         self.FINAL_crop_SIZE = 256 # Final size for both image and LiDAR BEV
 
@@ -71,15 +72,18 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         RAW_IMG_WIDTH = 1024
         self.MAX_LIDAR_POINTS = 10080
         STATE_VECTOR_SIZE = 4
-        self.observation_space = spaces.Dict({
-            # Raw image: High/variable resolution
+        obs_space_dict = {
             'image_raw': spaces.Box(low=0, high=255, shape=(RAW_IMG_HEIGHT, RAW_IMG_WIDTH, 3), dtype=np.uint8),
-            'image_rear_raw': spaces.Box(low=0, high=255, shape=(RAW_IMG_HEIGHT, RAW_IMG_WIDTH, 3), dtype=np.uint8),
-        
             'lidar_raw': spaces.Box(low=-np.inf, high=np.inf, shape=(self.MAX_LIDAR_POINTS, 3), dtype=np.float32),
             'state': spaces.Box(low=-np.inf, high=np.inf, shape=(STATE_VECTOR_SIZE,), dtype=np.float32),
             'gt_waypoints': spaces.Box(low=-np.inf, high=np.inf, shape=(4, 2), dtype=np.float32)
-        })
+        }
+        
+        if not self.config.ignore_rear:
+            self.get_logger().info("Rear camera is ENABLED in the environment.")
+            obs_space_dict['image_rear_raw'] = spaces.Box(low=0, high=255, shape=(RAW_IMG_HEIGHT, RAW_IMG_WIDTH, 3), dtype=np.uint8)
+        
+        self.observation_space = spaces.Dict(obs_space_dict)
 
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
@@ -88,7 +92,12 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.set_state_client = self.create_client(SetEntityState, '/set_entity_state')
         self.camera_sub = self.create_subscription(Image, '/tracked_robot/rgb_camera/image_raw', self.camera_callback, 10)
         self.lidar_3d_sub = self.create_subscription(PointCloud2, '/points', self.lidar_3d_callback, 10)
-        self.rear_camera_sub = self.create_subscription(Image, '/tracked_robot/rear_camera/image_raw', self.rear_camera_callback, 10)
+        # --- MODIFICATION: Conditional Subscriber ---
+        self.current_rear_image_raw = None # Initialize as None
+        if not self.config.ignore_rear:
+            self.rear_camera_sub = self.create_subscription(Image, '/tracked_robot/rear_camera/image_raw', self.rear_camera_callback, 10)
+            # Pre-allocate the array only if we are using it
+            self.current_rear_image_raw = np.zeros((RAW_IMG_HEIGHT, RAW_IMG_WIDTH, 3), dtype=np.uint8)
        
         self.bridge = CvBridge()
         
@@ -109,8 +118,6 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.current_scan = np.full(360, 2.0, dtype=np.float32)
         # Initialize with expected raw camera size
         self.current_image_raw = np.zeros((576, 1024, 3), dtype=np.uint8) 
-        # Initialize a placeholder for the image
-        self.current_rear_image_raw = np.zeros((576, 1024, 3), dtype=np.uint8)
         # Initialize empty point cloud
         self.current_lidar_raw = np.zeros((0, 3), dtype=np.float32) 
         self.min_lidar_range = 0.14
@@ -509,14 +516,16 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             np.array([linear_vel, angular_vel], dtype=np.float32)
         ])
         
-        # --- MODIFIED: Return RAW data ---
         obs_dict = {
-            'image_raw': self.current_image_raw, # (H_raw, W_raw, 3)
-            'image_rear_raw': self.current_rear_image_raw,
-            'lidar_raw': self.current_lidar_raw, # (N, 3)
+            'image_raw': self.current_image_raw,
+            'lidar_raw': self.current_lidar_raw,
             'state': state_obs,
             'gt_waypoints': gt_waypoints_rel 
         }
+        
+        # --- MODIFICATION: Conditional Return ---
+        if not self.config.ignore_rear and self.current_rear_image_raw is not None:
+            obs_dict['image_rear_raw'] = self.current_rear_image_raw
         
         return obs_dict
         
@@ -1001,7 +1010,6 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             # --- Generate the path ---
             path = dubins.shortest_path(q0, q1, self.turning_radius)
             configurations, _ = path.sample_many(self.turn_wp_step_distance)
-            
             if not configurations or len(configurations) < 2:
                 return []
 
