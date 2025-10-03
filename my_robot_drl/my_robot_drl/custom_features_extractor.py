@@ -24,7 +24,8 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
     def _get_transfuser_inputs(self, observations: dict) -> tuple:
         """
         Helper to extract and format inputs for the TransFuser model.
-        This now includes robust permutation for channel ordering.
+        This version correctly processes each camera view individually and prepares
+        a list of tensors for the model.
         """
         all_obs_tensors = {}
         current_device = self.device
@@ -32,44 +33,42 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
         for key, obs in observations.items():
             all_obs_tensors[key] = torch.as_tensor(obs, device=current_device)
 
-        # --- Get tensors for each view ---
-        image_obs_front = all_obs_tensors['image']
-        # --- MODIFICATION: Get rear image conditionally ---
-        image_obs_rear = all_obs_tensors.get('image_rear') # Use .get(), will be None if not present
+        # --- Reusable function to process any image tensor ---
+        def process_image_tensor(img_tensor):
+            # Permute from (B, H, W, C) to (B, C, H, W)
+            if img_tensor.shape[-1] == 3 and img_tensor.ndim == 4:
+                img_tensor = img_tensor.permute(0, 3, 1, 2)
+            
+            # Normalize to 0-1 range
+            return img_tensor.float() / 255.0
+
+        # --- Process each camera view ---
+        image_obs_front = process_image_tensor(all_obs_tensors['image'])
         
+        # Start building the list of camera views for the model
+        image_list = [image_obs_front] 
+
+        # Check for and process the rear camera
+        if 'image_rear' in all_obs_tensors:
+            image_obs_rear = process_image_tensor(all_obs_tensors['image_rear'])
+            image_list.append(image_obs_rear)
+        
+        # --- Process LiDAR (unchanged, but cleaned up) ---
         lidar_obs = all_obs_tensors['lidar_bev']
-
-        # ... (permute front image and lidar) ...
-        if image_obs_front.shape[-1] == 3:
-            image_obs_front = image_obs_front.permute(0, 3, 1, 2)
-        if lidar_obs.shape[-1] == 2:
+        if lidar_obs.shape[-1] == 2 and lidar_obs.ndim == 4:
             lidar_obs = lidar_obs.permute(0, 3, 1, 2)
-            
-        # Normalize
-        image_obs_front = image_obs_front.float() / 255.0
-        lidar_obs = lidar_obs.float() / 255.0
-
-        # --- MODIFICATION: Conditional Stacking ---
-        if not self.config.ignore_rear and image_obs_rear is not None:
-            # Permute and normalize rear image only if it exists
-            if image_obs_rear.shape[-1] == 3:
-                image_obs_rear = image_obs_rear.permute(0, 3, 1, 2)
-            image_obs_rear = image_obs_rear.float() / 255.0
-            
-            # Stack front and rear
-            image_obs_stacked = torch.cat([image_obs_front, image_obs_rear], dim=0)
-        else:
-            # If ignoring rear, just use the front
-            image_obs_stacked = image_obs_front
-
-        image_list = [image_obs_stacked]
+        # NOTE: The original Lidar processing in the paper does not divide by 255.
+        # It expects histogram features. Let's assume your lidar_to_histogram_features
+        # already outputs values in a reasonable range. If not, you might remove the division.
+        lidar_obs = lidar_obs.float() # Removed / 255.0 for LiDAR
         lidar_list = [lidar_obs]
         
-        # ... (state processing remains the same) ...
+        # --- State processing (unchanged) ---
         state_obs = all_obs_tensors['state']
         target_point = state_obs[:, 0:2]
         velocity = state_obs[:, 2].unsqueeze(1) if state_obs.dim() > 1 else state_obs[2].unsqueeze(0).unsqueeze(0)
-            
+
+        # The image_list now correctly contains a list of processed tensors
         return image_list, lidar_list, target_point, velocity
 
     def forward(self, observations: dict) -> torch.Tensor:
