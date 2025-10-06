@@ -27,9 +27,9 @@ EXPERT_TARGET_LINEAR_VEL = 0.2
 
 # --- Model Training ---
 IL_EPOCHS = 10
-IL_BATCH_SIZE = 16
+IL_BATCH_SIZE = 32
 IL_LEARNING_RATE = 1e-4
-VISUALIZE_TRAINING_SAMPLE = True # <-- NEW: Control flag for visualization
+VISUALIZE_TRAINING_SAMPLE = False # <-- NEW: Control flag for visualization
 
 
 # --- Evaluation Controller ---
