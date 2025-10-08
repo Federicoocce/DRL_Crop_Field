@@ -27,7 +27,7 @@ EXPERT_TARGET_LINEAR_VEL = 0.2
 
 # --- Model Training ---
 IL_EPOCHS = 10
-IL_BATCH_SIZE = 32
+IL_BATCH_SIZE = 16
 IL_LEARNING_RATE = 1e-4
 VISUALIZE_TRAINING_SAMPLE = False # <-- NEW: Control flag for visualization
 
@@ -37,6 +37,8 @@ AGENT_KP_ANGULAR = 0.8
 AGENT_TARGET_LINEAR_VEL = 0.2
 EVAL_DATA_COLLECTION_FPS = 1.0 # Target FPS for saving data during a failed evaluation
 EVAL_DATA_COLLECTION_FPS_TURNING = 5.0 # HIGHER target FPS for turning maneuvers during evaluation
+TARGET_REWARD_THRESHOLD = 150.0
+MAX_GT_WAYPOINT_DEVIATION_X = 1.5 # <-- NEW: Stop eval if |gt_waypoint.x| exceeds this
 
 # --- File Paths ---
 HOME_DIR = os.path.expanduser('~')
@@ -166,9 +168,7 @@ def collect_expert_data(env, logger):
             if current_time - last_collection_time >= current_collection_interval:
                 dataset.append(obs.copy())
                 last_collection_time = current_time 
-                # Modified log message to be more informative
-                log_prefix = "[Collection - TURNING]" if is_currently_turning else "[Collection]"
-                logger.info(f"  {log_prefix} Step {step}, Sampled data point. Dataset size: {len(dataset)}")
+                
 
             next_obs, reward, terminated, truncated, info = env.step(action)
             obs = next_obs
@@ -264,16 +264,16 @@ def train_model(model, dataset, logger, pause_client, unpause_client, env_node, 
 ### START OF MODIFIED FUNCTION ###
 def evaluate_model(env, model, logger, device, global_epoch_counter):
     """
-    Phase 3: Test the trained model and log the total reward.
+    Phase 3: Test the trained model, log the total reward, and return it.
     Data is collected during evaluation runs to be added to the main dataset
     if the run fails, mimicking the expert collection process.
     """
     logger.info("="*50)
     logger.info(f"PHASE 3: Starting Evaluation (after {global_epoch_counter} total epochs)")
     logger.info(f"         Data Collection FPS: Normal={EVAL_DATA_COLLECTION_FPS}, Turning={EVAL_DATA_COLLECTION_FPS_TURNING}")
+    logger.info(f"         Failure Condition: |GT Waypoint X| > {MAX_GT_WAYPOINT_DEVIATION_X}m")
     logger.info("="*50)
     
-    # Calculate the two sampling intervals for this evaluation run
     collection_interval_normal = 1.0 / EVAL_DATA_COLLECTION_FPS
     collection_interval_turning = 1.0 / EVAL_DATA_COLLECTION_FPS_TURNING
 
@@ -290,13 +290,19 @@ def evaluate_model(env, model, logger, device, global_epoch_counter):
     total_reward = 0.0
     evaluation_data = []
     
-    # Start data collection
-    evaluation_data.append(raw_obs.copy()) # Collect the first observation
+    evaluation_data.append(raw_obs.copy())
     last_collection_time = time.time()
     
     action = np.array([0.0, 0.0], dtype=np.float32)
 
     while not done:
+        # --- NEW: Check for deviation from the ground truth path ---
+        gt_first_wp_x = raw_obs['gt_waypoints'][0][0]
+        if abs(gt_first_wp_x) > MAX_GT_WAYPOINT_DEVIATION_X:
+            logger.warn(f"FAILURE: Deviated too far from the ground truth path (x-error: {gt_first_wp_x:.2f}m > {MAX_GT_WAYPOINT_DEVIATION_X}m).")
+            info["termination_reason"] = "deviated_from_path" # Set a custom reason
+            break # Exit the evaluation loop
+
         # --- Model Prediction (unchanged) ---
         with torch.no_grad():
             processed_obs = preprocessor.process_observation(raw_obs, apply_augmentation=False)
@@ -307,7 +313,6 @@ def evaluate_model(env, model, logger, device, global_epoch_counter):
             image_list, lidar_list, target_point, velocity = model._get_transfuser_inputs(batch_obs)
             pred_wp_tensor, _ = model.transfuser(image_list, lidar_list, target_point, velocity)
         
-        # --- Action Calculation (unchanged) ---
         predicted_first_wp = pred_wp_tensor[0].cpu().numpy()[0]
         angle_to_target = math.atan2(predicted_first_wp[1], predicted_first_wp[0])
         angular_vel = AGENT_KP_ANGULAR * angle_to_target
@@ -315,7 +320,6 @@ def evaluate_model(env, model, logger, device, global_epoch_counter):
         action = np.array([linear_vel, angular_vel], dtype=np.float32)
         action = np.clip(action, env.action_space.low, env.action_space.high)
         
-        # --- NEW: Time-based Data Collection Logic ---
         is_currently_turning = env.is_turning
         current_collection_interval = collection_interval_turning if is_currently_turning else collection_interval_normal
             
@@ -323,28 +327,25 @@ def evaluate_model(env, model, logger, device, global_epoch_counter):
         if current_time - last_collection_time >= current_collection_interval:
             evaluation_data.append(raw_obs.copy())
             last_collection_time = current_time 
-            # Add a log message for clarity
             log_prefix = "[Eval Collection - TURNING]" if is_currently_turning else "[Eval Collection]"
             logger.info(f"  {log_prefix} Step {step}, Sampled data point. New data size: {len(evaluation_data)}")
         
-        # --- Environment Step (unchanged) ---
         next_raw_obs, reward, terminated, truncated, info = env.step(action)
         raw_obs = next_raw_obs
         done = terminated or truncated
         total_reward += reward
         step += 1
 
-    # --- Logging and Return (unchanged) ---
-    logger.info(f"Evaluation finished. Total Reward: {total_reward}")
+    logger.info(f"Evaluation finished. Total Reward: {total_reward:.2f}")
     wandb.log({"total_reward": total_reward}, step=global_epoch_counter)
     
     if info.get("termination_reason") == "all_waypoints_visited":
         logger.info(f"SUCCESS! Model completed the course in {step} simulation steps.")
-        return True, evaluation_data
+        return True, evaluation_data, total_reward
     else:
         reason = info.get("termination_reason", "unknown")
         logger.warn(f"FAILURE. Model did not complete the course (Reason: {reason}).")
-        return False, evaluation_data
+        return False, evaluation_data, total_reward
 ### END OF MODIFIED FUNCTION ###
 
 
@@ -352,7 +353,7 @@ def main(args=None):
     rclpy.init(args=args)
     
     # Initialize wandb
-    wandb.init(project="agricobots", name="il_test")
+    wandb.init(project="agricobots", name="il_reward_goal")
     
     try:
         env = MaizeNavigationEnv()
@@ -376,22 +377,31 @@ def main(args=None):
     
     dataset = collect_expert_data(env, logger)
     
-    successful_run = False
+    best_reward_so_far = -float('inf')
     run_count = 0
-    global_epoch_counter = 0 # NEW: Counter for total epochs across all training cycles
+    global_epoch_counter = 0
     
-    while not successful_run:
+    while best_reward_so_far < TARGET_REWARD_THRESHOLD:
         run_count += 1
         logger.info("\n" + "#"*60)
         logger.info(f"STARTING IMITATION LEARNING ATTEMPT #{run_count}")
+        logger.info(f"Current Best Reward: {best_reward_so_far:.2f} | Target Reward: {TARGET_REWARD_THRESHOLD}")
         logger.info("#"*60 + "\n")
         
         # Train model and get the updated global epoch count
         global_epoch_counter = train_model(model, dataset, logger, pause_client, unpause_client, env_node=env, run_count=run_count, global_epoch_counter=global_epoch_counter)
         
-        # Evaluate the model, passing the global epoch count for logging
-        successful_run, new_data = evaluate_model(env, model, logger, device, global_epoch_counter=global_epoch_counter)
+        # Evaluate the model and get the reward
+        successful_run, new_data, current_reward = evaluate_model(env, model, logger, device, global_epoch_counter=global_epoch_counter)
         
+        # Update the best reward if the current one is better
+        if current_reward > best_reward_so_far:
+            best_reward_so_far = current_reward
+            logger.info(f"New best reward achieved: {best_reward_so_far:.2f}")
+            wandb.log({"best_reward": best_reward_so_far}, step=global_epoch_counter)
+        
+        # If the course was not completed, aggregate the new data to improve the next run
+        # This now includes failures from deviation
         if not successful_run:
             logger.warn("Evaluation failed. Aggregating new data from the failed run.")
             logger.info(f"  - Current dataset size: {len(dataset)}")
@@ -402,30 +412,32 @@ def main(args=None):
             time.sleep(3)
             
     logger.info("\n" + "="*60)
-    logger.info("IMITATION LEARNING SUCCEEDED!")
+    logger.info(f"TARGET REWARD OF {TARGET_REWARD_THRESHOLD} REACHED! TRAINING SUCCEEDED!")
+    logger.info("="*60)
     os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
     try:
+        # Save the model locally first
         torch.save(model.transfuser.state_dict(), MODEL_SAVE_PATH)
         logger.info(f"Successfully saved trained TransFuser model to: {MODEL_SAVE_PATH}")
+        
+        # Now, log the saved model as a W&B Artifact
+        logger.info("Saving model to Weights & Biases as an Artifact...")
+        artifact = wandb.Artifact(
+            name='transfuser-il-model', 
+            type='model',
+            description='A trained TransFuser model that reached the target reward.',
+            metadata={
+                "run_name": wandb.run.name, 
+                "total_epochs": global_epoch_counter,
+                "final_reward": best_reward_so_far
+            }
+        )
+        artifact.add_file(MODEL_SAVE_PATH)
+        wandb.log_artifact(artifact)
+        logger.info("Successfully saved model to W&B!")
+        
     except Exception as e:
         logger.error(f"Could not save the final model. Error: {e}")
-            # Create an artifact. The name is the logical group for your models.
-        # The type is 'model'.
-    artifact = wandb.Artifact(
-        name='transfuser-il-model', 
-        type='model',
-        description='A trained TransFuser model for imitation learning in the maize field.',
-        metadata={"run_name": wandb.run.name, "total_epochs": global_epoch_counter} # Optional: add useful metadata
-    )
-    
-    # Add the actual model file to the artifact
-    artifact.add_file(MODEL_SAVE_PATH)
-    
-    # Log the artifact to W&B. This will upload the file and create a new version.
-    wandb.log_artifact(artifact)
-    
-    logger.info("Successfully saved model to W&B!")
-
         
     logger.info("Closing environment and shutting down.")
     

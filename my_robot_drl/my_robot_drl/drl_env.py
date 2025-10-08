@@ -500,7 +500,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         
         # Increment a debug counter (optional)
         self.debug_counter += 1
-        self.render()
+        #self.render()
         # 5. Return the standard 5-tuple for Gymnasium environments
         return observation, reward, terminated, truncated, self._get_info()
     
