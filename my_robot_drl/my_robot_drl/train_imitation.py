@@ -37,7 +37,7 @@ AGENT_KP_ANGULAR = 0.8
 AGENT_TARGET_LINEAR_VEL = 0.2
 EVAL_DATA_COLLECTION_FPS = 1.0 # Target FPS for saving data during a failed evaluation
 EVAL_DATA_COLLECTION_FPS_TURNING = 5.0 # HIGHER target FPS for turning maneuvers during evaluation
-TARGET_REWARD_THRESHOLD = 150.0
+TARGET_REWARD_THRESHOLD = 200.0
 MAX_GT_WAYPOINT_DEVIATION_X = 1.5 # <-- NEW: Stop eval if |gt_waypoint.x| exceeds this
 
 # --- File Paths ---
