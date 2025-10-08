@@ -27,7 +27,7 @@ EXPERT_TARGET_LINEAR_VEL = 0.2
 
 # --- Model Training ---
 IL_EPOCHS = 10
-IL_BATCH_SIZE = 16
+IL_BATCH_SIZE = 32
 IL_LEARNING_RATE = 1e-4
 VISUALIZE_TRAINING_SAMPLE = False # <-- NEW: Control flag for visualization
 
@@ -409,6 +409,23 @@ def main(args=None):
         logger.info(f"Successfully saved trained TransFuser model to: {MODEL_SAVE_PATH}")
     except Exception as e:
         logger.error(f"Could not save the final model. Error: {e}")
+            # Create an artifact. The name is the logical group for your models.
+        # The type is 'model'.
+    artifact = wandb.Artifact(
+        name='transfuser-il-model', 
+        type='model',
+        description='A trained TransFuser model for imitation learning in the maize field.',
+        metadata={"run_name": wandb.run.name, "total_epochs": global_epoch_counter} # Optional: add useful metadata
+    )
+    
+    # Add the actual model file to the artifact
+    artifact.add_file(MODEL_SAVE_PATH)
+    
+    # Log the artifact to W&B. This will upload the file and create a new version.
+    wandb.log_artifact(artifact)
+    
+    logger.info("Successfully saved model to W&B!")
+
         
     logger.info("Closing environment and shutting down.")
     
