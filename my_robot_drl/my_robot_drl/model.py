@@ -209,7 +209,7 @@ class GPT(nn.Module):
     def forward(self, image_tensor, lidar_tensor, velocity):
         """
         Args:
-            image_tensor (tensor): B*4*seq_len, C, H, W
+            image_tensor (tensor): B*num_img_views*seq_len, C, H, W
             lidar_tensor (tensor): B*seq_len, C, H, W
             velocity (tensor): ego-velocity
         """
@@ -217,29 +217,58 @@ class GPT(nn.Module):
         bz = lidar_tensor.shape[0] // self.seq_len
         h, w = lidar_tensor.shape[2:4]
         
-        # forward the image model for token embeddings
-        image_tensor = image_tensor.view(bz, self.config.n_views * self.seq_len, -1, h, w)
-        lidar_tensor = lidar_tensor.view(bz, self.seq_len, -1, h, w)
+        # Determine the number of image views from the input tensor's shape
+        num_image_views = image_tensor.shape[0] // (bz * self.seq_len)
 
-        # pad token embeddings along number of tokens dimension
-        token_embeddings = torch.cat([image_tensor, lidar_tensor], dim=1).permute(0,1,3,4,2).contiguous()
-        token_embeddings = token_embeddings.view(bz, -1, self.n_embd) # (B, an * T, C)
+        # Reshape and combine input tensors into a single token sequence
+        image_tensor_reshaped = image_tensor.view(bz, num_image_views * self.seq_len, -1, h, w)
+        lidar_tensor_reshaped = lidar_tensor.view(bz, self.seq_len, -1, h, w)
+        token_embeddings = torch.cat([image_tensor_reshaped, lidar_tensor_reshaped], dim=1).permute(0,1,3,4,2).contiguous()
+        token_embeddings = token_embeddings.view(bz, -1, self.n_embd)
 
-        # project velocity to n_embed
-        velocity_embeddings = self.vel_emb(velocity) # (B, C)
+        # Project velocity to embedding dimension
+        velocity_embeddings = self.vel_emb(velocity)
 
+        # --- START OF FIX ---
+        pos_emb_to_use = self.pos_emb
+        
+        # Check if the positional embedding (initialized for all views) is larger 
+        # than the current token sequence (e.g., only front-cam + lidar).
+        if self.pos_emb.shape[1] != token_embeddings.shape[1]:
+            
+            # This logic handles the special case where this transformer is being used
+            # for front-camera + LiDAR fusion, but was initialized for more views.
+            
+            # Calculate the number of tokens that represent a single modality (e.g., one camera view)
+            tokens_per_modality = self.seq_len * self.vert_anchors * self.horz_anchors
+            
+            # The full pos_emb is ordered [front_cam_pos, rear_cam_pos, ..., lidar_pos]
+            # The input token_embeddings are ordered [front_cam_tokens, lidar_tokens]
+            
+            # 1. Slice the positional embeddings for the front camera (always the first block)
+            front_cam_pos_emb = self.pos_emb[:, :tokens_per_modality, :]
+            
+            # 2. Slice the positional embeddings for the LiDAR (always the last block)
+            num_modalities_total = self.config.n_views + 1
+            lidar_start_index = (num_modalities_total - 1) * tokens_per_modality
+            lidar_pos_emb = self.pos_emb[:, lidar_start_index:, :]
 
-        # add (learnable) positional embedding and velocity embedding for all tokens
-        x = self.drop(self.pos_emb + token_embeddings + velocity_embeddings.unsqueeze(1)) # (B, an * T, C)
-        # x = self.drop(token_embeddings + velocity_embeddings.unsqueeze(1)) # (B, an * T, C)
-        x = self.blocks(x) # (B, an * T, C)
-        x = self.ln_f(x) # (B, an * T, C)
-        x = x.view(bz, (self.config.n_views + 1) * self.seq_len, self.vert_anchors, self.horz_anchors, self.n_embd)
-        x = x.permute(0,1,4,2,3).contiguous() # same as token_embeddings
+            # 3. Concatenate them in the correct order to match the input token_embeddings
+            pos_emb_to_use = torch.cat([front_cam_pos_emb, lidar_pos_emb], dim=1)
+        
+        # Add the correct positional embedding to the tokens
+        x = self.drop(pos_emb_to_use + token_embeddings + velocity_embeddings.unsqueeze(1))
+        # --- END OF FIX ---
 
-        image_tensor_out = x[:, :self.config.n_views*self.seq_len, :, :, :].contiguous().view(bz * self.config.n_views * self.seq_len, -1, h, w)
-        lidar_tensor_out = x[:, self.config.n_views*self.seq_len:, :, :, :].contiguous().view(bz * self.seq_len, -1, h, w)
+        # Continue with the rest of the transformer logic
+        x = self.blocks(x)
+        x = self.ln_f(x)
+        x = x.view(bz, (num_image_views + 1) * self.seq_len, self.vert_anchors, self.horz_anchors, self.n_embd)
+        x = x.permute(0,1,4,2,3).contiguous()
 
+        # Split the output features correctly based on the number of input image views
+        image_tensor_out = x[:, :num_image_views*self.seq_len, :, :, :].contiguous().view(bz * num_image_views * self.seq_len, -1, h, w)
+        lidar_tensor_out = x[:, num_image_views*self.seq_len:, :, :, :].contiguous().view(bz * self.seq_len, -1, h, w)
 
         return image_tensor_out, lidar_tensor_out
 
@@ -306,32 +335,35 @@ class Encoder(nn.Module):
         
     def forward(self, image_list, lidar_list, velocity):
         '''
-        Image + LiDAR feature fusion using transformers
+        Image + LiDAR feature fusion using transformers.
+        This version handles a separate rear camera stream.
         Args:
-            image_list (list): list of input images. For RL, this is a list with ONE tensor of shape (B, C, H, W).
-            lidar_list (list): list of input LiDAR BEV. For RL, this is a list with ONE tensor of shape (B, C, H, W).
-            velocity (tensor): input velocity from speedometer
+            image_list (list): List of input images. Expects [front_cam, rear_cam].
+            lidar_list (list): List of input LiDAR BEV.
+            velocity (tensor): Input velocity from speedometer.
         '''
-        if self.image_encoder.normalize:
-            image_list = [normalize_imagenet(image_input) for image_input in image_list]
-
-        # ==================== START OF CRUCIAL FIX ====================
-        # This section correctly handles the list of multiple camera views.
-        
         # Dynamically determine batch size and number of views
         bz = lidar_list[0].shape[0]
-        self.config.n_views = len(image_list)
+     
+        # --- Step 1: Separate the camera inputs ---
+        front_image_list = [image_list[0]] # Assumes front camera is always first
+        has_rear_camera = len(image_list) > 1
         
-        # Stack all image views along a new dimension and then reshape
-        # so they form a single large batch for the CNN.
-        # Shape changes: [ (B,C,H,W), (B,C,H,W), ... ] -> (B, n_views, C, H, W) -> (B * n_views, C, H, W)
-        image_tensor = torch.stack(image_list, dim=1).contiguous().view(bz * self.config.n_views, *image_list[0].shape[1:])
-        
-        # The lidar list only has one BEV, so we just extract it.
+        if has_rear_camera:
+            rear_image_list = [image_list[1]]
+            if self.image_encoder.normalize:
+                rear_image_list = [normalize_imagenet(img) for img in rear_image_list]
+                
+        if self.image_encoder.normalize:
+            front_image_list = [normalize_imagenet(img) for img in front_image_list]
+
+        # --- Step 2: Prepare Tensors for the Main Fusion (Front Cam + LiDAR) ---
+        # Stack front images into a single tensor for the CNN
+        front_image_tensor = torch.stack(front_image_list, dim=1).contiguous().view(bz, *front_image_list[0].shape[1:])
         lidar_tensor = lidar_list[0]
-        # ===================== END OF CRUCIAL FIX =====================
-    
-        image_features = self.image_encoder.features.conv1(image_tensor)
+        
+        # --- Main Fusion Pass (This logic is identical to before, just with front_image_tensor) ---
+        image_features = self.image_encoder.features.conv1(front_image_tensor)
         image_features = self.image_encoder.features.bn1(image_features)
         image_features = self.image_encoder.features.relu(image_features)
         image_features = self.image_encoder.features.maxpool(image_features)
@@ -340,9 +372,10 @@ class Encoder(nn.Module):
         lidar_features = self.lidar_encoder._model.relu(lidar_features)
         lidar_features = self.lidar_encoder._model.maxpool(lidar_features)
 
+
+
         image_features = self.image_encoder.features.layer1(image_features)
         lidar_features = self.lidar_encoder._model.layer1(lidar_features)
-        # fusion at (B, 64, 64, 64)
         image_embd_layer1 = self.avgpool(image_features)
         lidar_embd_layer1 = self.avgpool(lidar_features)
         image_features_layer1, lidar_features_layer1 = self.transformer1(image_embd_layer1, lidar_embd_layer1, velocity)
@@ -351,9 +384,9 @@ class Encoder(nn.Module):
         image_features = image_features + image_features_layer1
         lidar_features = lidar_features + lidar_features_layer1
 
+        # ... (Repeat for layer2, layer3, layer4 as in your original code)
         image_features = self.image_encoder.features.layer2(image_features)
         lidar_features = self.lidar_encoder._model.layer2(lidar_features)
-        # fusion at (B, 128, 32, 32)
         image_embd_layer2 = self.avgpool(image_features)
         lidar_embd_layer2 = self.avgpool(lidar_features)
         image_features_layer2, lidar_features_layer2 = self.transformer2(image_embd_layer2, lidar_embd_layer2, velocity)
@@ -364,7 +397,6 @@ class Encoder(nn.Module):
 
         image_features = self.image_encoder.features.layer3(image_features)
         lidar_features = self.lidar_encoder._model.layer3(lidar_features)
-        # fusion at (B, 256, 16, 16)
         image_embd_layer3 = self.avgpool(image_features)
         lidar_embd_layer3 = self.avgpool(lidar_features)
         image_features_layer3, lidar_features_layer3 = self.transformer3(image_embd_layer3, lidar_embd_layer3, velocity)
@@ -375,24 +407,39 @@ class Encoder(nn.Module):
 
         image_features = self.image_encoder.features.layer4(image_features)
         lidar_features = self.lidar_encoder._model.layer4(lidar_features)
-        # fusion at (B, 512, 8, 8)
         image_embd_layer4 = self.avgpool(image_features)
         lidar_embd_layer4 = self.avgpool(lidar_features)
         image_features_layer4, lidar_features_layer4 = self.transformer4(image_embd_layer4, lidar_embd_layer4, velocity)
         image_features = image_features + image_features_layer4
         lidar_features = lidar_features + lidar_features_layer4
+     
 
+        # --- Finalize Front+LiDAR Fused Feature ---
         image_features = self.image_encoder.features.avgpool(image_features)
         image_features = torch.flatten(image_features, 1)
-        image_features = image_features.view(bz, self.config.n_views * self.config.seq_len, -1)
         lidar_features = self.lidar_encoder._model.avgpool(lidar_features)
         lidar_features = torch.flatten(lidar_features, 1)
-        lidar_features = lidar_features.view(bz, self.config.seq_len, -1)
+        
+        # Combine and sum as before to get the final 512-dim vector
+        fused_front_lidar_features = torch.sum(torch.stack([image_features, lidar_features]), dim=0)
 
-        fused_features = torch.cat([image_features, lidar_features], dim=1)
-        fused_features = torch.sum(fused_features, dim=1)
+        # --- Step 3: Process the Rear Camera Independently ---
+        if has_rear_camera:
+            rear_image_tensor = torch.stack(rear_image_list, dim=1).contiguous().view(bz, *rear_image_list[0].shape[1:])
+            
+            # Use the existing image_encoder to get a 512-dim feature vector
+            # This is a full forward pass through the ResNet34
+            rear_only_features = self.image_encoder.features(rear_image_tensor)
+            rear_only_features = torch.flatten(rear_only_features, 1)
 
-        return fused_features
+            # --- Step 4: Concatenate the final features ---
+            final_features = torch.cat([fused_front_lidar_features, rear_only_features], dim=1)
+        else:
+            # If no rear camera, we need to pad to maintain a consistent feature size
+            # Or, more robustly, handle it in the join layer. For simplicity here, let's just use the front.
+            final_features = fused_front_lidar_features
+
+        return final_features
 
 
 class PIDController(object):
@@ -435,9 +482,10 @@ class TransFuser(nn.Module):
         self.speed_controller = PIDController(K_P=config.speed_KP, K_I=config.speed_KI, K_D=config.speed_KD, n=config.speed_n)
 
         self.encoder = Encoder(config).to(self.device)
+        input_dim = 1024 if config.n_views > 1 else 512
 
         self.join = nn.Sequential(
-                            nn.Linear(512, 256),
+                            nn.Linear(input_dim, 256), #<-- MODIFIED
                             nn.ReLU(inplace=True),
                             nn.Linear(256, 128),
                             nn.ReLU(inplace=True),
