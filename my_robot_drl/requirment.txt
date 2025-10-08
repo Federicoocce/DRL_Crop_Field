@@ -1,5 +1,5 @@
 # Update system and install prerequisite tools
-sudo apt update && sudo apt upgrade -y
+sudo apt update -y && sudo apt upgrade -y
 sudo apt install -y git python3-pip curl software-properties-common locales -y
 
 # Configure system locale for ROS 2
@@ -26,7 +26,8 @@ sudo pip3 install \
     matplotlib \
     lxml \
     "numpy<2" \
-    git+https://github.com/rdesc/pydubins.git
+    git+https://github.com/rdesc/pydubins.git \
+    wandb
 
 # Install PyTorch with CUDA 12.1 support
 sudo pip3 install torch torchvision torchaudio 
@@ -34,7 +35,7 @@ sudo pip3 install torch torchvision torchaudio
 # Create the workspace and clone the repository
 mkdir -p ~/ros2_ws/src
 cd ~/ros2_ws/src
-git clone -b tranformer-implementation https://github.com/Federicoocce/DRL_Crop_Field.git
+git clone -b transformer-implementation-rear-camera https://github.com/Federicoocce/DRL_Crop_Field.git
 
 # Install ROS dependencies and build the workspace
 cd ~/ros2_ws
@@ -49,6 +50,9 @@ echo "source /usr/share/gazebo/setup.bash" >> /root/.bashrc
 echo "source /root/ros2_ws/install/setup.bash" >> /root/.bashrc
 
 echo "--- VAST.AI SETUP COMPLETE ---"
+source /opt/ros/humble/setup.bash
+source /usr/share/gazebo/setup.bash
+source ~/ros2_ws/install/setup.bash
 colcon build
 source ~/ros2_ws/install/setup.bash
 echo "source ~/ros2_ws/install/setup.bash" >> ~/.bashrc
@@ -56,4 +60,6 @@ export LIBGL_ALWAYS_SOFTWARE=1
 source /opt/ros/humble/setup.bash
 source /usr/share/gazebo/setup.bash
 source ~/ros2_ws/install/setup.bash
+pip install --upgrade protobuf
+wandb login 
 ros2 launch my_robot_drl train_maize_nav.launch.py headless:=False mode:=il

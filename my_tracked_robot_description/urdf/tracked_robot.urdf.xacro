@@ -149,6 +149,26 @@
         <child link="camera_link"/>
         <origin xyz="${camera_x_offset} ${camera_y_offset} ${camera_z_offset}" rpy="0 0 0"/>
     </joint>
+
+        <!-- ########### NEW: REAR CAMERA ########### -->
+    <!-- RGB Camera Link (Rear) -->
+    <link name="camera_rear_link">
+        <visual>
+            <geometry><box size="${camera_width} ${camera_height} ${camera_depth}"/></geometry>
+            <material name="grey"><color rgba="0.5 0.5 0.5 1"/></material>
+        </visual>
+        <inertial>
+            <mass value="${camera_mass}"/>
+            <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+        </inertial>
+    </link>
+    <joint name="camera_rear_joint" type="fixed">
+        <parent link="base_link"/>
+        <child link="camera_rear_link"/>
+        <!-- Positioned at the back (-x) and rotated 180 deg (PI rad) around Z to face backward -->
+        <origin xyz="-0.2 ${camera_y_offset} ${camera_z_offset}" rpy="0 0 ${PI}"/>
+    </joint>
+    <!-- ########################################## -->
     <!-- #################### GAZEBO PLUGINS AND REFERENCES #################### -->
     
     <gazebo reference="base_link"><material>Gazebo/Blue</material></gazebo>
@@ -259,4 +279,36 @@
             </plugin>
         </sensor>
     </gazebo>
+        <!-- ########### NEW: GAZEBO PLUGIN FOR REAR CAMERA ########### -->
+    <gazebo reference="camera_rear_link">
+        <material>Gazebo/Grey</material>
+        <sensor type="camera" name="rgb_camera_rear">
+            <update_rate>30.0</update_rate>
+            <camera name="rear_head">
+                <!-- 100 degrees in radians = 1.7453 -->
+                <horizontal_fov>1.7453</horizontal_fov>
+                <image>
+                    <width>1024</width>
+                    <height>576</height>
+                    <format>R8G8B8</format>
+                </image>
+                <clip>
+                    <near>0.28</near>
+                    <far>16.0</far>
+                </clip>
+            </camera>
+            <plugin name="camera_rear_controller" filename="libgazebo_ros_camera.so">
+                <ros>
+                    <namespace>/tracked_robot</namespace>
+                    <remapping>image_raw:=image_raw</remapping>
+                    <remapping>camera_info:=camera_info</remapping>
+                </ros>
+                <!-- This unique camera_name ensures a unique topic: /tracked_robot/rear_camera/image_raw -->
+                <camera_name>rear_camera</camera_name>
+                <frame_name>camera_rear_link</frame_name>
+                <hack_baseline>0.07</hack_baseline>
+            </plugin>
+        </sensor>
+    </gazebo>
+    <!-- ########################################################## -->
 </robot>

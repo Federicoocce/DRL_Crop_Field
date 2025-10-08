@@ -19,7 +19,7 @@ from sensor_msgs.msg import Image, PointCloud2
 import cv2
 from cv_bridge import CvBridge
 from sensor_msgs_py import point_cloud2
-from .transfuser_util import scale_and_crop_image, lidar_to_histogram_features, render_sensor_data, close_windows
+from .transfuser_util import  render_sensor_data, close_windows
 from .spawn_point_calculator import get_spawn_points
 # Make sure you have this library installed: pip install dubins or pip install dubins-py
 import dubins 
@@ -29,6 +29,7 @@ import matplotlib.pyplot as plt
 
 
 from .dense_waypoint import get_dense_lane_waypoints, WorldDescription, Field2DGenerator
+from .config import config
 
 def quaternion_from_euler(roll, pitch, yaw): # <--- ADD THIS HELPER FUNCTION
     """Converts euler roll, pitch, yaw to a Quaternion."""
@@ -51,10 +52,9 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
     def __init__(self, robot_name='tracked_robot'):
         gymnasium.Env.__init__(self)
         Node.__init__(self, 'maize_drl_environment')
-
+        self.config = config
         self.robot_name = robot_name
-        self.IMAGE_CROP_SIZE = 256
-        self.LIDAR_CROP_SIZE = 256
+        self.FINAL_crop_SIZE = 256 # Final size for both image and LiDAR BEV
 
         self.get_logger().info("Attempting to load waypoints for the environment...")
         self.master_waypoints = get_dense_lane_waypoints()[0]
@@ -66,13 +66,24 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.action_space = spaces.Box(
             low=np.array([0.0, -1.0]), high=np.array([0.5, 1.0]), dtype=np.float32
         )
+        # --- MODIFIED: Observation Space for RAW Data ---
+        # Define raw image dimensions
+        RAW_IMG_HEIGHT = 576
+        RAW_IMG_WIDTH = 1024
+        self.MAX_LIDAR_POINTS = 10080
         STATE_VECTOR_SIZE = 4
-        self.observation_space = spaces.Dict({
-            'image': spaces.Box(low=0, high=255, shape=(self.IMAGE_CROP_SIZE, self.IMAGE_CROP_SIZE, 3), dtype=np.uint8),
-            'lidar_bev': spaces.Box(low=0, high=255, shape=(self.LIDAR_CROP_SIZE, self.LIDAR_CROP_SIZE, 2), dtype=np.uint8),
+        obs_space_dict = {
+            'image_raw': spaces.Box(low=0, high=255, shape=(RAW_IMG_HEIGHT, RAW_IMG_WIDTH, 3), dtype=np.uint8),
+            'lidar_raw': spaces.Box(low=-np.inf, high=np.inf, shape=(self.MAX_LIDAR_POINTS, 3), dtype=np.float32),
             'state': spaces.Box(low=-np.inf, high=np.inf, shape=(STATE_VECTOR_SIZE,), dtype=np.float32),
             'gt_waypoints': spaces.Box(low=-np.inf, high=np.inf, shape=(4, 2), dtype=np.float32)
-        })
+        }
+        
+        if not self.config.ignore_rear:
+            self.get_logger().info("Rear camera is ENABLED in the environment.")
+            obs_space_dict['image_rear_raw'] = spaces.Box(low=0, high=255, shape=(RAW_IMG_HEIGHT, RAW_IMG_WIDTH, 3), dtype=np.uint8)
+        
+        self.observation_space = spaces.Dict(obs_space_dict)
 
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
@@ -81,6 +92,13 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.set_state_client = self.create_client(SetEntityState, '/set_entity_state')
         self.camera_sub = self.create_subscription(Image, '/tracked_robot/rgb_camera/image_raw', self.camera_callback, 10)
         self.lidar_3d_sub = self.create_subscription(PointCloud2, '/points', self.lidar_3d_callback, 10)
+        # --- MODIFICATION: Conditional Subscriber ---
+        self.current_rear_image_raw = None # Initialize as None
+        if not self.config.ignore_rear:
+            self.rear_camera_sub = self.create_subscription(Image, '/tracked_robot/rear_camera/image_raw', self.rear_camera_callback, 10)
+            # Pre-allocate the array only if we are using it
+            self.current_rear_image_raw = np.zeros((RAW_IMG_HEIGHT, RAW_IMG_WIDTH, 3), dtype=np.uint8)
+       
         self.bridge = CvBridge()
         
         self.get_logger().info("Connecting to Gazebo services...")
@@ -98,8 +116,10 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         # --- Initialize other state variables ---
         self.current_odom = None
         self.current_scan = np.full(360, 2.0, dtype=np.float32)
-        self.current_image = np.zeros((self.IMAGE_CROP_SIZE, self.IMAGE_CROP_SIZE, 3), dtype=np.uint8)
-        self.current_lidar_bev = np.zeros((self.LIDAR_CROP_SIZE, self.LIDAR_CROP_SIZE, 2), dtype=np.uint8)
+        # Initialize with expected raw camera size
+        self.current_image_raw = np.zeros((576, 1024, 3), dtype=np.uint8) 
+        # Initialize empty point cloud
+        self.current_lidar_raw = np.zeros((0, 3), dtype=np.float32) 
         self.min_lidar_range = 0.14
         self.collision_threshold = 0.16   #era 0.16 disattivato per test
         self.too_far_lidar_threshold = 1.8
@@ -108,13 +128,14 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.target_waypoint_index, self.previous_waypoint_index = None, None
         self.last_distance_to_target, self.REWARD_FACTOR_DISTANCE = 0.0, 15.0
         self.episode_done, self.last_action = False, np.array([0.0, 0.0], dtype=np.float32)
-        self.waypoint_reach_threshold = 0.25
+        self.waypoint_reach_threshold = 0.3
         self.turning_radius, self.turn_wp_step_distance = 0.55, 0.3
         self.original_target_after_turn_idx = None
         self.local_goal_waypoints = []
         self.distant_goal_world_coords = None
         self.boundary_crossing_counter = 0
         self.debug_counter = 0
+        self.is_turning = False # Flag to detect when the robot is executing a U-turn
 
     def _initialize_spawn_points_dynamically(self):
         """
@@ -182,44 +203,59 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         ranges[ranges < self.min_lidar_range] = msg.range_max
         self.current_scan = ranges
 
-    ### MODIFIED ###
+    ### MODIFIED CALLBACKS ###
     def camera_callback(self, msg):
-        """Processes incoming camera images using the paper's function."""
+        """Stores raw incoming camera images."""
         try:
-            cv_image = self.bridge.imgmsg_to_cv2(msg, "rgb8") # Use rgb8 to match PIL
-            self.current_image = scale_and_crop_image(cv_image, crop=self.IMAGE_CROP_SIZE)
+            # Just convert to CV2/NumPy, DO NOT CROP here.
+            self.current_image_raw = self.bridge.imgmsg_to_cv2(msg, "rgb8")
         except Exception as e:
             self.get_logger().error(f"Error in camera_callback: {e}")
 
+        
+    def rear_camera_callback(self, msg):
+        """Stores raw incoming rear camera images."""
+        try:
+            self.current_rear_image_raw = self.bridge.imgmsg_to_cv2(msg, "rgb8")
+        except Exception as e:
+            self.get_logger().error(f"Error in rear_camera_callback: {e}")
+
     def lidar_3d_callback(self, msg):
-        """Processes 3D LiDAR PointCloud2 using the paper's function."""
         try:
             point_generator = point_cloud2.read_points(msg, field_names=('x', 'y', 'z'), skip_nans=True)
-            
-            # Manually build a list of simple Python tuples.
-            # This is the most robust way to strip the complex dtype.
             points_list = []
             for p in point_generator:
                 points_list.append((p[0], p[1], p[2]))
 
-            if not points_list:
-                return # Exit if the point cloud is empty
+            # --- START OF PADDING LOGIC ---
+            num_points = len(points_list)
             
-            # Now, convert the clean list of tuples to a NumPy array.
-            # This will succeed because the input data is no longer structured.
-            point_cloud_np = np.array(points_list, dtype=np.float32)
-
-            self.current_lidar_bev = lidar_to_histogram_features(point_cloud_np, crop=self.LIDAR_CROP_SIZE)
+            # Create a fixed-size array filled with zeros
+            fixed_size_cloud = np.zeros((self.MAX_LIDAR_POINTS, 3), dtype=np.float32)
+            
+            if num_points > 0:
+                # Convert the list to a NumPy array
+                point_cloud_np = np.array(points_list, dtype=np.float32)
+                
+                # Truncate if we have more points than expected (unlikely but safe)
+                num_to_copy = min(num_points, self.MAX_LIDAR_POINTS)
+                
+                # Copy the actual points into the fixed-size array
+                fixed_size_cloud[:num_to_copy, :] = point_cloud_np[:num_to_copy, :]
+            
+            # Store the padded, fixed-size array
+            self.current_lidar_raw = fixed_size_cloud
+            # --- END OF PADDING LOGIC ---
             
         except Exception as e:
             self.get_logger().error(f"Error in lidar_3d_callback: {e}")
-            import traceback
-            traceback.print_exc()
 
+      
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.get_logger().info("Resetting environment...")
         self.previous_waypoint_index = None
+        self.is_turning = False
 
         while rclpy.ok():
             # 1. Reset the simulation to its default state
@@ -309,6 +345,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             # 5. Wait for the simulation to settle
             time.sleep(0.5)
             self.current_odom, self.current_scan = None, np.full(360, 2.0, dtype=np.float32)
+            self.current_lidar_raw = np.zeros((0, 3), dtype=np.float32) # Reset raw LiDAR
             start_time, got_fresh_data = time.time(), False
             while time.time() - start_time < timeout_seconds:
                 rclpy.spin_once(self, timeout_sec=0.1)
@@ -384,7 +421,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             
             self.episode_done = False
             self.last_action = np.array([0.0, 0.0], dtype=np.float32)
-            self.render()
+            # self.render()
             break
         
         observation = self._get_observation()
@@ -394,11 +431,12 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
     
     def render(self, mode='human'):
-        """
-        Delegates the rendering task to the utility function.
-        """
-        # This function now simply passes the relevant data to the helper.
-        render_sensor_data(self.current_image, self.current_lidar_bev)
+        # This will now show both cameras during data collection and evaluation steps
+        render_sensor_data(
+            camera_image=self.current_image_raw, 
+            lidar_bev=None, # We don't generate BEV here
+            camera_image_rear=self.current_rear_image_raw
+        )
 
     def step(self, action):
         """
@@ -462,33 +500,32 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         
         # Increment a debug counter (optional)
         self.debug_counter += 1
-        self.render()
+        #self.render()
         # 5. Return the standard 5-tuple for Gymnasium environments
         return observation, reward, terminated, truncated, self._get_info()
     
     def _get_observation(self):
-        # 1. Get ground truth waypoints for the loss function
+        # ... (Items 1, 2, 3 for state/waypoints remain same) ...
         gt_waypoints_rel = self._get_relative_local_goals()
-
-        # 2. Get relative distant goal
         distant_goal_rel = self._get_local_coords_from_world_point(self.distant_goal_world_coords)
-
-        # 3. Get current velocity
         linear_vel = self.last_action[0]
         angular_vel = self.last_action[1]
 
-        # 4. Concatenate into the lean state vector for the policy
         state_obs = np.concatenate([
             np.array(distant_goal_rel, dtype=np.float32),
             np.array([linear_vel, angular_vel], dtype=np.float32)
         ])
         
         obs_dict = {
-            'image': self.current_image, 
-            'lidar_bev': self.current_lidar_bev, 
+            'image_raw': self.current_image_raw,
+            'lidar_raw': self.current_lidar_raw,
             'state': state_obs,
             'gt_waypoints': gt_waypoints_rel 
         }
+        
+        # --- MODIFICATION: Conditional Return ---
+        if not self.config.ignore_rear and self.current_rear_image_raw is not None:
+            obs_dict['image_rear_raw'] = self.current_rear_image_raw
         
         return obs_dict
         
@@ -625,6 +662,9 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                             self.original_target_after_turn_idx = None
                     else:
                         # We reached a normal (non-assist) waypoint
+                        if self.is_turning:
+                            self.get_logger().info("U-turn sequence completed.")
+                            self.is_turning = False
                         potential_next_target_idx = self._find_closest_unvisited_waypoint()
                         if potential_next_target_idx is not None:
                             lane_reached = wp_just_reached.get('original_lane_index', -1)
@@ -634,6 +674,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                             # This happens when we are at the END of a lane.
                             if is_boundary_wp and lane_reached != lane_next and self.previous_waypoint_index is not None:
                                 self.get_logger().info(f"END OF LANE {lane_reached}: Initiating turn.")
+                                self.is_turning = True
+
                                
                                 potential_wp = self.waypoints[potential_next_target_idx]
                                 start_of_next_lane_idx = potential_next_target_idx
@@ -968,7 +1010,6 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             # --- Generate the path ---
             path = dubins.shortest_path(q0, q1, self.turning_radius)
             configurations, _ = path.sample_many(self.turn_wp_step_distance)
-            
             if not configurations or len(configurations) < 2:
                 return []
 

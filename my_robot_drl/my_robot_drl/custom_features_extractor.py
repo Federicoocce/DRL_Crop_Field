@@ -24,49 +24,51 @@ class TransFuserFeaturesExtractor(BaseFeaturesExtractor):
     def _get_transfuser_inputs(self, observations: dict) -> tuple:
         """
         Helper to extract and format inputs for the TransFuser model.
-        This now includes robust permutation for channel ordering.
+        This version correctly processes each camera view individually and prepares
+        a list of tensors for the model.
         """
         all_obs_tensors = {}
         current_device = self.device
         
         for key, obs in observations.items():
-            # Ensure everything is a tensor on the correct device
             all_obs_tensors[key] = torch.as_tensor(obs, device=current_device)
 
-        # --- START OF THE ROBUST FIX ---
-        image_obs = all_obs_tensors['image']
+        # --- Reusable function to process any image tensor ---
+        def process_image_tensor(img_tensor):
+            # Permute from (B, H, W, C) to (B, C, H, W)
+            if img_tensor.shape[-1] == 3 and img_tensor.ndim == 4:
+                img_tensor = img_tensor.permute(0, 3, 1, 2)
+            
+            # Normalize to 0-1 range
+            return img_tensor.float() / 255.0
+
+        # --- Process each camera view ---
+        image_obs_front = process_image_tensor(all_obs_tensors['image'])
+        
+        # Start building the list of camera views for the model
+        image_list = [image_obs_front] 
+
+        # Check for and process the rear camera
+        if 'image_rear' in all_obs_tensors:
+            image_obs_rear = process_image_tensor(all_obs_tensors['image_rear'])
+            image_list.append(image_obs_rear)
+        
+        # --- Process LiDAR (unchanged, but cleaned up) ---
         lidar_obs = all_obs_tensors['lidar_bev']
-
-        # PyTorch expects (B, C, H, W). Gym/NumPy gives (B, H, W, C).
-        # We check if the last dimension is the channel dimension and permute if needed.
-        # This handles both single images (ndim=3) and batches (ndim=4).
-        if image_obs.shape[-1] == 3:
-            if image_obs.ndim == 3: # H, W, C -> C, H, W
-                image_obs = image_obs.permute(2, 0, 1)
-            elif image_obs.ndim == 4: # B, H, W, C -> B, C, H, W
-                image_obs = image_obs.permute(0, 3, 1, 2)
+        if lidar_obs.shape[-1] == 2 and lidar_obs.ndim == 4:
+            lidar_obs = lidar_obs.permute(0, 3, 1, 2)
+        # NOTE: The original Lidar processing in the paper does not divide by 255.
+        # It expects histogram features. Let's assume your lidar_to_histogram_features
+        # already outputs values in a reasonable range. If not, you might remove the division.
+        lidar_obs = lidar_obs.float() # Removed / 255.0 for LiDAR
+        lidar_list = [lidar_obs]
         
-        if lidar_obs.shape[-1] == 2:
-            if lidar_obs.ndim == 3: # H, W, C -> C, H, W
-                lidar_obs = lidar_obs.permute(2, 0, 1)
-            elif lidar_obs.ndim == 4: # B, H, W, C -> B, C, H, W
-                lidar_obs = lidar_obs.permute(0, 3, 1, 2)
-        # --- END OF THE ROBUST FIX ---
-
-        image_obs = image_obs.float() / 255.0
-        lidar_obs = lidar_obs.float() / 255.0
+        # --- State processing (unchanged) ---
         state_obs = all_obs_tensors['state']
-
-        # The model expects a list of tensors
-        image_list, lidar_list = [image_obs], [lidar_obs]
-        
         target_point = state_obs[:, 0:2]
-        if state_obs.dim() > 1:
-             velocity = state_obs[:, 2].unsqueeze(1)
-        else:
-             # Handle the case of a single state vector (not batched)
-             velocity = state_obs[2].unsqueeze(0).unsqueeze(0)
-             
+        velocity = state_obs[:, 2].unsqueeze(1) if state_obs.dim() > 1 else state_obs[2].unsqueeze(0).unsqueeze(0)
+
+        # The image_list now correctly contains a list of processed tensors
         return image_list, lidar_list, target_point, velocity
 
     def forward(self, observations: dict) -> torch.Tensor:

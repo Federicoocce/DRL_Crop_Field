@@ -315,14 +315,21 @@ class Encoder(nn.Module):
         if self.image_encoder.normalize:
             image_list = [normalize_imagenet(image_input) for image_input in image_list]
 
-        # --- THIS IS THE ROBUST FIX ---
-        # The original code used a complex torch.stack().view() sequence that is brittle.
-        # Since our DRL setup (and the original code for seq_len=1) provides a list
-        # containing a single, already-batched tensor, we can just extract it directly.
-        # This is a robust data-handling fix, not an architectural change.
-        image_tensor = image_list[0]
+        # ==================== START OF CRUCIAL FIX ====================
+        # This section correctly handles the list of multiple camera views.
+        
+        # Dynamically determine batch size and number of views
+        bz = lidar_list[0].shape[0]
+        self.config.n_views = len(image_list)
+        
+        # Stack all image views along a new dimension and then reshape
+        # so they form a single large batch for the CNN.
+        # Shape changes: [ (B,C,H,W), (B,C,H,W), ... ] -> (B, n_views, C, H, W) -> (B * n_views, C, H, W)
+        image_tensor = torch.stack(image_list, dim=1).contiguous().view(bz * self.config.n_views, *image_list[0].shape[1:])
+        
+        # The lidar list only has one BEV, so we just extract it.
         lidar_tensor = lidar_list[0]
-        bz = lidar_tensor.shape[0] // self.config.seq_len
+        # ===================== END OF CRUCIAL FIX =====================
     
         image_features = self.image_encoder.features.conv1(image_tensor)
         image_features = self.image_encoder.features.bn1(image_features)
