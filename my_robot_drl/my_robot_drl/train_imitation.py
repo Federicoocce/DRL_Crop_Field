@@ -377,13 +377,11 @@ def main(args=None):
     
     dataset = collect_expert_data(env, logger)
     
-    ### START OF MODIFIED TRAINING LOOP ###
     best_reward_so_far = -float('inf')
     run_count = 0
     global_epoch_counter = 0
-    course_completed = False # Flag to track if the agent finished the course
+    course_completed = False 
     
-    # Loop continues as long as the reward is below target AND the course has not been completed
     while best_reward_so_far < TARGET_REWARD_THRESHOLD and not course_completed:
         run_count += 1
         logger.info("\n" + "#"*60)
@@ -392,35 +390,40 @@ def main(args=None):
         logger.info(f"Course Completed in Previous Run: {course_completed}")
         logger.info("#"*60 + "\n")
         
-        # Train model and get the updated global epoch count
         global_epoch_counter = train_model(model, dataset, logger, pause_client, unpause_client, env_node=env, run_count=run_count, global_epoch_counter=global_epoch_counter)
         
-        # Evaluate the model and get the reward and completion status
         successful_run, new_data, current_reward = evaluate_model(env, model, logger, device, global_epoch_counter=global_epoch_counter)
         
-        # Update the course completion flag. This will be checked in the next loop iteration.
         course_completed = successful_run
         
-        # Update the best reward if the current one is better
         if current_reward > best_reward_so_far:
             best_reward_so_far = current_reward
             logger.info(f"New best reward achieved: {best_reward_so_far:.2f}")
             wandb.log({"best_reward": best_reward_so_far}, step=global_epoch_counter)
         
-        # If the course was not completed, aggregate the new data to improve the next run
         if not successful_run:
             logger.warn("Evaluation failed. Aggregating new data from the failed run.")
             logger.info(f"  - Current dataset size: {len(dataset)}")
             logger.info(f"  - New data points to add: {len(new_data)}")
             dataset.extend(new_data)
             logger.info(f"  - New total dataset size: {len(dataset)}")
-            logger.info("The full cycle will be repeated with the augmented dataset.")
-            time.sleep(3)
-    
-    ### END OF MODIFIED TRAINING LOOP ###
+        
+        ### --- NEW DIAGNOSTIC LOGGING --- ###
+        logger.info("-" * 50)
+        logger.info("END OF LOOP CHECK:")
+        logger.info(f"  - Course Completed? {'YES' if course_completed else 'NO'}")
+        logger.info(f"  - Best Reward ({best_reward_so_far:.2f}) < Target ({TARGET_REWARD_THRESHOLD})? {'YES' if best_reward_so_far < TARGET_REWARD_THRESHOLD else 'NO'}")
+
+        if not course_completed and best_reward_so_far < TARGET_REWARD_THRESHOLD:
+            logger.info("--> RESULT: Loop will CONTINUE.")
+            time.sleep(3) # Keep the pause between attempts
+        else:
+            logger.info("--> RESULT: Loop will TERMINATE because a success condition was met.")
+        logger.info("-" * 50)
+        ### --- END OF NEW DIAGNOSTIC LOGGING --- ###
+
             
     logger.info("\n" + "="*60)
-    # Generic success message that covers both conditions
     if course_completed:
         logger.info(f"SUCCESS CRITERION MET: The agent successfully completed the course!")
     else:
@@ -430,11 +433,9 @@ def main(args=None):
 
     os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
     try:
-        # Save the model locally first
         torch.save(model.transfuser.state_dict(), MODEL_SAVE_PATH)
         logger.info(f"Successfully saved trained TransFuser model to: {MODEL_SAVE_PATH}")
         
-        # Now, log the saved model as a W&B Artifact
         logger.info("Saving model to Weights & Biases as an Artifact...")
         artifact = wandb.Artifact(
             name='transfuser-il-model', 
@@ -456,7 +457,6 @@ def main(args=None):
         
     logger.info("Closing environment and shutting down.")
     
-    # Finish the wandb run
     wandb.finish()
     
     env.close()
