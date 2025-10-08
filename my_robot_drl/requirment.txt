@@ -60,5 +60,6 @@ export LIBGL_ALWAYS_SOFTWARE=1
 source /opt/ros/humble/setup.bash
 source /usr/share/gazebo/setup.bash
 source ~/ros2_ws/install/setup.bash
+pip install --upgrade protobuf
 wandb login 
 ros2 launch my_robot_drl train_maize_nav.launch.py headless:=False mode:=il
