@@ -353,7 +353,7 @@ def main(args=None):
     rclpy.init(args=args)
     
     # Initialize wandb
-    wandb.init(project="agricobots", name="il_reward_goal")
+    wandb.init(project="agricobots", name="il_smart_goal")
     
     try:
         env = MaizeNavigationEnv()
@@ -377,22 +377,29 @@ def main(args=None):
     
     dataset = collect_expert_data(env, logger)
     
+    ### START OF MODIFIED TRAINING LOOP ###
     best_reward_so_far = -float('inf')
     run_count = 0
     global_epoch_counter = 0
+    course_completed = False # Flag to track if the agent finished the course
     
-    while best_reward_so_far < TARGET_REWARD_THRESHOLD:
+    # Loop continues as long as the reward is below target AND the course has not been completed
+    while best_reward_so_far < TARGET_REWARD_THRESHOLD and not course_completed:
         run_count += 1
         logger.info("\n" + "#"*60)
         logger.info(f"STARTING IMITATION LEARNING ATTEMPT #{run_count}")
         logger.info(f"Current Best Reward: {best_reward_so_far:.2f} | Target Reward: {TARGET_REWARD_THRESHOLD}")
+        logger.info(f"Course Completed in Previous Run: {course_completed}")
         logger.info("#"*60 + "\n")
         
         # Train model and get the updated global epoch count
         global_epoch_counter = train_model(model, dataset, logger, pause_client, unpause_client, env_node=env, run_count=run_count, global_epoch_counter=global_epoch_counter)
         
-        # Evaluate the model and get the reward
+        # Evaluate the model and get the reward and completion status
         successful_run, new_data, current_reward = evaluate_model(env, model, logger, device, global_epoch_counter=global_epoch_counter)
+        
+        # Update the course completion flag. This will be checked in the next loop iteration.
+        course_completed = successful_run
         
         # Update the best reward if the current one is better
         if current_reward > best_reward_so_far:
@@ -401,7 +408,6 @@ def main(args=None):
             wandb.log({"best_reward": best_reward_so_far}, step=global_epoch_counter)
         
         # If the course was not completed, aggregate the new data to improve the next run
-        # This now includes failures from deviation
         if not successful_run:
             logger.warn("Evaluation failed. Aggregating new data from the failed run.")
             logger.info(f"  - Current dataset size: {len(dataset)}")
@@ -410,10 +416,18 @@ def main(args=None):
             logger.info(f"  - New total dataset size: {len(dataset)}")
             logger.info("The full cycle will be repeated with the augmented dataset.")
             time.sleep(3)
+    
+    ### END OF MODIFIED TRAINING LOOP ###
             
     logger.info("\n" + "="*60)
-    logger.info(f"TARGET REWARD OF {TARGET_REWARD_THRESHOLD} REACHED! TRAINING SUCCEEDED!")
+    # Generic success message that covers both conditions
+    if course_completed:
+        logger.info(f"SUCCESS CRITERION MET: The agent successfully completed the course!")
+    else:
+        logger.info(f"SUCCESS CRITERION MET: The agent reached the target reward of {TARGET_REWARD_THRESHOLD}!")
+    logger.info("TRAINING SUCCEEDED!")
     logger.info("="*60)
+
     os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
     try:
         # Save the model locally first
@@ -425,11 +439,12 @@ def main(args=None):
         artifact = wandb.Artifact(
             name='transfuser-il-model', 
             type='model',
-            description='A trained TransFuser model that reached the target reward.',
+            description='A trained TransFuser model that met the success criteria.',
             metadata={
                 "run_name": wandb.run.name, 
                 "total_epochs": global_epoch_counter,
-                "final_reward": best_reward_so_far
+                "final_reward": best_reward_so_far,
+                "course_completed": course_completed
             }
         )
         artifact.add_file(MODEL_SAVE_PATH)
@@ -447,7 +462,6 @@ def main(args=None):
     env.close()
     rclpy.shutdown()
     logger.info("Shutdown complete.")
-
 
 if __name__ == '__main__':
     main()
