@@ -382,7 +382,7 @@ def main(args=None):
     global_epoch_counter = 0
     course_completed = False 
     
-    while best_reward_so_far < TARGET_REWARD_THRESHOLD and not course_completed:
+    while best_reward_so_far < TARGET_REWARD_THRESHOLD and course_completed:
         run_count += 1
         logger.info("\n" + "#"*60)
         logger.info(f"STARTING IMITATION LEARNING ATTEMPT #{run_count}")
