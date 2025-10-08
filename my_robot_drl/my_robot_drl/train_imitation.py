@@ -382,7 +382,11 @@ def main(args=None):
     global_epoch_counter = 0
     course_completed = False 
     
-    while best_reward_so_far < TARGET_REWARD_THRESHOLD and course_completed:
+    # ### START OF CORRECTION ###
+    # The condition is changed from 'and' to 'or' and checks for 'not course_completed'
+    # This ensures the loop runs until BOTH conditions (course completion and reward threshold) are met.
+    while not course_completed or best_reward_so_far < TARGET_REWARD_THRESHOLD:
+    # ### END OF CORRECTION ###
         run_count += 1
         logger.info("\n" + "#"*60)
         logger.info(f"STARTING IMITATION LEARNING ATTEMPT #{run_count}")
@@ -414,20 +418,21 @@ def main(args=None):
         logger.info(f"  - Course Completed? {'YES' if course_completed else 'NO'}")
         logger.info(f"  - Best Reward ({best_reward_so_far:.2f}) < Target ({TARGET_REWARD_THRESHOLD})? {'YES' if best_reward_so_far < TARGET_REWARD_THRESHOLD else 'NO'}")
 
-        if not course_completed and best_reward_so_far < TARGET_REWARD_THRESHOLD:
+        # This diagnostic now accurately reflects the loop continuation logic
+        if not course_completed or best_reward_so_far < TARGET_REWARD_THRESHOLD:
             logger.info("--> RESULT: Loop will CONTINUE.")
-            time.sleep(3) # Keep the pause between attempts
+            time.sleep(3)
         else:
-            logger.info("--> RESULT: Loop will TERMINATE because a success condition was met.")
+            logger.info("--> RESULT: Loop will TERMINATE because all success criteria were met.")
         logger.info("-" * 50)
         ### --- END OF NEW DIAGNOSTIC LOGGING --- ###
 
             
     logger.info("\n" + "="*60)
-    if course_completed:
-        logger.info(f"SUCCESS CRITERION MET: The agent successfully completed the course!")
-    else:
-        logger.info(f"SUCCESS CRITERION MET: The agent reached the target reward of {TARGET_REWARD_THRESHOLD}!")
+    # ### START OF CORRECTION ###
+    # Simplified the final message, as exiting the loop means both conditions were met.
+    logger.info(f"SUCCESS CRITERIA MET: Agent completed the course and achieved a reward of {best_reward_so_far:.2f}!")
+    # ### END OF CORRECTION ###
     logger.info("TRAINING SUCCEEDED!")
     logger.info("="*60)
 
@@ -462,6 +467,5 @@ def main(args=None):
     env.close()
     rclpy.shutdown()
     logger.info("Shutdown complete.")
-
 if __name__ == '__main__':
     main()
