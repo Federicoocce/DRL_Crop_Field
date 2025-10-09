@@ -331,6 +331,11 @@ class Encoder(nn.Module):
                             attn_pdrop=config.attn_pdrop, 
                             resid_pdrop=config.resid_pdrop,
                             config=config)
+        self.rear_camera_head = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(inplace=True),
+            nn.Linear(256, 128) # Final desired dimension
+        )
 
         
     def forward(self, image_list, lidar_list, velocity):
@@ -425,19 +430,25 @@ class Encoder(nn.Module):
 
         # --- Step 3: Process the Rear Camera Independently ---
         if has_rear_camera:
-            rear_image_tensor = torch.stack(rear_image_list, dim=1).contiguous().view(bz, *rear_image_list[0].shape[1:])
+            rear_image_list = [image_list[1]]
+            if self.image_encoder.normalize:
+                rear_image_list = [normalize_imagenet(img) for img in rear_image_list]
             
-            # Use the existing image_encoder to get a 512-dim feature vector
-            # This is a full forward pass through the ResNet34
-            rear_only_features = self.image_encoder.features(rear_image_tensor)
-            rear_only_features = torch.flatten(rear_only_features, 1)
+            bz = lidar_list[0].shape[0] # Get batch size
+            rear_image_tensor = torch.stack(rear_image_list, dim=0).view(bz, *rear_image_list[0].shape[1:])
+            
+            # 1. Get the full 512-d feature vector from the encoder
+            rear_features_512 = self.image_encoder.features(rear_image_tensor)
+            rear_features_512 = torch.flatten(rear_features_512, 1)
+
+            # 2. Pass it through our new projection head to get a 128-d vector
+            rear_features_compressed = self.rear_camera_head(rear_features_512)
 
             # --- Step 4: Concatenate the final features ---
-            final_features = torch.cat([fused_front_lidar_features, rear_only_features], dim=1)
+            final_features = torch.cat([fused_front_lidar_features, rear_features_compressed], dim=1)
         else:
-            # If no rear camera, we need to pad to maintain a consistent feature size
-            # Or, more robustly, handle it in the join layer. For simplicity here, let's just use the front.
             final_features = fused_front_lidar_features
+
 
         return final_features
 
@@ -482,7 +493,7 @@ class TransFuser(nn.Module):
         self.speed_controller = PIDController(K_P=config.speed_KP, K_I=config.speed_KI, K_D=config.speed_KD, n=config.speed_n)
 
         self.encoder = Encoder(config).to(self.device)
-        input_dim = 1024 if config.n_views > 1 else 512
+        input_dim = 640 if config.n_views > 1 else 512
 
         self.join = nn.Sequential(
                             nn.Linear(input_dim, 256), #<-- MODIFIED

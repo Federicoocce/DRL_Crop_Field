@@ -381,7 +381,6 @@ def main(args=None):
     run_count = 0
     global_epoch_counter = 0
     course_completed = False 
-    logger.info("prova con l'architettura diversa")
     
     # ### START OF CORRECTION ###
     # The condition is changed from 'and' to 'or' and checks for 'not course_completed'
