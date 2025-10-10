@@ -128,8 +128,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.target_waypoint_index, self.previous_waypoint_index = None, None
         self.last_distance_to_target, self.REWARD_FACTOR_DISTANCE = 0.0, 15.0
         self.episode_done, self.last_action = False, np.array([0.0, 0.0], dtype=np.float32)
-        self.waypoint_reach_threshold = 0.3
-        self.turning_radius, self.turn_wp_step_distance = 0.55, 0.3
+        self.waypoint_reach_threshold = 0.35
+        self.turning_radius, self.turn_wp_step_distance = 0.55, 0.25
         self.original_target_after_turn_idx = None
         self.local_goal_waypoints = []
         self.distant_goal_world_coords = None

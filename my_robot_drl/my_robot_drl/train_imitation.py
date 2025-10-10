@@ -19,29 +19,25 @@ from .config import config
 # --- CONFIGURATION PARAMETERS ---
 # ===================================================================
 
-DATA_COLLECTION_FPS = 2.0 
-DATA_COLLECTION_FPS_TURNING = 15.0 
-EXPERT_KP_LINEAR = 0.5         # <-- NEW
-EXPERT_KP_ANGULAR = 0.8
-EXPERT_KD_ANGULAR = 0.2         # <-- NEW
-EXPERT_MAX_LINEAR_VEL = 0.3     # <-- RENAMED (from EXPERT_TARGET_LINEAR_VEL)
-EXPERT_MIN_LINEAR_VEL = 0.15    # <-- NEW
+# --- Data Collection & Expert Controller ---
+DATA_COLLECTION_FPS = 2.0 # Target FPS for saving expert data
+DATA_COLLECTION_FPS_TURNING = 15.0 # HIGHER target FPS for turning maneuvers
+EXPERT_KP_ANGULAR = 1.0
+EXPERT_TARGET_LINEAR_VEL = 0.2
 
 # --- Model Training ---
 IL_EPOCHS = 10
 IL_BATCH_SIZE = 16
 IL_LEARNING_RATE = 1e-4
-VISUALIZE_TRAINING_SAMPLE = False 
+VISUALIZE_TRAINING_SAMPLE = False # <-- NEW: Control flag for visualization
+
 
 # --- Evaluation & Data Aggregation ---
-AGENT_KP_LINEAR = 0.5
 AGENT_KP_ANGULAR = 0.8
-AGENT_KD_ANGULAR = 0.2
-AGENT_MAX_LINEAR_VEL = 0.3      # <-- RENAMED (from AGENT_TARGET_LINEAR_VEL and MAX_LINEAR_VEL)
-AGENT_MIN_LINEAR_VEL = 0.15      # <-- NEW
-EVAL_DATA_COLLECTION_FPS = 1.0 
+AGENT_TARGET_LINEAR_VEL = 0.2
+EVAL_DATA_COLLECTION_FPS = 1.0 # Target FPS for saving data during a failed evaluation
 EVAL_DATA_COLLECTION_FPS_TURNING = 5.0 # HIGHER target FPS for turning maneuvers during evaluation
-TARGET_REWARD_THRESHOLD = 6500.0
+TARGET_REWARD_THRESHOLD = 6100.0
 MAX_GT_WAYPOINT_DEVIATION_X = 1.5 # <-- NEW: Stop eval if |gt_waypoint.x| exceeds this
 
 # --- File Paths ---
@@ -59,56 +55,6 @@ FINAL_PROCESS_SIZE = 256
 CAMERA_H_FOV_DEG = np.rad2deg(2.2689) # Approx 130 degrees
 CAMERA_H_FOV_DEG_REAR = 100.0 # <-- NEW: Rear camera FOV in degrees
 DEBUG_AUGMENTATION = False # <-- NEW: Control flag for debug prints
-
-class PDController:
-    """
-    A Proportional-Derivative (PD) controller for calculating robot actions.
-    Maintains state for the derivative term.
-    """
-    def __init__(self, kp_linear, kp_angular, kd_angular, min_linear_vel, max_linear_vel, action_space):
-        self.kp_linear = kp_linear
-        self.kp_angular = kp_angular
-        self.kd_angular = kd_angular
-        self.min_linear_vel = min_linear_vel
-        self.max_linear_vel = max_linear_vel
-        self.action_space = action_space
-        self.previous_angle_error = 0.0
-
-    def compute_action(self, target_waypoint):
-        """Calculates the linear and angular velocity based on a target waypoint."""
-        # Proportional term for linear velocity based on the waypoint's x-coordinate
-        linear_vel = self.kp_linear * target_waypoint[0]
-        
-        # Calculate the angle to the target waypoint
-        angle_to_target = math.atan2(target_waypoint[1], target_waypoint[0])
-        
-        # Impose a minimum linear velocity to prevent stalling, but only if the
-        # robot is generally pointed towards the target. This avoids driving
-        # straight when a sharp turn is needed.
-        if abs(angle_to_target) < np.deg2rad(75): # 75-degree threshold
-            linear_vel = max(self.min_linear_vel, linear_vel)
-
-        # Derivative term for angular velocity (dampens oscillations)
-        angular_error_derivative = angle_to_target - self.previous_angle_error
-        
-        # Combine P and D terms for the final angular velocity
-        angular_vel = (self.kp_angular * angle_to_target) + (self.kd_angular * angular_error_derivative)
-        
-        # Update the state for the next calculation
-        self.previous_angle_error = angle_to_target
-
-        # Create the action array
-        action = np.array([linear_vel, angular_vel], dtype=np.float32)
-        
-        # Clip the actions to their respective limits
-        action[0] = np.clip(action[0], self.action_space.low[0], self.max_linear_vel)
-        action[1] = np.clip(action[1], self.action_space.low[1], self.action_space.high[1])
-        
-        return action
-
-    def reset(self):
-        """Resets the internal state of the controller."""
-        self.previous_angle_error = 0.0
 # ===================================================================
 # --- Data Preprocessor Class (with Debug Prints) ---
 # ===================================================================
@@ -179,33 +125,23 @@ class DataPreprocessor:
             processed_data['image_rear'] = img_processed_rear
         
         return processed_data
-    
-### START OF MODIFIED FUNCTION ###
+
 def collect_expert_data(env, logger):
     """
-    Phase 1: Navigate using an expert PD controller and record observations.
+    Phase 1: Navigate the field using an expert controller and record
+    observations. Samples more frequently during U-turns to balance the dataset.
     """
     logger.info("="*50)
     logger.info(f"PHASE 1: Starting Expert Data Collection")
     logger.info(f"         Normal FPS: {DATA_COLLECTION_FPS}, Turning FPS: {DATA_COLLECTION_FPS_TURNING}")
     logger.info("="*50)
 
-    # --- NEW: Initialize the expert controller ---
-    expert_controller = PDController(
-        kp_linear=EXPERT_KP_LINEAR,
-        kp_angular=EXPERT_KP_ANGULAR,
-        kd_angular=EXPERT_KD_ANGULAR,
-        min_linear_vel=EXPERT_MIN_LINEAR_VEL,
-        max_linear_vel=EXPERT_MAX_LINEAR_VEL,
-        action_space=env.action_space
-    )
-
+    # Calculate the two sampling intervals
     collection_interval_normal = 1.0 / DATA_COLLECTION_FPS
     collection_interval_turning = 1.0 / DATA_COLLECTION_FPS_TURNING
 
     while True:
         obs, info = env.reset()
-        expert_controller.reset() # <-- NEW: Reset controller state
         dataset = []
         
         dataset.append(obs.copy())
@@ -215,11 +151,16 @@ def collect_expert_data(env, logger):
         step = 0
         total_reward = 0
         while not done:
-            # --- MODIFIED: Use the controller to get the action ---
-            first_wp = obs['gt_waypoints'][0]
-            action = expert_controller.compute_action(first_wp)
+            # Expert action selection (unchanged)
+            gt_waypoints = obs['gt_waypoints']
+            first_wp = gt_waypoints[0]
+            angle_to_target = math.atan2(first_wp[1], first_wp[0])
+            angular_vel = EXPERT_KP_ANGULAR * angle_to_target
+            linear_vel = EXPERT_TARGET_LINEAR_VEL
+            action = np.array([linear_vel, angular_vel], dtype=np.float32)
+            action = np.clip(action, env.action_space.low, env.action_space.high)
             
-            # --- Data collection timing logic (unchanged) ---
+            # Check the robot's turning state to select the correct sampling rate
             is_currently_turning = env.is_turning
             current_collection_interval = collection_interval_turning if is_currently_turning else collection_interval_normal
             
@@ -228,21 +169,21 @@ def collect_expert_data(env, logger):
                 dataset.append(obs.copy())
                 last_collection_time = current_time 
                 
+
             next_obs, reward, terminated, truncated, info = env.step(action)
+            total_reward += reward
             obs = next_obs
             done = terminated or truncated
-            total_reward += reward
             step += 1
             
         if info.get("termination_reason") == "all_waypoints_visited":
             logger.info(f"SUCCESS: Expert completed the field in {step} steps.")
             logger.info(f"Final dataset size: {len(dataset)}")
-            return dataset , total_reward
+            return dataset, total_reward
         else:
             reason = info.get("termination_reason", "unknown")
             logger.error(f"FAILURE: Expert failed (Reason: {reason}). Restarting collection.")
             time.sleep(2)
-### END OF MODIFIED FUNCTION ###
 
 
 def train_model(model, dataset, logger, pause_client, unpause_client, env_node, run_count, global_epoch_counter):
@@ -324,27 +265,20 @@ def train_model(model, dataset, logger, pause_client, unpause_client, env_node, 
 ### START OF MODIFIED FUNCTION ###
 def evaluate_model(env, model, logger, device, global_epoch_counter):
     """
-    Phase 3: Test the model, using the PD controller for action generation.
+    Phase 3: Test the trained model, log the total reward, and return it.
+    Data is collected during evaluation runs to be added to the main dataset
+    if the run fails, mimicking the expert collection process.
     """
     logger.info("="*50)
     logger.info(f"PHASE 3: Starting Evaluation (after {global_epoch_counter} total epochs)")
-    logger.info(f"         Controller Gains: Kp_linear={AGENT_KP_LINEAR}, Kp_angular={AGENT_KP_ANGULAR}, Kd_angular={AGENT_KD_ANGULAR}")
-    logger.info(f"         Velocity Limits: Min={AGENT_MIN_LINEAR_VEL} m/s, Max={AGENT_MAX_LINEAR_VEL} m/s")
+    logger.info(f"         Data Collection FPS: Normal={EVAL_DATA_COLLECTION_FPS}, Turning={EVAL_DATA_COLLECTION_FPS_TURNING}")
+    logger.info(f"         Failure Condition: |GT Waypoint X| > {MAX_GT_WAYPOINT_DEVIATION_X}m")
     logger.info("="*50)
-    
-    # --- NEW: Initialize the agent's controller ---
-    agent_controller = PDController(
-        kp_linear=AGENT_KP_LINEAR,
-        kp_angular=AGENT_KP_ANGULAR,
-        kd_angular=AGENT_KD_ANGULAR,
-        min_linear_vel=AGENT_MIN_LINEAR_VEL,
-        max_linear_vel=AGENT_MAX_LINEAR_VEL,
-        action_space=env.action_space
-    )
     
     collection_interval_normal = 1.0 / EVAL_DATA_COLLECTION_FPS
     collection_interval_turning = 1.0 / EVAL_DATA_COLLECTION_FPS_TURNING
 
+    logger.info("Resetting environment for evaluation.")
     preprocessor = DataPreprocessor(
         crop_size=FINAL_PROCESS_SIZE, 
         camera_fov_deg_front=CAMERA_H_FOV_DEG,
@@ -352,20 +286,23 @@ def evaluate_model(env, model, logger, device, global_epoch_counter):
     )
     
     raw_obs, info = env.reset()
-    agent_controller.reset() # <-- NEW: Reset controller state
     done = False
     step = 0
     total_reward = 0.0
-    evaluation_data = [raw_obs.copy()]
+    evaluation_data = []
+    
+    evaluation_data.append(raw_obs.copy())
     last_collection_time = time.time()
     
+    action = np.array([0.0, 0.0], dtype=np.float32)
+
     while not done:
-        # --- Deviation check (unchanged) ---
+        # --- NEW: Check for deviation from the ground truth path ---
         gt_first_wp_x = raw_obs['gt_waypoints'][0][0]
         if abs(gt_first_wp_x) > MAX_GT_WAYPOINT_DEVIATION_X:
             logger.warn(f"FAILURE: Deviated too far from the ground truth path (x-error: {gt_first_wp_x:.2f}m > {MAX_GT_WAYPOINT_DEVIATION_X}m).")
-            info["termination_reason"] = "deviated_from_path"
-            break
+            info["termination_reason"] = "deviated_from_path" # Set a custom reason
+            break # Exit the evaluation loop
 
         # --- Model Prediction (unchanged) ---
         with torch.no_grad():
@@ -378,18 +315,21 @@ def evaluate_model(env, model, logger, device, global_epoch_counter):
             pred_wp_tensor, _ = model.transfuser(image_list, lidar_list, target_point, velocity)
         
         predicted_first_wp = pred_wp_tensor[0].cpu().numpy()[0]
-
-        # --- MODIFIED: Use the controller to get the action ---
-        action = agent_controller.compute_action(predicted_first_wp)
+        angle_to_target = math.atan2(predicted_first_wp[1], predicted_first_wp[0])
+        angular_vel = AGENT_KP_ANGULAR * angle_to_target
+        linear_vel = AGENT_TARGET_LINEAR_VEL
+        action = np.array([linear_vel, angular_vel], dtype=np.float32)
+        action = np.clip(action, env.action_space.low, env.action_space.high)
         
-        # --- Data collection during evaluation (unchanged) ---
         is_currently_turning = env.is_turning
         current_collection_interval = collection_interval_turning if is_currently_turning else collection_interval_normal
             
         current_time = time.time()
         if current_time - last_collection_time >= current_collection_interval:
             evaluation_data.append(raw_obs.copy())
-            last_collection_time = current_time
+            last_collection_time = current_time 
+            log_prefix = "[Eval Collection - TURNING]" if is_currently_turning else "[Eval Collection]"
+            logger.info(f"  {log_prefix} Step {step}, Sampled data point. New data size: {len(evaluation_data)}")
         
         next_raw_obs, reward, terminated, truncated, info = env.step(action)
         raw_obs = next_raw_obs
@@ -435,23 +375,21 @@ def main(args=None):
     model = TransFuserFeaturesExtractor(env.observation_space, features_dim=72, lr=IL_LEARNING_RATE)
     model.to(device)
     logger.info(f"TransFuser model initialized on device: {device}")
+    logger.info(f"prova per modifica")
     
-    dataset, best_reward = collect_expert_data(env, logger)
-    
-    ### START OF CORRECTION ###
-    # The logger.info call is corrected to use an f-string, combining the
-    # descriptive text and the variable into a single string argument.
-    logger.info(f"Best possible reward from expert run: {best_reward}")
-    ### END OF CORRECTION ###
+    dataset, max_reward = collect_expert_data(env, logger)
     
     best_reward_so_far = -float('inf')
     run_count = 0
     global_epoch_counter = 0
     course_completed = False 
-    
+
+    logger.info(f"max_reward reached: {max_reward}")
+    # ### START OF CORRECTION ###
     # The condition is changed from 'and' to 'or' and checks for 'not course_completed'
     # This ensures the loop runs until BOTH conditions (course completion and reward threshold) are met.
     while not course_completed or best_reward_so_far < TARGET_REWARD_THRESHOLD:
+    # ### END OF CORRECTION ###
         run_count += 1
         logger.info("\n" + "#"*60)
         logger.info(f"STARTING IMITATION LEARNING ATTEMPT #{run_count}")
@@ -494,8 +432,10 @@ def main(args=None):
 
             
     logger.info("\n" + "="*60)
+    # ### START OF CORRECTION ###
     # Simplified the final message, as exiting the loop means both conditions were met.
     logger.info(f"SUCCESS CRITERIA MET: Agent completed the course and achieved a reward of {best_reward_so_far:.2f}!")
+    # ### END OF CORRECTION ###
     logger.info("TRAINING SUCCEEDED!")
     logger.info("="*60)
 
