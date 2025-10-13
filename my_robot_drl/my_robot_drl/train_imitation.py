@@ -27,7 +27,7 @@ EXPERT_TARGET_LINEAR_VEL = 0.2
 
 # --- Model Training ---
 IL_EPOCHS = 10
-IL_BATCH_SIZE = 16
+IL_BATCH_SIZE = 32
 IL_LEARNING_RATE = 1e-4
 VISUALIZE_TRAINING_SAMPLE = False # <-- NEW: Control flag for visualization
 
@@ -37,7 +37,7 @@ AGENT_KP_ANGULAR = 0.8
 AGENT_TARGET_LINEAR_VEL = 0.2
 EVAL_DATA_COLLECTION_FPS = 1.0 # Target FPS for saving data during a failed evaluation
 EVAL_DATA_COLLECTION_FPS_TURNING = 5.0 # HIGHER target FPS for turning maneuvers during evaluation
-TARGET_REWARD_THRESHOLD = 6100.0
+TARGET_REWARD_THRESHOLD = 7900.0
 MAX_GT_WAYPOINT_DEVIATION_X = 1.5 # <-- NEW: Stop eval if |gt_waypoint.x| exceeds this
 
 # --- File Paths ---
@@ -46,7 +46,7 @@ MODEL_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_models', 'imitation_lear
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_model.pth')
 
 # Add Augmentation Config
-AUGMENT_ROTATION_DEG = 30.0 # +/- 30 degrees
+AUGMENT_ROTATION_DEG = 20.0 # +/- 30 degrees
 FINAL_PROCESS_SIZE = 256
 
 # ... (CONFIG PARAMETERS) ...
