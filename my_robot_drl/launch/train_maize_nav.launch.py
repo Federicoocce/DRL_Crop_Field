@@ -1,5 +1,3 @@
-# In file: ~/ros2_ws/src/my_robot_drl/launch/train_maize_nav.launch.py
-
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -8,19 +6,19 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration, PythonExpression
-# --- CORRECTED IMPORTS ---
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 
 def generate_launch_description():
     # Define package paths
     maize_field_pkg = get_package_share_directory('virtual_maize_field')
     maize_robot_bringup_pkg = get_package_share_directory('maize_robot_bringup')
     my_robot_drl_pkg = get_package_share_directory('my_robot_drl')
+    gazebo_ros_pkg = get_package_share_directory('gazebo_ros')
 
     # --- Declare Launch Argument for Headless Mode ---
     headless_arg = DeclareLaunchArgument(
         'headless',
-        default_value='true', 
+        default_value='true',
         description='Run Gazebo in headless mode (no GUI). Set to "false" for GUI.'
     )
 
@@ -41,23 +39,20 @@ def generate_launch_description():
     # --- Define actions to be launched later ---
     world_file_path = os.path.join(os.path.expanduser('~'), '.ros', 'virtual_maize_field', 'generated.world')
 
-    # Action to launch Gazebo Server (headless)
-    gazebo_server_cmd = ExecuteProcess(
-        cmd=['gzserver', '--verbose', '-s', 'libgazebo_ros_init.so', '-s', 'libgazebo_ros_factory.so', world_file_path],
-        output='screen',
-        condition=IfCondition(LaunchConfiguration('headless'))
+    # --- Gazebo Launch (Robust Method) ---
+    gazebo_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(gazebo_ros_pkg, 'launch', 'gazebo.launch.py')
+        ),
+        launch_arguments={
+            'world': world_file_path,
+            'headless': LaunchConfiguration('headless'),
+            'gui': PythonExpression(["not ", LaunchConfiguration('headless')]),
+            'pause': 'false',
+            'verbose': 'true',
+        }.items()
     )
 
-    # --- THIS IS THE CORRECTED PART ---
-    # Action to launch Gazebo with GUI (not headless)
-    gazebo_gui_sim = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(os.path.join(maize_field_pkg, 'launch', 'simulation.launch.py')),
-        launch_arguments={'world': world_file_path}.items(),
-        # Use UnlessCondition, which is the direct opposite of IfCondition
-        condition=UnlessCondition(LaunchConfiguration('headless'))
-    )
-    # --- END OF CORRECTION ---
-    
     # Action to launch robot spawner
     robot_bringup_launch_file = os.path.join(maize_robot_bringup_pkg, 'launch', 'spawn_tracked_robot.launch.py')
     start_and_spawn_robot = IncludeLaunchDescription(
@@ -95,26 +90,25 @@ def generate_launch_description():
         mode_arg,
 
         generate_world_cmd,
-        
+
         RegisterEventHandler(
             event_handler=OnProcessExit(
                 target_action=generate_world_cmd,
                 on_exit=[
                     LogInfo(msg="World generation complete. Starting Gazebo..."),
-                    gazebo_server_cmd,
-                    gazebo_gui_sim,
+                    gazebo_launch,
                 ]
             )
         ),
 
         TimerAction(
-            period=8.0, 
+            period=8.0,
             actions=[
                 LogInfo(msg="Gazebo likely up. Spawning robot..."),
                 start_and_spawn_robot
             ]
         ),
-        
+
         TimerAction(
             period=16.0,
             actions=[
