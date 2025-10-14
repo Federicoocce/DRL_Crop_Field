@@ -421,7 +421,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             
             self.episode_done = False
             self.last_action = np.array([0.0, 0.0], dtype=np.float32)
-            # self.render()
+            self.render()
             break
         
         observation = self._get_observation()
@@ -500,7 +500,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         
         # Increment a debug counter (optional)
         self.debug_counter += 1
-        #self.render()
+        self.render()
         # 5. Return the standard 5-tuple for Gymnasium environments
         return observation, reward, terminated, truncated, self._get_info()
     

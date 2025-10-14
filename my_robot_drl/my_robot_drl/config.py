@@ -25,7 +25,7 @@ class GlobalConfig:
 
     # --- START OF MODIFIED CAMERA CONFIG ---
     ignore_sides = True  # don't consider side cameras
-    ignore_rear = False   # SET THIS TO True or False to control the rear camera
+    ignore_rear = True   # SET THIS TO True or False to control the rear camera
 
     # Dynamically set n_views based on the flags.
     # This is a cleaner approach.
