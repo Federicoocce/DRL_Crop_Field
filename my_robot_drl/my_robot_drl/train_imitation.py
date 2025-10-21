@@ -41,7 +41,7 @@ AGENT_KP_ANGULAR = 0.8
 AGENT_TARGET_LINEAR_VEL = 0.2
 TARGET_REWARD_THRESHOLD = 7800.0
 MAX_GT_WAYPOINT_DEVIATION_X = 1.5
-EARLY_STOPPING_PATIENCE = 5 # Epochs to wait for validation loss improvement
+EARLY_STOPPING_PATIENCE = 10 # Epochs to wait for validation loss improvement
 DAGGER_RETRAIN_EPOCHS = 5   # Fixed number of epochs for DAgger retraining
 
 HOME_DIR = os.path.expanduser('~')
