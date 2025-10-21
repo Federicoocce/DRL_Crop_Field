@@ -1,14 +1,14 @@
-row_length: 5
+row_length: 2
 rows_count: 6
 row_segments:
-  - sincurved
+  - straight
 
 hole_prob: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 hole_size_max: [0, 0, 0, 0, 0, 0]
 row_segment_sincurved_offset_min: 0.2
 row_segment_sincurved_offset_max: 0.5
-row_segment_sincurved_length_min: 5.0
-row_segment_sincurved_length_max: 5.0
+row_segment_sincurved_length_min: 2.0
+row_segment_sincurved_length_max: 2.0
 ground_resolution: 0.1
 # --- ADD THESE LINES FOR A COMPLETELY FLAT WORLD ---
 ground_elevation_max: 0.0

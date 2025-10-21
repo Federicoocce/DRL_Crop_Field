@@ -16,7 +16,7 @@ from stable_baselines3 import SAC
 from stable_baselines3.common.monitor import Monitor
 from gymnasium.wrappers import TimeLimit
 from .custom_sac import CustomSAC
-from .custom_features_extractor import TransFuserFeaturesExtractor
+from .transfuser import TransFuserFeaturesExtractor
 from stable_baselines3.sac import MlpPolicy as SACPolicy
 
 def main(args=None):
