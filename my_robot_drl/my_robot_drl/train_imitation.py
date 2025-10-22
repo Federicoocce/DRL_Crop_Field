@@ -297,9 +297,9 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                 processed_list = [preprocessor.process_observation(s) for s in raw_batch]
                 batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
      
-                if i == 0:
-                    logger.info("debug_visualize_batch loop")
-                    debug_visualize_batch(batch)
+                # if i%16 == 0:
+                    
+                #     debug_visualize_batch(batch)
      
 
                 losses = model(**batch)

@@ -104,20 +104,16 @@ def lidar_to_histogram_features(point_cloud_np, crop=256):
          return np.zeros((crop, crop, 2), dtype=np.uint8)
 
     # --- Parameters (Modified for Centered BEV) ---
-    # ==================== START OF THE FIX ====================
     # Define the forward/backward range. The total range is 32 meters.
     x_meters = 8.0
-    # ===================== END OF THE FIX =====================
     y_max_meters = 8.0  # Side range (+/-) remains the same
     pixels_per_meter = 16
     hist_max_per_pixel = 5
     z_threshold = 0.0
 
     # Define boundaries
-    # ==================== START OF THE FIX ====================
     # Create bins from -16 to +16 meters for the forward axis
     x_bins = np.linspace(-x_meters, x_meters, int(x_meters * 2 * pixels_per_meter) + 1)
-    # ===================== END OF THE FIX =====================
     y_bins = np.linspace(-y_max_meters, y_max_meters, int(y_max_meters * 2 * pixels_per_meter) + 1)
 
     # Split & Histogram
@@ -134,8 +130,16 @@ def lidar_to_histogram_features(point_cloud_np, crop=256):
     below_features = (below_hist / hist_max_per_pixel * 255).astype(np.uint8)
     above_features = (above_hist / hist_max_per_pixel * 255).astype(np.uint8)
 
-    # Orient correctly (Y-forward as rows, 0 at bottom)
-    features = np.stack([np.flipud(below_features.T), np.flipud(above_features.T)], axis=-1)
+    # ==================== START OF THE FIX ====================
+    # Orient correctly:
+    # 1. Transpose to make X-axis (forward) the rows and Y-axis (left/right) the columns.
+    # 2. FlipUD (Up-Down) to make the positive X-direction (forward) point "up" in the image.
+    # 3. FlipLR (Left-Right) to make the positive Y-direction (left) point to the "left"
+    #    in the image, aligning with standard image coordinate systems.
+    below_oriented = np.fliplr(np.flipud(below_features.T))
+    above_oriented = np.fliplr(np.flipud(above_features.T))
+    features = np.stack([below_oriented, above_oriented], axis=-1)
+    # ===================== END OF THE FIX =====================
 
     # Ensure exact output size
     h, w, c = features.shape
@@ -206,377 +210,377 @@ def draw_target_point(target_point_world, crop=256):
     # Reshape for PyTorch (C, H, W)
     image = image.reshape(1, crop, crop)
     return image.astype(np.float32) / 255.0
-def get_bbox_label(bbox, rad=0):
-    # dx, dy, dz, x, y, z, yaw
-    # ignore z
-    dz, dx, dy, x, y, z, yaw, speed, brake =  bbox
+# def get_bbox_label(bbox, rad=0):
+#     # dx, dy, dz, x, y, z, yaw
+#     # ignore z
+#     dz, dx, dy, x, y, z, yaw, speed, brake =  bbox
 
-    pixels_per_meter = 8
+#     pixels_per_meter = 8
 
-    # augmentation
-    degree_matrix = np.array([[np.cos(rad), np.sin(rad), 0],
-                              [-np.sin(rad), np.cos(rad), 0],
-                              [0, 0, 1]])
-    T = get_lidar_to_bevimage_transform() @ degree_matrix
-    position = np.array([x, y, 1.0]).reshape([3, 1])
-    position = T @ position
+#     # augmentation
+#     degree_matrix = np.array([[np.cos(rad), np.sin(rad), 0],
+#                               [-np.sin(rad), np.cos(rad), 0],
+#                               [0, 0, 1]])
+#     T = get_lidar_to_bevimage_transform() @ degree_matrix
+#     position = np.array([x, y, 1.0]).reshape([3, 1])
+#     position = T @ position
 
-    position = np.clip(position, 0., 255.)
-    x, y = position[:2, 0]
-    # center_x, center_y, w, h, yaw
-    bbox = np.array([x, y, dy*pixels_per_meter, dx*pixels_per_meter, 0, 0, 0])
-    bbox[4] = yaw + rad
-    bbox[5] = speed
-    bbox[6] = brake
-    return bbox
+#     position = np.clip(position, 0., 255.)
+#     x, y = position[:2, 0]
+#     # center_x, center_y, w, h, yaw
+#     bbox = np.array([x, y, dy*pixels_per_meter, dx*pixels_per_meter, 0, 0, 0])
+#     bbox[4] = yaw + rad
+#     bbox[5] = speed
+#     bbox[6] = brake
+#     return bbox
 
 
-def parse_labels(labels, rad=0):
-    bboxes = {}
-    for result in labels:
-        num_points = result['num_points']
-        distance = result['distance']
+# def parse_labels(labels, rad=0):
+#     bboxes = {}
+#     for result in labels:
+#         num_points = result['num_points']
+#         distance = result['distance']
 
-        x = result['position'][0]
-        y = result['position'][1]
+#         x = result['position'][0]
+#         y = result['position'][1]
 
-        bbox = result['extent'] + result['position'] + [result['yaw'], result['speed'], result['brake']]
-        bbox = get_bbox_label(bbox, rad)
+#         bbox = result['extent'] + result['position'] + [result['yaw'], result['speed'], result['brake']]
+#         bbox = get_bbox_label(bbox, rad)
 
-        # Filter bb that are outside of the LiDAR after the random augmentation. The bounding box is now in image space
-        if num_points <= 1 or bbox[0] <= 0.0 or bbox[0] >= 255.0 or bbox[1] <= 0.0 or bbox[1] >=255.0:
-            continue
+#         # Filter bb that are outside of the LiDAR after the random augmentation. The bounding box is now in image space
+#         if num_points <= 1 or bbox[0] <= 0.0 or bbox[0] >= 255.0 or bbox[1] <= 0.0 or bbox[1] >=255.0:
+#             continue
 
-        bboxes[result['id']] = bbox
-    return bboxes
+#         bboxes[result['id']] = bbox
+#     return bboxes
 
-def scale_image(image, scale):
-    (width, height) = (int(image.width // scale), int(image.height // scale))
-    im_resized = image.resize((width, height))
-    return im_resized
+# def scale_image(image, scale):
+#     (width, height) = (int(image.width // scale), int(image.height // scale))
+#     im_resized = image.resize((width, height))
+#     return im_resized
 
-def scale_image_cv2(image, scale):
-    (width, height) = (int(image.shape[1] // scale), int(image.shape[0] // scale))
-    im_resized = cv2.resize(image, (width, height))
-    return im_resized
+# def scale_image_cv2(image, scale):
+#     (width, height) = (int(image.shape[1] // scale), int(image.shape[0] // scale))
+#     im_resized = cv2.resize(image, (width, height))
+#     return im_resized
 
-def crop_image(image, crop=(128, 640), crop_shift=0):
-    """
-    Scale and crop a PIL image, returning a channels-first numpy array.
-    """
-    width = image.width
-    height = image.height
-    crop_h, crop_w = crop
-    start_y = height//2 - crop_h//2
-    start_x = width//2 - crop_w//2
+# def crop_image(image, crop=(128, 640), crop_shift=0):
+#     """
+#     Scale and crop a PIL image, returning a channels-first numpy array.
+#     """
+#     width = image.width
+#     height = image.height
+#     crop_h, crop_w = crop
+#     start_y = height//2 - crop_h//2
+#     start_x = width//2 - crop_w//2
     
-    # only shift for x direction
-    start_x += int(crop_shift)
+#     # only shift for x direction
+#     start_x += int(crop_shift)
 
-    image = np.asarray(image)
-    cropped_image = image[start_y:start_y+crop_h, start_x:start_x+crop_w]
-    cropped_image = np.transpose(cropped_image, (2,0,1))
-    return cropped_image
+#     image = np.asarray(image)
+#     cropped_image = image[start_y:start_y+crop_h, start_x:start_x+crop_w]
+#     cropped_image = np.transpose(cropped_image, (2,0,1))
+#     return cropped_image
 
 
-def crop_image_cv2(image, crop=(128, 640), crop_shift=0):
-    """
-    Scale and crop a PIL image, returning a channels-first numpy array.
-    """
-    width = image.shape[1]
-    height = image.shape[0]
-    crop_h, crop_w = crop
-    start_y = height // 2 - crop_h // 2
-    start_x = width // 2 - crop_w // 2
+# def crop_image_cv2(image, crop=(128, 640), crop_shift=0):
+#     """
+#     Scale and crop a PIL image, returning a channels-first numpy array.
+#     """
+#     width = image.shape[1]
+#     height = image.shape[0]
+#     crop_h, crop_w = crop
+#     start_y = height // 2 - crop_h // 2
+#     start_x = width // 2 - crop_w // 2
 
-    # only shift for x direction
-    start_x += int(crop_shift)
+#     # only shift for x direction
+#     start_x += int(crop_shift)
 
-    cropped_image = image[start_y:start_y + crop_h, start_x:start_x + crop_w]
-    cropped_image = np.transpose(cropped_image, (2, 0, 1))
-    return cropped_image
+#     cropped_image = image[start_y:start_y + crop_h, start_x:start_x + crop_w]
+#     cropped_image = np.transpose(cropped_image, (2, 0, 1))
+#     return cropped_image
 
-def scale_seg(image, scale):
-    (width, height) = (int(image.shape[1] / scale), int(image.shape[0] / scale))
-    if scale != 1:
-        im_resized = cv2.resize(image, (width, height), interpolation=cv2.INTER_NEAREST)
-    else:
-        im_resized = image
-    return im_resized
+# def scale_seg(image, scale):
+#     (width, height) = (int(image.shape[1] / scale), int(image.shape[0] / scale))
+#     if scale != 1:
+#         im_resized = cv2.resize(image, (width, height), interpolation=cv2.INTER_NEAREST)
+#     else:
+#         im_resized = image
+#     return im_resized
 
-def crop_seg(image, crop=(128, 640), crop_shift=0):
-    """
-    Scale and crop a seg image, returning a channels-first numpy array.
-    """
-    width = image.shape[1]
-    height = image.shape[0]
-    crop_h, crop_w = crop
+# def crop_seg(image, crop=(128, 640), crop_shift=0):
+#     """
+#     Scale and crop a seg image, returning a channels-first numpy array.
+#     """
+#     width = image.shape[1]
+#     height = image.shape[0]
+#     crop_h, crop_w = crop
 
-    start_y = height//2 - crop_h//2
-    start_x = width//2 - crop_w//2
-    # only shift for x direction
-    start_x += int(crop_shift)
+#     start_y = height//2 - crop_h//2
+#     start_x = width//2 - crop_w//2
+#     # only shift for x direction
+#     start_x += int(crop_shift)
 
-    cropped_image = image[start_y:start_y+crop_h, start_x:start_x+crop_w]
-    return cropped_image
+#     cropped_image = image[start_y:start_y+crop_h, start_x:start_x+crop_w]
+#     return cropped_image
 
-def load_crop_bev_npy(bev_array, degree):
-    """
-    Load and crop an Image.
-    Crop depends on augmentation angle.
-    """
-    PIXELS_PER_METER_FOR_BEV = 5
-    PIXLES = 32 * PIXELS_PER_METER_FOR_BEV
-    start_x = 250 - PIXLES // 2
-    start_y = 250 - PIXLES
+# def load_crop_bev_npy(bev_array, degree):
+#     """
+#     Load and crop an Image.
+#     Crop depends on augmentation angle.
+#     """
+#     PIXELS_PER_METER_FOR_BEV = 5
+#     PIXLES = 32 * PIXELS_PER_METER_FOR_BEV
+#     start_x = 250 - PIXLES // 2
+#     start_y = 250 - PIXLES
 
-    # shift the center by 7 because the lidar is + 1.3 in x 
-    bev_array = np.moveaxis(bev_array, 0, -1).astype(np.float32)
-    bev_shift = np.zeros_like(bev_array)
-    bev_shift[7:] = bev_array[:-7]
+#     # shift the center by 7 because the lidar is + 1.3 in x 
+#     bev_array = np.moveaxis(bev_array, 0, -1).astype(np.float32)
+#     bev_shift = np.zeros_like(bev_array)
+#     bev_shift[7:] = bev_array[:-7]
 
-    bev_shift = rotate(bev_shift, degree)
-    cropped_image = bev_shift[start_y:start_y+PIXLES, start_x:start_x+PIXLES]
-    cropped_image = np.moveaxis(cropped_image, -1, 0)
+#     bev_shift = rotate(bev_shift, degree)
+#     cropped_image = bev_shift[start_y:start_y+PIXLES, start_x:start_x+PIXLES]
+#     cropped_image = np.moveaxis(cropped_image, -1, 0)
 
-    # we need to predict others so append 0 to the first channel
-    cropped_image = np.concatenate((np.zeros_like(cropped_image[:1]), 
-                                    cropped_image[:1],
-                                    cropped_image[:1] + cropped_image[1:2]), axis=0)
+#     # we need to predict others so append 0 to the first channel
+#     cropped_image = np.concatenate((np.zeros_like(cropped_image[:1]), 
+#                                     cropped_image[:1],
+#                                     cropped_image[:1] + cropped_image[1:2]), axis=0)
 
-    cropped_image = np.argmax(cropped_image, axis=0)
+#     cropped_image = np.argmax(cropped_image, axis=0)
     
-    return cropped_image
+#     return cropped_image
 
 
 
 
 
-def correspondences_at_one_scale(valid_bev_points, valid_cam_points, lidar_x, lidar_y, camera_x, camera_y, scale):
-    """
-    Compute projections between LiDAR BEV and image space
-    """
-    cam_to_bev_proj_locs = np.zeros((lidar_x, lidar_y, 5, 2))
-    bev_to_cam_proj_locs = np.zeros((camera_x, camera_y, 5, 2))
+# def correspondences_at_one_scale(valid_bev_points, valid_cam_points, lidar_x, lidar_y, camera_x, camera_y, scale):
+#     """
+#     Compute projections between LiDAR BEV and image space
+#     """
+#     cam_to_bev_proj_locs = np.zeros((lidar_x, lidar_y, 5, 2))
+#     bev_to_cam_proj_locs = np.zeros((camera_x, camera_y, 5, 2))
 
-    tmp_bev = np.empty((lidar_x, lidar_y, ), dtype=object)
-    tmp_cam = np.empty((camera_x, camera_y, ), dtype=object)
-    for i in range(lidar_x):
-        for j in range(lidar_y):
-            tmp_bev[i,j] = []
+#     tmp_bev = np.empty((lidar_x, lidar_y, ), dtype=object)
+#     tmp_cam = np.empty((camera_x, camera_y, ), dtype=object)
+#     for i in range(lidar_x):
+#         for j in range(lidar_y):
+#             tmp_bev[i,j] = []
 
-    for i in range(camera_x):
-        for j in range(camera_y):
-            tmp_cam[i, j] = []
+#     for i in range(camera_x):
+#         for j in range(camera_y):
+#             tmp_cam[i, j] = []
 
-    for i in range(valid_bev_points.shape[0]):
-        tmp_bev[valid_bev_points[i][0]//scale, valid_bev_points[i][1]//scale].append(valid_cam_points[i]//scale)
-        tmp_cam[valid_cam_points[i][0]//scale, valid_cam_points[i][1]//scale].append(valid_bev_points[i]//scale)
+#     for i in range(valid_bev_points.shape[0]):
+#         tmp_bev[valid_bev_points[i][0]//scale, valid_bev_points[i][1]//scale].append(valid_cam_points[i]//scale)
+#         tmp_cam[valid_cam_points[i][0]//scale, valid_cam_points[i][1]//scale].append(valid_bev_points[i]//scale)
 
-    for i in range(lidar_x):
-        for j in range(lidar_y):
-            cam_to_bev_points = tmp_bev[i,j]
+#     for i in range(lidar_x):
+#         for j in range(lidar_y):
+#             cam_to_bev_points = tmp_bev[i,j]
 
-            if len(cam_to_bev_points) > 5:
-                cam_to_bev_proj_locs[i,j] = np.array(random.sample(cam_to_bev_points, 5))
-            elif len(cam_to_bev_points) > 0:
-                num_points = len(cam_to_bev_points)
-                cam_to_bev_proj_locs[i,j,:num_points] = np.array(cam_to_bev_points)
+#             if len(cam_to_bev_points) > 5:
+#                 cam_to_bev_proj_locs[i,j] = np.array(random.sample(cam_to_bev_points, 5))
+#             elif len(cam_to_bev_points) > 0:
+#                 num_points = len(cam_to_bev_points)
+#                 cam_to_bev_proj_locs[i,j,:num_points] = np.array(cam_to_bev_points)
 
-    for i in range(camera_x):
-        for j in range(camera_y):
-            bev_to_cam_points = tmp_cam[i,j]
+#     for i in range(camera_x):
+#         for j in range(camera_y):
+#             bev_to_cam_points = tmp_cam[i,j]
 
-            if len(bev_to_cam_points) > 5:
-                bev_to_cam_proj_locs[i,j] = np.array(random.sample(bev_to_cam_points, 5))
-            elif len(bev_to_cam_points) > 0:
-                num_points = len(bev_to_cam_points)
-                bev_to_cam_proj_locs[i,j,:num_points] = np.array(bev_to_cam_points)
+#             if len(bev_to_cam_points) > 5:
+#                 bev_to_cam_proj_locs[i,j] = np.array(random.sample(bev_to_cam_points, 5))
+#             elif len(bev_to_cam_points) > 0:
+#                 num_points = len(bev_to_cam_points)
+#                 bev_to_cam_proj_locs[i,j,:num_points] = np.array(bev_to_cam_points)
 
-    return cam_to_bev_proj_locs, bev_to_cam_proj_locs
+#     return cam_to_bev_proj_locs, bev_to_cam_proj_locs
 
-def lidar_bev_cam_correspondences(world, lidar_vis=None, image_vis=None, step=None, debug=False):
-    """
-    Convert LiDAR point cloud to camera co-ordinates
+# def lidar_bev_cam_correspondences(world, lidar_vis=None, image_vis=None, step=None, debug=False):
+#     """
+#     Convert LiDAR point cloud to camera co-ordinates
 
-    world: Expects the point cloud from CARLA in the CARLA coordinate system: x left, y forward, z up (LiDAR rotated by 90 degree)
-    lidar_vis: lidar prjected to BEV
-    image_vis: RGB input image to the network
-    step: current timestep
-    debug: Whether to save the debug images. If false only world is required
-    """
+#     world: Expects the point cloud from CARLA in the CARLA coordinate system: x left, y forward, z up (LiDAR rotated by 90 degree)
+#     lidar_vis: lidar prjected to BEV
+#     image_vis: RGB input image to the network
+#     step: current timestep
+#     debug: Whether to save the debug images. If false only world is required
+#     """
 
-    pixels_per_meter = 8
-    lidar_width      = 256
-    lidar_height     = 256
-    lidar_meters_x   = (lidar_width  / pixels_per_meter) / 2 # Divided by two because the LiDAR is in the center of the image
-    lidar_meters_y   =  lidar_height / pixels_per_meter
+#     pixels_per_meter = 8
+#     lidar_width      = 256
+#     lidar_height     = 256
+#     lidar_meters_x   = (lidar_width  / pixels_per_meter) / 2 # Divided by two because the LiDAR is in the center of the image
+#     lidar_meters_y   =  lidar_height / pixels_per_meter
 
-    downscale_factor = 32
+#     downscale_factor = 32
 
-    img_width  = 352
-    img_height = 160
-    fov_width  = 60
+#     img_width  = 352
+#     img_height = 160
+#     fov_width  = 60
 
-    left_camera_rotation  = -60.0
-    right_camera_rotation =  60.0
+#     left_camera_rotation  = -60.0
+#     right_camera_rotation =  60.0
 
-    fov_height = 2.0 * np.arctan((img_height / img_width) * np.tan(0.5 * np.radians(fov_width)))
-    fov_height = np.rad2deg(fov_height)
+#     fov_height = 2.0 * np.arctan((img_height / img_width) * np.tan(0.5 * np.radians(fov_width)))
+#     fov_height = np.rad2deg(fov_height)
 
-    # Our pixels are squares so focal_x = focal_y
-    focal_x = img_width  / (2.0 * np.tan(np.deg2rad(fov_width)  / 2.0))
-    focal_y = img_height / (2.0 * np.tan(np.deg2rad(fov_height) / 2.0))
+#     # Our pixels are squares so focal_x = focal_y
+#     focal_x = img_width  / (2.0 * np.tan(np.deg2rad(fov_width)  / 2.0))
+#     focal_y = img_height / (2.0 * np.tan(np.deg2rad(fov_height) / 2.0))
 
-    cam_z   = 2.3
-    lidar_z = 2.5
+#     cam_z   = 2.3
+#     lidar_z = 2.5
 
-    # get valid points in 64x64 grid
-    world[:, 0] *= -1  # flip x axis, so that the positive direction points towards right. new coordinate system: x right, y forward, z up
-    lidar = world[abs(world[:,0])<lidar_meters_x] # 32m to the sides
-    lidar = lidar[lidar[:,1]<lidar_meters_y] # 64m to the front
-    lidar = lidar[lidar[:,1]>0] # 0m to the back
+#     # get valid points in 64x64 grid
+#     world[:, 0] *= -1  # flip x axis, so that the positive direction points towards right. new coordinate system: x right, y forward, z up
+#     lidar = world[abs(world[:,0])<lidar_meters_x] # 32m to the sides
+#     lidar = lidar[lidar[:,1]<lidar_meters_y] # 64m to the front
+#     lidar = lidar[lidar[:,1]>0] # 0m to the back
 
-    # Translate Lidar cloud to the same coordinate system as the cameras (They only differ in height)
-    lidar[..., 2] = lidar[..., 2] + (lidar_z - cam_z)
+#     # Translate Lidar cloud to the same coordinate system as the cameras (They only differ in height)
+#     lidar[..., 2] = lidar[..., 2] + (lidar_z - cam_z)
 
-    # Make copies because we will rotate the new pointclouds
-    lidar_for_left_camera  = deepcopy(lidar)
-    lidar_for_right_camera = deepcopy(lidar)
-
-
-    lidar_indices = np.arange(0, lidar.shape[0], 1)
-    # Use a pinhole camera model to project the LiDAR points onto the camera image
-    z = lidar[..., 1]
-    x = ((focal_x * lidar[..., 0]) / z) + (img_width  / 2.0)
-    y = ((focal_y * lidar[..., 2]) / z) + (img_height / 2.0)
-    result_center = np.stack([x, y, lidar_indices], 1)
-
-    # Remove points that are outside of the image
-    result_center = result_center[np.logical_and(result_center[...,0] > 0, result_center[...,0] < img_width)]
-    result_center = result_center[np.logical_and(result_center[...,1] > 0, result_center[...,1] < img_height)]
-
-    result_center_shifted = result_center
-    result_center_shifted[..., 0] = result_center_shifted[..., 0] + (img_width / 2.0)
-
-    # Rotate the left camera to align with the axis for projection with a pinhole camera model
-    theta = np.radians(left_camera_rotation)
-    R = np.array([
-        [np.cos(theta), -np.sin(theta), 0.0],
-        [np.sin(theta),  np.cos(theta), 0.0],
-        [0.0,            0.0,           1.0]
-    ])
-    lidar_for_left_camera = R.dot(lidar_for_left_camera.T).T
-
-    # Use a pinhole camera model to project the LiDAR points onto the camera image
-    z = lidar_for_left_camera[..., 1]
-    x = ((focal_x * lidar_for_left_camera[..., 0]) / z) + (img_width  / 2.0)
-    y = ((focal_y * lidar_for_left_camera[..., 2]) / z) + (img_height / 2.0)
-    result_left = np.stack([x, y, lidar_indices], 1)
-
-    # Remove points that are outside of the image
-    result_left = result_left[np.logical_and(result_left[...,0] > 0, result_left[...,0] < img_width)]
-    result_left = result_left[np.logical_and(result_left[...,1] > 0, result_left[...,1] < img_height)]
-
-    # We only use half of the left image, so we cut the unneccessary points
-    result_left_shifted        = result_left[result_left[...,0] >= (img_width/2.0)]
-    result_left_shifted[...,0] = result_left_shifted[...,0] - (img_width/2.0)
-
-    # Do the same for the right image
-    theta = np.radians(right_camera_rotation)
-    R = np.array([
-        [np.cos(theta), -np.sin(theta), 0.0],
-        [np.sin(theta),  np.cos(theta), 0.0],
-        [0.0,            0.0,           1.0]
-    ])
-    lidar_for_right_camera = R.dot(lidar_for_right_camera.T).T
-
-    # Use a pinhole camera model to project the LiDAR points onto the camera image
-    z = lidar_for_right_camera[..., 1]
-    x = ((focal_x * lidar_for_right_camera[..., 0]) / z) + (img_width / 2.0)
-    y = ((focal_y * lidar_for_right_camera[..., 2]) / z) + (img_height / 2.0)
-    result_right = np.stack([x, y, lidar_indices], 1)
-
-    # Remove points that are outside of the image
-    result_right = result_right[np.logical_and(result_right[..., 0] > 0, result_right[..., 0] < img_width)]
-    result_right = result_right[np.logical_and(result_right[..., 1] > 0, result_right[..., 1] < img_height)]
-
-    # We only use half of the left image, so we cut the unneccessary points
-    result_right_shifted = result_right[result_right[...,0] < (img_width/2.0)] # Cut of right part, it's not used.
-    result_right_shifted[...,0] = result_right_shifted[...,0] + (img_width/2.0) + img_width
-
-    # Combine the three images into one
-    results_total = np.concatenate((result_left_shifted, result_center_shifted, result_right_shifted), axis=0)
-
-    if(debug == True):
-        # Visualize LiDAR hits in image
-        vis = np.zeros([img_height, 2 * img_width])
-        vis_bev = np.zeros([lidar_height, lidar_width])
-        vis_original_image = image_vis[0].detach().cpu().numpy()
-        vis_original_image = np.transpose(vis_original_image, (1, 2, 0)) / 255.0
-        vis_original_lidar = np.zeros([lidar_height, lidar_width])
-        lidar_vis = lidar_vis.detach().cpu().numpy()
-        vis_original_lidar[np.greater(lidar_vis[0,0], 0)] = 255
-        vis_original_lidar[np.greater(lidar_vis[0,1], 0)] = 255
+#     # Make copies because we will rotate the new pointclouds
+#     lidar_for_left_camera  = deepcopy(lidar)
+#     lidar_for_right_camera = deepcopy(lidar)
 
 
-    valid_bev_points = []
-    valid_cam_points = []
-    for i in range(results_total.shape[0]):
-        # Project the LiDAR point to BEV and save index of the BEV image pixel.
-        lidar_index = int(results_total[i, 2])
-        bev_x = int((lidar[lidar_index][0] + lidar_meters_x) * pixels_per_meter)
-        # The network input images use a top left coordinate system, we need to convert the bottom left coordinates by inverting the y axis
-        bev_y = (int(lidar[lidar_index][1] * pixels_per_meter) - (lidar_height-1)) * -1
+#     lidar_indices = np.arange(0, lidar.shape[0], 1)
+#     # Use a pinhole camera model to project the LiDAR points onto the camera image
+#     z = lidar[..., 1]
+#     x = ((focal_x * lidar[..., 0]) / z) + (img_width  / 2.0)
+#     y = ((focal_y * lidar[..., 2]) / z) + (img_height / 2.0)
+#     result_center = np.stack([x, y, lidar_indices], 1)
 
-        valid_bev_points.append([bev_x, bev_y])
-        # Calculate index in the final image by rounding down
-        img_x = int(results_total[i][0])
-        # The network input images use a top left coordinate system, we need to convert the bottom left coordinates by inverting the y axis
-        img_y = (int(results_total[i][1]) - (img_height - 1)) * -1
-        valid_cam_points.append([img_x, img_y])
+#     # Remove points that are outside of the image
+#     result_center = result_center[np.logical_and(result_center[...,0] > 0, result_center[...,0] < img_width)]
+#     result_center = result_center[np.logical_and(result_center[...,1] > 0, result_center[...,1] < img_height)]
+
+#     result_center_shifted = result_center
+#     result_center_shifted[..., 0] = result_center_shifted[..., 0] + (img_width / 2.0)
+
+#     # Rotate the left camera to align with the axis for projection with a pinhole camera model
+#     theta = np.radians(left_camera_rotation)
+#     R = np.array([
+#         [np.cos(theta), -np.sin(theta), 0.0],
+#         [np.sin(theta),  np.cos(theta), 0.0],
+#         [0.0,            0.0,           1.0]
+#     ])
+#     lidar_for_left_camera = R.dot(lidar_for_left_camera.T).T
+
+#     # Use a pinhole camera model to project the LiDAR points onto the camera image
+#     z = lidar_for_left_camera[..., 1]
+#     x = ((focal_x * lidar_for_left_camera[..., 0]) / z) + (img_width  / 2.0)
+#     y = ((focal_y * lidar_for_left_camera[..., 2]) / z) + (img_height / 2.0)
+#     result_left = np.stack([x, y, lidar_indices], 1)
+
+#     # Remove points that are outside of the image
+#     result_left = result_left[np.logical_and(result_left[...,0] > 0, result_left[...,0] < img_width)]
+#     result_left = result_left[np.logical_and(result_left[...,1] > 0, result_left[...,1] < img_height)]
+
+#     # We only use half of the left image, so we cut the unneccessary points
+#     result_left_shifted        = result_left[result_left[...,0] >= (img_width/2.0)]
+#     result_left_shifted[...,0] = result_left_shifted[...,0] - (img_width/2.0)
+
+#     # Do the same for the right image
+#     theta = np.radians(right_camera_rotation)
+#     R = np.array([
+#         [np.cos(theta), -np.sin(theta), 0.0],
+#         [np.sin(theta),  np.cos(theta), 0.0],
+#         [0.0,            0.0,           1.0]
+#     ])
+#     lidar_for_right_camera = R.dot(lidar_for_right_camera.T).T
+
+#     # Use a pinhole camera model to project the LiDAR points onto the camera image
+#     z = lidar_for_right_camera[..., 1]
+#     x = ((focal_x * lidar_for_right_camera[..., 0]) / z) + (img_width / 2.0)
+#     y = ((focal_y * lidar_for_right_camera[..., 2]) / z) + (img_height / 2.0)
+#     result_right = np.stack([x, y, lidar_indices], 1)
+
+#     # Remove points that are outside of the image
+#     result_right = result_right[np.logical_and(result_right[..., 0] > 0, result_right[..., 0] < img_width)]
+#     result_right = result_right[np.logical_and(result_right[..., 1] > 0, result_right[..., 1] < img_height)]
+
+#     # We only use half of the left image, so we cut the unneccessary points
+#     result_right_shifted = result_right[result_right[...,0] < (img_width/2.0)] # Cut of right part, it's not used.
+#     result_right_shifted[...,0] = result_right_shifted[...,0] + (img_width/2.0) + img_width
+
+#     # Combine the three images into one
+#     results_total = np.concatenate((result_left_shifted, result_center_shifted, result_right_shifted), axis=0)
+
+#     if(debug == True):
+#         # Visualize LiDAR hits in image
+#         vis = np.zeros([img_height, 2 * img_width])
+#         vis_bev = np.zeros([lidar_height, lidar_width])
+#         vis_original_image = image_vis[0].detach().cpu().numpy()
+#         vis_original_image = np.transpose(vis_original_image, (1, 2, 0)) / 255.0
+#         vis_original_lidar = np.zeros([lidar_height, lidar_width])
+#         lidar_vis = lidar_vis.detach().cpu().numpy()
+#         vis_original_lidar[np.greater(lidar_vis[0,0], 0)] = 255
+#         vis_original_lidar[np.greater(lidar_vis[0,1], 0)] = 255
 
 
-        if (debug == True):
-            vis_original_image[img_y, img_x] = np.array([0.0,1.0,0.0])
-            vis_bev[bev_y, bev_x] = 255 #Debug visualization
-            vis[img_y, img_x] = 255
+#     valid_bev_points = []
+#     valid_cam_points = []
+#     for i in range(results_total.shape[0]):
+#         # Project the LiDAR point to BEV and save index of the BEV image pixel.
+#         lidar_index = int(results_total[i, 2])
+#         bev_x = int((lidar[lidar_index][0] + lidar_meters_x) * pixels_per_meter)
+#         # The network input images use a top left coordinate system, we need to convert the bottom left coordinates by inverting the y axis
+#         bev_y = (int(lidar[lidar_index][1] * pixels_per_meter) - (lidar_height-1)) * -1
 
-    if (debug == True):
-        # NOTE add the paths you want the images to land in here before debugging
-        from matplotlib import pyplot as plt
-        plt.ion()
-        plt.imshow(vis_bev)
-        plt.savefig(r'/home/hiwi/save folder/Visualizations/2/bev_lidar_{}.png'.format(step), bbox_inches='tight')
-        plt.close()
-        plt.imshow(vis_original_image)
-        plt.savefig(r'/home/hiwi/save folder/Visualizations/2/image_with_lidar_{}.png'.format(step), bbox_inches='tight')
-        plt.close()
-        plt.ioff()
+#         valid_bev_points.append([bev_x, bev_y])
+#         # Calculate index in the final image by rounding down
+#         img_x = int(results_total[i][0])
+#         # The network input images use a top left coordinate system, we need to convert the bottom left coordinates by inverting the y axis
+#         img_y = (int(results_total[i][1]) - (img_height - 1)) * -1
+#         valid_cam_points.append([img_x, img_y])
 
 
-    valid_bev_points = np.array(valid_bev_points)
-    valid_cam_points = np.array(valid_cam_points)
+#         if (debug == True):
+#             vis_original_image[img_y, img_x] = np.array([0.0,1.0,0.0])
+#             vis_bev[bev_y, bev_x] = 255 #Debug visualization
+#             vis[img_y, img_x] = 255
 
-    bev_points, cam_points = correspondences_at_one_scale(valid_bev_points, valid_cam_points,  (lidar_width // downscale_factor),
-                                                          (lidar_height // downscale_factor), (img_width // downscale_factor) * 2,
-                                                          (img_height // downscale_factor), downscale_factor)
+#     if (debug == True):
+#         # NOTE add the paths you want the images to land in here before debugging
+#         from matplotlib import pyplot as plt
+#         plt.ion()
+#         plt.imshow(vis_bev)
+#         plt.savefig(r'/home/hiwi/save folder/Visualizations/2/bev_lidar_{}.png'.format(step), bbox_inches='tight')
+#         plt.close()
+#         plt.imshow(vis_original_image)
+#         plt.savefig(r'/home/hiwi/save folder/Visualizations/2/image_with_lidar_{}.png'.format(step), bbox_inches='tight')
+#         plt.close()
+#         plt.ioff()
 
-    return bev_points, cam_points
 
-def decode_pil_to_npy(img):
-    """
-    """
-    (channels, width, height) = (15, img.shape[1], img.shape[2])
+#     valid_bev_points = np.array(valid_bev_points)
+#     valid_cam_points = np.array(valid_cam_points)
 
-    bev_array = np.zeros([channels, width, height])
+#     bev_points, cam_points = correspondences_at_one_scale(valid_bev_points, valid_cam_points,  (lidar_width // downscale_factor),
+#                                                           (lidar_height // downscale_factor), (img_width // downscale_factor) * 2,
+#                                                           (img_height // downscale_factor), downscale_factor)
 
-    for ix in range(5):
-        bit_pos = 8-ix-1
-        bev_array[[ix, ix+5, ix+5+5]] = (img & (1<<bit_pos)) >> bit_pos
+#     return bev_points, cam_points
 
-    # hard coded to select
-    return bev_array[10:12]
+# def decode_pil_to_npy(img):
+#     """
+#     """
+#     (channels, width, height) = (15, img.shape[1], img.shape[2])
+
+#     bev_array = np.zeros([channels, width, height])
+
+#     for ix in range(5):
+#         bit_pos = 8-ix-1
+#         bev_array[[ix, ix+5, ix+5+5]] = (img & (1<<bit_pos)) >> bit_pos
+
+#     # hard coded to select
+#     return bev_array[10:12]
 def render_sensor_data(camera_image, lidar_bev, camera_image_rear=None):
     """
     Displays sensor data in pop-up windows.
