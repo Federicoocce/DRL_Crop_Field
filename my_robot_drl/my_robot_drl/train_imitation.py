@@ -48,9 +48,9 @@ HOME_DIR = os.path.expanduser('~')
 MODEL_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_models', 'imitation_learning')
 DATASET_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_datasets', 'imitation_learning')
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
-EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, 'val_data.pkl')
-TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, 'train_data.pkl')
-VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, 'val_data.pkl')
+EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_val.pkl')
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_train_tot.pkl')
+VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_val.pkl')
 
 
 # ===================================================================
@@ -297,7 +297,7 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                 processed_list = [preprocessor.process_observation(s) for s in raw_batch]
                 batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
      
-                # if i%16 == 0:
+                # if i == 0:
                     
                 #     debug_visualize_batch(batch)
      

@@ -104,16 +104,20 @@ def lidar_to_histogram_features(point_cloud_np, crop=256):
          return np.zeros((crop, crop, 2), dtype=np.uint8)
 
     # --- Parameters (Modified for Centered BEV) ---
+    # ==================== START OF THE FIX ====================
     # Define the forward/backward range. The total range is 32 meters.
     x_meters = 8.0
+    # ===================== END OF THE FIX =====================
     y_max_meters = 8.0  # Side range (+/-) remains the same
     pixels_per_meter = 16
     hist_max_per_pixel = 5
     z_threshold = 0.0
 
     # Define boundaries
+    # ==================== START OF THE FIX ====================
     # Create bins from -16 to +16 meters for the forward axis
     x_bins = np.linspace(-x_meters, x_meters, int(x_meters * 2 * pixels_per_meter) + 1)
+    # ===================== END OF THE FIX =====================
     y_bins = np.linspace(-y_max_meters, y_max_meters, int(y_max_meters * 2 * pixels_per_meter) + 1)
 
     # Split & Histogram
@@ -130,16 +134,8 @@ def lidar_to_histogram_features(point_cloud_np, crop=256):
     below_features = (below_hist / hist_max_per_pixel * 255).astype(np.uint8)
     above_features = (above_hist / hist_max_per_pixel * 255).astype(np.uint8)
 
-    # ==================== START OF THE FIX ====================
-    # Orient correctly:
-    # 1. Transpose to make X-axis (forward) the rows and Y-axis (left/right) the columns.
-    # 2. FlipUD (Up-Down) to make the positive X-direction (forward) point "up" in the image.
-    # 3. FlipLR (Left-Right) to make the positive Y-direction (left) point to the "left"
-    #    in the image, aligning with standard image coordinate systems.
-    below_oriented = np.fliplr(np.flipud(below_features.T))
-    above_oriented = np.fliplr(np.flipud(above_features.T))
-    features = np.stack([below_oriented, above_oriented], axis=-1)
-    # ===================== END OF THE FIX =====================
+    # Orient correctly (Y-forward as rows, 0 at bottom)
+    features = np.stack([np.flipud(below_features.T), np.flipud(above_features.T)], axis=-1)
 
     # Ensure exact output size
     h, w, c = features.shape
