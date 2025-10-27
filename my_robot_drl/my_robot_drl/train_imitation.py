@@ -31,17 +31,17 @@ from .transfuser_util import (
 # --- CONFIGURATION PARAMETERS ---
 # ===================================================================
 IL_EPOCHS = 100 # Max epochs for the initial training phase
-IL_BATCH_SIZE = 4
+IL_BATCH_SIZE = 32
 IL_LEARNING_RATE = 1e-4
 DATA_COLLECTION_FPS = 2.0
-DATA_COLLECTION_FPS_TURNING = 20.0
+DATA_COLLECTION_FPS_TURNING = 10.0
 EXPERT_KP_ANGULAR = 1.0
 EXPERT_TARGET_LINEAR_VEL = 0.2
 AGENT_KP_ANGULAR = 0.8
 AGENT_TARGET_LINEAR_VEL = 0.2
 TARGET_REWARD_THRESHOLD = 7800.0
 MAX_GT_WAYPOINT_DEVIATION_X = 1.5
-EARLY_STOPPING_PATIENCE = 10 # Epochs to wait for validation loss improvement
+EARLY_STOPPING_PATIENCE = 5 # Epochs to wait for validation loss improvement
 DAGGER_RETRAIN_EPOCHS = 5   # Fixed number of epochs for DAgger retraining
 
 HOME_DIR = os.path.expanduser('~')
@@ -49,8 +49,8 @@ MODEL_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_models', 'imitation_lear
 DATASET_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_datasets', 'imitation_learning')
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
 EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_val.pkl')
-TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_train_tot.pkl')
-VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_val.pkl')
+TRAIN_DATASET_PATH = "/workspace/360_train_tot.pkl"
+VAL_DATASET_PATH = "/workspace/360_val.pkl"
 
 
 # ===================================================================
@@ -297,9 +297,9 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                 processed_list = [preprocessor.process_observation(s) for s in raw_batch]
                 batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
      
-                if i%16 == 0:
+                # if i%16 == 0:
                     
-                     debug_visualize_batch(batch)
+                #      debug_visualize_batch(batch)
      
 
                 losses = model(**batch)
