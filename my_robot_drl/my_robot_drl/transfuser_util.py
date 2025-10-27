@@ -136,6 +136,9 @@ def lidar_to_histogram_features(point_cloud_np, crop=256):
 
     # Orient correctly (Y-forward as rows, 0 at bottom)
     features = np.stack([np.flipud(below_features.T), np.flipud(above_features.T)], axis=-1)
+        # The histogram2d and transpose process results in a mirrored left/right axis.
+    # We must flip it horizontally to match the draw_target_point coordinate system.
+    features = np.fliplr(features)
 
     # Ensure exact output size
     h, w, c = features.shape
