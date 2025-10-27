@@ -41,16 +41,17 @@ AGENT_KP_ANGULAR = 0.8
 AGENT_TARGET_LINEAR_VEL = 0.2
 TARGET_REWARD_THRESHOLD = 7800.0
 MAX_GT_WAYPOINT_DEVIATION_X = 1.5
-EARLY_STOPPING_PATIENCE = 10 # Epochs to wait for validation loss improvement
+EARLY_STOPPING_PATIENCE = 5 # Epochs to wait for validation loss improvement
 DAGGER_RETRAIN_EPOCHS = 5   # Fixed number of epochs for DAgger retraining
 
 HOME_DIR = os.path.expanduser('~')
 MODEL_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_models', 'imitation_learning')
 DATASET_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_datasets', 'imitation_learning')
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
+BEST_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_model.pth')
 EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_val.pkl')
-TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_train_tot.pkl')
-VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_val.pkl')
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, 'train_data.pkl')
+VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, 'val_data.pkl')
 
 
 # ===================================================================
@@ -297,7 +298,7 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                 processed_list = [preprocessor.process_observation(s) for s in raw_batch]
                 batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
      
-                if i%16 == 0:
+                if i == 0:
                     
                      debug_visualize_batch(batch)
      
@@ -554,8 +555,30 @@ def main(args=None):
 
         if current_reward > best_reward_so_far:
             best_reward_so_far = current_reward
-            logger.info(f"New best reward achieved: {best_reward_so_far:.2f}")
+            logger.info(f"New best reward achieved: {best_reward_so_far:.2f}. Saving model as W&B Artifact.")
             wandb.log({"best_reward": best_reward_so_far}, step=global_epoch_counter)
+            
+            # ==================== START OF CHANGE ====================
+            try:
+                # Save the model state locally first
+                os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
+                torch.save(model.state_dict(), BEST_MODEL_SAVE_PATH)
+
+                # Create and log the artifact to Weights & Biases
+                artifact = wandb.Artifact(
+                    name='best-reward-model',
+                    type='model',
+                    description='This is the model that achieved the highest reward so far during training.',
+                    metadata={"reward": best_reward_so_far, "global_epoch": global_epoch_counter}
+                )
+                artifact.add_file(BEST_MODEL_SAVE_PATH)
+                wandb.log_artifact(artifact)
+                logger.info(f"Successfully saved best model artifact to W&B.")
+
+            except Exception as e:
+                logger.error(f"Could not save the best model artifact. Error: {e}")
+            # ===================== END OF CHANGE =====================
+
 
         # Check completion criteria before deciding to retrain
         if course_completed and best_reward_so_far >= TARGET_REWARD_THRESHOLD:

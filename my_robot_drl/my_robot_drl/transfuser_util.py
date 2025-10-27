@@ -106,9 +106,9 @@ def lidar_to_histogram_features(point_cloud_np, crop=256):
     # --- Parameters (Modified for Centered BEV) ---
     # ==================== START OF THE FIX ====================
     # Define the forward/backward range. The total range is 32 meters.
-    x_meters = 8.0
+    x_meters = 6.0
     # ===================== END OF THE FIX =====================
-    y_max_meters = 8.0  # Side range (+/-) remains the same
+    y_max_meters = 6.0  # Side range (+/-) remains the same
     pixels_per_meter = 16
     hist_max_per_pixel = 5
     z_threshold = 0.0
@@ -158,9 +158,9 @@ def draw_target_point(target_point_world, crop=256):
     """
     # ==================== START OF THE FIX ====================
     # These parameters MUST be identical to those in lidar_to_histogram_features
-    x_meters = 8.0      # Forward/backward range
+    x_meters = 6.0      # Forward/backward range
     # ===================== END OF THE FIX =====================
-    y_max_meters = 8.0  # Side range (+/-)
+    y_max_meters = 6.0  # Side range (+/-)
     pixels_per_meter = 16
 
     # Create the base canvas, matching the final output size of the LiDAR BEV

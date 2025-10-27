@@ -13,10 +13,10 @@ sudo apt-get remove -y python3-sympy
 
 # --- Step 2: Configure Python Environment (as Root) ---
 echo "--> Upgrading pip and installing compatible Python tools as root..."
-# Reverting to 'sudo pip3' without '-H' as requested.
 sudo pip3 install --upgrade pip
-# Pin setuptools to a version compatible with BOTH colcon-core AND openxlab.
-sudo pip3 install --upgrade "setuptools~=60.2.0" wheel
+# FIX: The setuptools version is no longer constrained by the old 'gym' package.
+# A more modern version can be used.
+sudo pip3 install --upgrade "setuptools>=60.0" wheel
 
 # --- Step 3: Configure System Locale for ROS 2 ---
 echo "--> Configuring system locale for ROS 2..."
@@ -40,12 +40,12 @@ export CUDA_HOME=/usr/local/cuda
 sudo pip3 install mmcv-full==1.7.1 -f https://download.openmmlab.com/mmcv/dist/cu113/torch1.12.0/index.html
 sudo pip3 install mmdet==2.28.2
 
+# FIX: Removed 'stable-baselines3' as it is not used in the imitation learning script.
 sudo pip3 install \
-    "stable-baselines3[extra]" \
     gymnasium \
     PyYAML \
     Pillow \
-    opencv-python \
+    "opencv-python~=4.8.0" \
     matplotlib \
     lxml \
     "numpy<2" \
@@ -55,15 +55,13 @@ sudo pip3 install \
     scikit-image \
     ujson
 
-sudo pip3 install -U openmim
-
-# Force-reinstall a compatible NumPy version.
+# Force-reinstall a compatible NumPy version. This is a safeguard.
 echo "--> Forcing NumPy version to < 2.0 to ensure compatibility..."
 sudo pip3 install "numpy<2.0" --force-reinstall
 
 # Force-upgrade protobuf to a version compatible with the wandb gencode.
 echo "--> Overriding Protobuf version to fix runtime error..."
-sudo pip3 install --upgrade "protobuf>=6.31.1"
+sudo pip3 install --upgrade "protobuf>=3.20"
 
 # --- Step 6: Create and Build ROS 2 Workspace ---
 echo "--> Creating and building the ROS 2 workspace..."
@@ -84,7 +82,6 @@ echo "--> Configuring .bashrc for future sessions..."
 echo "" >> ~/.bashrc
 echo "# DRL_Crop_Field Project Configuration" >> ~/.bashrc
 echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.bashrc
-# THE KEY FIX: Force the ROS environment to see the global Python packages.
 echo 'export PYTHONPATH="/usr/local/lib/python3.10/dist-packages:$PYTHONPATH"' >> ~/.bashrc
 echo "export LIBGL_ALWAYS_SOFTWARE=1" >> ~/.bashrc
 echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
@@ -94,7 +91,6 @@ echo "source ~/ros2_ws/install/setup.bash" >> ~/.bashrc
 # --- Step 8: Source Environment for Current Session and Launch ---
 echo "--> Sourcing environment for current session..."
 export PATH="/usr/local/bin:$PATH"
-# THE KEY FIX: Apply the PYTHONPATH change to the current session.
 export PYTHONPATH="/usr/local/lib/python3.10/dist-packages:$PYTHONPATH"
 export LIBGL_ALWAYS_SOFTWARE=1
 source /opt/ros/humble/setup.bash
@@ -104,7 +100,7 @@ source ~/ros2_ws/install/setup.bash
 echo "--- VAST.AI SETUP COMPLETE ---"
 
 # Log in to Weights & Biases
-echo "--> Logging into Weights & Biases..."
+echo "--> Logging into Weights & Biagi..."
 wandb login 
 
 # Launch the ROS 2 application

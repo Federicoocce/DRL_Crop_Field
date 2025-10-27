@@ -26,7 +26,7 @@ import dubins
 import random
 from shapely.geometry import LineString
 import matplotlib.pyplot as plt
-
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 from .dense_waypoint import get_dense_lane_waypoints, WorldDescription, Field2DGenerator
 from .config import config
@@ -71,12 +71,15 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         RAW_IMG_HEIGHT = 576
         RAW_IMG_WIDTH = 1024
         self.MAX_LIDAR_POINTS = 10080
+        self.MAX_MINIMAP_POINTS = 15000  # Define a max size for the minimap point cloud
         STATE_VECTOR_SIZE = 4
         obs_space_dict = {
             'image_raw': spaces.Box(low=0, high=255, shape=(RAW_IMG_HEIGHT, RAW_IMG_WIDTH, 3), dtype=np.uint8),
             'lidar_raw': spaces.Box(low=-np.inf, high=np.inf, shape=(self.MAX_LIDAR_POINTS, 3), dtype=np.float32),
             'state': spaces.Box(low=-np.inf, high=np.inf, shape=(STATE_VECTOR_SIZE,), dtype=np.float32),
-            'gt_waypoints': spaces.Box(low=-np.inf, high=np.inf, shape=(4, 2), dtype=np.float32)
+            'gt_waypoints': spaces.Box(low=-np.inf, high=np.inf, shape=(4, 2), dtype=np.float32),
+            # NEW: Add the HD minimap for the auxiliary task
+            'hd_minimap': spaces.Box(low=-np.inf, high=np.inf, shape=(self.MAX_MINIMAP_POINTS, 3), dtype=np.float32)
         }
         
         if not self.config.ignore_rear:
@@ -86,12 +89,24 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.observation_space = spaces.Dict(obs_space_dict)
 
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        # IMPORTANT: Use odometry directly from FAST-LIO now
+        self.odom_sub = self.create_subscription(Odometry, '/Odometry', self.odom_callback, 10)
+        self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
+        
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
         self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
         self.reset_sim_client = self.create_client(Empty, '/reset_simulation')
         self.set_state_client = self.create_client(SetEntityState, '/set_entity_state')
         self.camera_sub = self.create_subscription(Image, '/tracked_robot/rgb_camera/image_raw', self.camera_callback, 10)
         self.lidar_3d_sub = self.create_subscription(PointCloud2, '/points', self.lidar_3d_callback, 10)
+                # --- NEW: Subscriber for the HD Minimap ---
+        self.minimap_sub = self.create_subscription(
+            PointCloud2, 
+            '/minimap', 
+            self.minimap_callback, 
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+        )
+        self.current_hd_minimap = np.zeros((self.MAX_MINIMAP_POINTS, 3), dtype=np.float32)
         # --- MODIFICATION: Conditional Subscriber ---
         self.current_rear_image_raw = None # Initialize as None
         if not self.config.ignore_rear:
@@ -250,7 +265,24 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         except Exception as e:
             self.get_logger().error(f"Error in lidar_3d_callback: {e}")
 
-      
+    def minimap_callback(self, msg):
+        """Stores and pads/truncates the incoming HD minimap point cloud."""
+        try:
+            point_generator = point_cloud2.read_points(msg, field_names=('x', 'y', 'z'), skip_nans=True)
+            points_list = list(point_generator)
+
+            num_points = len(points_list)
+            fixed_size_cloud = np.zeros((self.MAX_MINIMAP_POINTS, 3), dtype=np.float32)
+            
+            if num_points > 0:
+                point_cloud_np = np.array(points_list, dtype=np.float32)
+                num_to_copy = min(num_points, self.MAX_MINIMAP_POINTS)
+                fixed_size_cloud[:num_to_copy, :] = point_cloud_np[:num_to_copy, :]
+            
+            self.current_hd_minimap = fixed_size_cloud
+        except Exception as e:
+            self.get_logger().error(f"Error in minimap_callback: {e}")
+
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.get_logger().info("Resetting environment...")
@@ -520,8 +552,11 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             'image_raw': self.current_image_raw,
             'lidar_raw': self.current_lidar_raw,
             'state': state_obs,
-            'gt_waypoints': gt_waypoints_rel 
+            'gt_waypoints': gt_waypoints_rel,
+            # NEW: Add the minimap to the observation dictionary
+            'hd_minimap': self.current_hd_minimap
         }
+        
         
         # --- MODIFICATION: Conditional Return ---
         if not self.config.ignore_rear and self.current_rear_image_raw is not None:
