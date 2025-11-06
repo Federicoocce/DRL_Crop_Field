@@ -22,11 +22,18 @@ def generate_launch_description():
         description='Run Gazebo in headless mode (no GUI). Set to "false" for GUI.'
     )
 
-    # --- Declare Launch Argument for Train/Eval/IL Mode ---
+    # --- Declare Launch Argument for Primary Train/Eval/IL Mode ---
     mode_arg = DeclareLaunchArgument(
         'mode',
         default_value='train',
-        description="Mode to run: 'train' (SAC), 'eval' (SAC), or 'il' (Imitation Learning)"
+        description="Primary mode: 'train' (SAC), 'eval' (SAC), or 'il' (Imitation Learning)"
+    )
+
+    # --- NEW: Declare Launch Argument specifically for Imitation Learning Mode ---
+    il_mode_arg = DeclareLaunchArgument(
+        'il_mode',
+        default_value='train',
+        description="Mode for the imitation learning script: 'train' or 'collect'"
     )
 
     # --- 1. Generate the World ---
@@ -72,13 +79,15 @@ def generate_launch_description():
         )
     )
 
-    # Node for the IMITATION LEARNING script
+    # MODIFIED Node for the IMITATION LEARNING script
+    # It now accepts the 'il_mode' launch argument and passes it to the script.
     train_imitation_node = Node(
         package='my_robot_drl',
         executable='train_imitation',
         name='drl_trainer_il',
         output='screen',
         parameters=[{'use_sim_time': True}],
+        arguments=['--mode', LaunchConfiguration('il_mode')], # This line passes the argument
         condition=IfCondition(
             PythonExpression(["'", LaunchConfiguration('mode'), "' == 'il'"])
         )
@@ -88,6 +97,7 @@ def generate_launch_description():
     return LaunchDescription([
         headless_arg,
         mode_arg,
+        il_mode_arg, # Add the new argument to the launch description
 
         generate_world_cmd,
 
