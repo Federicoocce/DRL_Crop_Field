@@ -90,7 +90,7 @@ echo "--- VAST.AI SETUP COMPLETE ---"
 
 # Log in to Weights & Biases
 echo "--> Logging into Weights & Biagi..."
-wandb login cf05b564865bb4bf8601ed59cbace5b02a587fa9
+wandb login 
 
 # Launch the ROS 2 application
 echo "--> Launching the training process..."
