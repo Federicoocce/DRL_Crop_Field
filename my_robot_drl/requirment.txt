@@ -8,8 +8,7 @@ sudo apt-get update -y && sudo apt-get upgrade -y
 sudo apt-get install -y git python3-pip curl software-properties-common locales apt-utils -y
 
 # FIX: Proactively remove the system-installed sympy to prevent pip conflicts.
-echo "--> Removing conflicting apt packages..."
-sudo apt-get remove -y python3-sympy
+
 
 # --- Step 2: Configure Python Environment (as Root) ---
 echo "--> Upgrading pip and installing compatible Python tools as root..."
@@ -32,13 +31,9 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-a
 sudo apt-get update -y
 sudo apt-get install -y ros-humble-desktop ros-dev-tools
 
-# --- Step 5: Install All Python Dependencies (as Root) ---
-echo "--> Installing PyTorch, MMLab, and other Python packages as root..."
-sudo pip3 install torch==1.12.1+cu113 torchvision==0.13.1+cu113 torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cu113
 
-export CUDA_HOME=/usr/local/cuda
-sudo pip3 install mmcv-full==1.7.1 -f https://download.openmmlab.com/mmcv/dist/cu113/torch1.12.0/index.html
-sudo pip3 install mmdet==2.28.2
+echo "--> Removing conflicting apt packages..."
+sudo apt-get remove -y python3-sympy
 
 # FIX: Removed 'stable-baselines3' as it is not used in the imitation learning script.
 sudo pip3 install \
@@ -55,6 +50,12 @@ sudo pip3 install \
     scikit-image \
     ujson
 
+echo "--> Installing PyTorch, MMLab, and other Python packages as root..."
+sudo pip3 install torch==1.12.1+cu113 torchvision==0.13.1+cu113 torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cu113
+
+export CUDA_HOME=/usr/local/cuda
+sudo pip3 install mmcv-full==1.7.1 -f https://download.openmmlab.com/mmcv/dist/cu113/torch1.12.0/index.html
+sudo pip3 install mmdet==2.28.2
 # Force-reinstall a compatible NumPy version. This is a safeguard.
 echo "--> Forcing NumPy version to < 2.0 to ensure compatibility..."
 sudo pip3 install "numpy<2.0" --force-reinstall
@@ -77,22 +78,10 @@ rosdep install -i --from-path src --rosdistro humble -y
 source /opt/ros/humble/setup.bash
 colcon build
 
-# --- Step 7: Configure Environment in .bashrc for Future Sessions ---
-echo "--> Configuring .bashrc for future sessions..."
-echo "" >> ~/.bashrc
-echo "# DRL_Crop_Field Project Configuration" >> ~/.bashrc
-echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.bashrc
-echo 'export PYTHONPATH="/usr/local/lib/python3.10/dist-packages:$PYTHONPATH"' >> ~/.bashrc
-echo "export LIBGL_ALWAYS_SOFTWARE=1" >> ~/.bashrc
-echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
-echo "source /usr/share/gazebo/setup.bash" >> ~/.bashrc
-echo "source ~/ros2_ws/install/setup.bash" >> ~/.bashrc
 
-# --- Step 8: Source Environment for Current Session and Launch ---
-echo "--> Sourcing environment for current session..."
-export PATH="/usr/local/bin:$PATH"
-export PYTHONPATH="/usr/local/lib/python3.10/dist-packages:$PYTHONPATH"
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/python3.10/dist-packages/torch/lib
 export LIBGL_ALWAYS_SOFTWARE=1
+export MPLBACKEND=Agg
 source /opt/ros/humble/setup.bash
 source /usr/share/gazebo/setup.bash
 source ~/ros2_ws/install/setup.bash
@@ -101,10 +90,10 @@ echo "--- VAST.AI SETUP COMPLETE ---"
 
 # Log in to Weights & Biases
 echo "--> Logging into Weights & Biagi..."
-wandb login 
+wandb login cf05b564865bb4bf8601ed59cbace5b02a587fa9
 
 # Launch the ROS 2 application
 echo "--> Launching the training process..."
-ros2 launch my_robot_drl train_maize_nav.launch.py headless:=True mode:=il
+ros2 launch my_robot_drl train_maize_nav.launch.py headless:=False mode:=il
 
 # --- END OF SCRIPT ---
