@@ -106,10 +106,10 @@ def lidar_to_histogram_features(point_cloud_np, crop=256):
     # --- Parameters (Modified for Centered BEV) ---
     # ==================== START OF THE FIX ====================
     # Define the forward/backward range. The total range is 32 meters.
-    x_meters = 8.0
+    x_meters = 2.0
     # ===================== END OF THE FIX =====================
-    y_max_meters = 8.0  # Side range (+/-) remains the same
-    pixels_per_meter = 16
+    y_max_meters = 2.0  # Side range (+/-) remains the same
+    pixels_per_meter = 64
     hist_max_per_pixel = 5
     z_threshold = 0.0
 
@@ -158,10 +158,10 @@ def draw_target_point(target_point_world, crop=256):
     """
     # ==================== START OF THE FIX ====================
     # These parameters MUST be identical to those in lidar_to_histogram_features
-    x_meters = 8.0      # Forward/backward range
+    x_meters = 2.0      # Forward/backward range
     # ===================== END OF THE FIX =====================
-    y_max_meters = 8.0  # Side range (+/-)
-    pixels_per_meter = 16
+    y_max_meters = 2.0  # Side range (+/-)
+    pixels_per_meter = 64
 
     # Create the base canvas, matching the final output size of the LiDAR BEV
     image = np.zeros((crop, crop), dtype=np.uint8)
@@ -209,6 +209,126 @@ def draw_target_point(target_point_world, crop=256):
     # Reshape for PyTorch (C, H, W)
     image = image.reshape(1, crop, crop)
     return image.astype(np.float32) / 255.0
+
+def debug_visualize_batch(batch):
+    """
+    Displays the first sample of a batch for debugging in separate windows.
+    - Shows the RGB camera input.
+    - Shows the BEV input fed to the model, with a corrected orientation and
+      an intuitive color mapping for human understanding:
+      - RED:   LiDAR points ABOVE the split height (obstacles).
+      - GREEN: The target point image.
+      - BLUE:  LiDAR points BELOW the split height (ground).
+    """
+    # --- Select the first item from the batch for visualization ---
+    rgb_tensor = batch['rgb'][0]
+    lidar_bev_tensor = batch['lidar_bev'][0]          # 2 channels: below/above points
+    target_point_image = batch['target_point_image'][0] # 1 channel: target point
+    target_point_coords = batch['target_point'][0]      # [x, y] coordinates for text
+
+    # --- 1. Process and Display RGB Image ---
+    rgb_numpy = rgb_tensor.cpu().numpy()
+    rgb_numpy = np.transpose(rgb_numpy, (1, 2, 0)) # C, H, W -> H, W, C
+    rgb_numpy = (rgb_numpy * 255).astype(np.uint8)
+    rgb_display = cv2.cvtColor(rgb_numpy, cv2.COLOR_RGB2BGR) # PyTorch is RGB, OpenCV is BGR
+
+    # Add target point coordinates as text on the image
+    coords = target_point_coords.cpu().numpy()
+    text = f"Target WP: ({coords[0]:.2f}m, {coords[1]:.2f}m)"
+    cv2.putText(rgb_display, text, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+    cv2.imshow("RGB Camera Input", rgb_display)
+
+    # --- 2. Process and Display the BEV Input with Corrected Orientation and Colors ---
+    
+    # Unpack the two LiDAR channels and the target point image.
+    # The data from the preprocessor is already oriented with "forward" pointing "up".
+    # No rotation is needed for visualization.
+    lidar_below_viz = lidar_bev_tensor[0].cpu().numpy() # Channel 0 is 'below' points
+    lidar_above_viz = lidar_bev_tensor[1].cpu().numpy() # Channel 1 is 'above' points
+    target_img_viz = target_point_image[0].cpu().numpy()
+
+    # Create an empty 3-channel image (BGR for OpenCV)
+    h, w = lidar_above_viz.shape
+    bev_display = np.zeros((h, w, 3), dtype=np.uint8)
+
+    # Map each data channel to a unique BGR color channel.
+    # This color scheme makes it easy to interpret the BEV.
+    bev_display[:, :, 0] = (lidar_below_viz * 255).astype(np.uint8)  # Blue Channel: Ground points
+    bev_display[:, :, 1] = (target_img_viz * 255).astype(np.uint8)   # Green Channel: Target waypoint
+    bev_display[:, :, 2] = (lidar_above_viz * 255).astype(np.uint8)  # Red Channel: Obstacle points
+
+    # Update the window title to be descriptive of the color mapping
+    cv2.imshow("BEV Input (R=Obstacles, G=Target, B=Ground)", bev_display)
+    
+    # Update windows and allow for a small delay
+    cv2.waitKey(50)
+
+
+def debug_augmentation_visualize(original_batch, augmented_batch, original_degree, augmented_degree):
+    """
+    Displays a side-by-side comparison of an original (un-augmented)
+    and an augmented data sample in four windows. Also prints the rotation degree.
+
+    Args:
+        original_batch: A batch dictionary containing the un-augmented sample.
+        augmented_batch: A batch dictionary containing the augmented sample.
+        original_degree (float): The rotation degree for the original sample.
+        augmented_degree (float): The rotation degree for the augmented sample.
+    """
+    # --- Helper function to prepare a single BEV image for display ---
+    def create_bev_display_image(batch, degree):
+        lidar_bev_tensor = batch['lidar_bev'][0]
+        target_point_image = batch['target_point_image'][0]
+        
+        lidar_below_viz = lidar_bev_tensor[0].cpu().numpy()
+        lidar_above_viz = lidar_bev_tensor[1].cpu().numpy()
+        target_img_viz = target_point_image[0].cpu().numpy()
+
+        h, w = lidar_above_viz.shape
+        bev_display = np.zeros((h, w, 3), dtype=np.uint8)
+        
+        bev_display[:, :, 0] = (lidar_below_viz * 255).astype(np.uint8)  # Blue: Ground
+        bev_display[:, :, 1] = (target_img_viz * 255).astype(np.uint8)   # Green: Target
+        bev_display[:, :, 2] = (lidar_above_viz * 255).astype(np.uint8)  # Red: Obstacles
+
+        # Add text for the rotation degree
+        text = f"Rot: {degree:.2f} deg"
+        cv2.putText(bev_display, text, (5, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+        return bev_display
+
+    # --- Helper function to prepare a single RGB image for display ---
+    def create_rgb_display_image(batch, degree):
+        rgb_tensor = batch['rgb'][0]
+        target_point_coords = batch['target_point'][0]
+
+        rgb_numpy = rgb_tensor.cpu().numpy()
+        rgb_numpy = np.transpose(rgb_numpy, (1, 2, 0)) # C,H,W to H,W,C
+        rgb_numpy = (rgb_numpy * 255).astype(np.uint8)
+        rgb_display = cv2.cvtColor(rgb_numpy, cv2.COLOR_RGB2BGR)
+
+        coords = target_point_coords.cpu().numpy()
+        text_tgt = f"Target: ({coords[0]:.2f}, {coords[1]:.2f})"
+        text_rot = f"Rot: {degree:.2f} deg"
+        cv2.putText(rgb_display, text_tgt, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.putText(rgb_display, text_rot, (10, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        return rgb_display
+
+    # --- Create and show the four images ---
+    
+    # 1. Original Data
+    original_rgb_display = create_rgb_display_image(original_batch, original_degree)
+    original_bev_display = create_bev_display_image(original_batch, original_degree)
+    cv2.imshow("Original RGB", original_rgb_display)
+    cv2.imshow("Original BEV (R=Obst, G=Tgt, B=Gnd)", original_bev_display)
+
+    # 2. Augmented Data
+    augmented_rgb_display = create_rgb_display_image(augmented_batch, augmented_degree)
+    augmented_bev_display = create_bev_display_image(augmented_batch, augmented_degree)
+    cv2.imshow("Augmented RGB", augmented_rgb_display)
+    cv2.imshow("Augmented BEV (R=Obst, G=Tgt, B=Gnd)", augmented_bev_display)
+
+    cv2.waitKey(50)
 # def get_bbox_label(bbox, rad=0):
 #     # dx, dy, dz, x, y, z, yaw
 #     # ignore z

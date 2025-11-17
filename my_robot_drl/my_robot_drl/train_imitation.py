@@ -24,14 +24,16 @@ from .config import GlobalConfig
 # --- Utility Imports (Remove the incorrect 'align' import) ---
 from .transfuser_util import (
     lidar_to_histogram_features,
-    draw_target_point
+    draw_target_point,
+    debug_augmentation_visualize
+    
 )
 
 # ===================================================================
 # --- CONFIGURATION PARAMETERS ---
 # ===================================================================
 IL_EPOCHS = 100 # Max epochs for the initial training phase
-IL_BATCH_SIZE = 32
+IL_BATCH_SIZE = 4
 IL_LEARNING_RATE = 1e-4
 DATA_COLLECTION_FPS = 2.0
 DATA_COLLECTION_FPS_TURNING = 10.0
@@ -49,8 +51,8 @@ MODEL_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_models', 'imitation_lear
 DATASET_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_datasets', 'imitation_learning')
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
 EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_val.pkl')
-TRAIN_DATASET_PATH = "/workspace/360_train_tot.pkl"
-VAL_DATASET_PATH = "/workspace/360_val.pkl"
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_train_tot.pkl')
+VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_val.pkl')
 
 
 # ===================================================================
@@ -129,7 +131,7 @@ class DataPreprocessor:
         else:
             raise NotImplementedError("Multitask=True is not supported by this DRL environment.")
 
-        return processed_data
+        return processed_data, degree
 
 # ===================================================================
 # --- DATA HANDLING FUNCTIONS ---
@@ -294,14 +296,32 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                 raw_batch = train_dataset[i:i + IL_BATCH_SIZE]
                 if len(raw_batch) < IL_BATCH_SIZE: continue
 
-                processed_list = [preprocessor.process_observation(s) for s in raw_batch]
+                # --- START: Augmentation Debug Visualization ---
+                if i % 16 == 0:  # Check periodically for a candidate to visualize
+                    first_sample_raw = raw_batch[0]
+                    
+                    # Process to get the augmented version and its rotation degree
+                    processed_augmented, augmented_degree = preprocessor.process_observation(first_sample_raw)
+                    
+                    # ONLY visualize if the augmentation rotation is significant
+                    if abs(augmented_degree) > 19.0:
+                        # Process again with augmentation disabled to get the original view
+                        original_augment_state = preprocessor.config.augment
+                        preprocessor.config.augment = False
+                        processed_original, original_degree = preprocessor.process_observation(first_sample_raw)
+                        preprocessor.config.augment = original_augment_state  # Restore setting
+                        
+                        # Create batches of size 1 for the visualization function
+                        batch_original = {key: val.unsqueeze(0).to(model.device) for key, val in processed_original.items()}
+                        batch_augmented = {key: val.unsqueeze(0).to(model.device) for key, val in processed_augmented.items()}
+                        
+                        # Call the visualization function, passing the degrees
+                        debug_augmentation_visualize(batch_original, batch_augmented, original_degree, augmented_degree)
+                # --- END: Augmentation Debug Visualization ---
+
+                processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] # Get only the data dict
                 batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
      
-                # if i%16 == 0:
-                    
-                #      debug_visualize_batch(batch)
-     
-
                 losses = model(**batch)
                 total_loss = torch.tensor(0.0, device=model.device)
                 for key, value in losses.items():
@@ -325,7 +345,7 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                     raw_batch = val_dataset[i:i + IL_BATCH_SIZE]
                     if len(raw_batch) < IL_BATCH_SIZE: continue
 
-                    processed_list = [preprocessor.process_observation(s) for s in raw_batch]
+                    processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] # Get only data
                     batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
 
                     losses = model(**batch)
@@ -356,8 +376,6 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
         rclpy.spin_until_future_complete(env_node, unpause_client.call_async(Empty.Request()))
 
     return global_epoch_counter + epoch + 1
-
-
 
 def evaluate_model(env, model, config, logger, device, global_epoch_counter):
     """
@@ -431,29 +449,52 @@ def evaluate_model(env, model, config, logger, device, global_epoch_counter):
 
 def preprocess_front_camera_image(image_np, target_w, target_h, crop_shift=0):
     """
-    Transforms the raw 1024x576 image into the model's required 704x160 panoramic format.
+    Transforms the raw image by taking a panoramic crop and then moving a
+    sampling window within it to simulate camera panning without padding.
     """
+    # These constants define the 'camera' properties for the crop.
+    # The FOV of the raw sensor image (e.g., 120 degrees).
+    CAMERA_FULL_FOV = 130.0 
+    # The buffer we leave on each side to allow for panning (20 degrees).
+    SIDE_BUFFER_DEG = 20.0
+
     source_h, source_w, _ = image_np.shape
+
+    # 1. Define the dimensions of the final cropping window at the source image's scale.
+    # The effective FOV of our final image is the total FOV minus the side buffers.
+    effective_fov = CAMERA_FULL_FOV - 2 * SIDE_BUFFER_DEG
     
+    # Calculate the width of this effective FOV window in pixels.
+    crop_w = int((effective_fov / CAMERA_FULL_FOV) * source_w)
+    
+    # Calculate the height required to maintain the target aspect ratio.
     target_aspect_ratio = target_w / target_h
-    crop_h = int(source_w / target_aspect_ratio)
+    crop_h = int(crop_w / target_aspect_ratio)
+
+    # 2. Calculate the crop boundaries based on the center and the shift.
+    center_x = source_w / 2
+    center_y = source_h / 2
     
-    start_y = (source_h - crop_h) // 2
+    # Calculate the top-left corner of a perfectly centered crop.
+    start_x_centered = center_x - (crop_w / 2)
+    start_y = int(center_y - (crop_h / 2))
+    
+    # Apply the horizontal shift (pan) calculated from the augmentation degree.
+    start_x = int(start_x_centered + crop_shift)
+    
+    # Define the final crop window's boundaries.
+    end_x = start_x + crop_w
     end_y = start_y + crop_h
-    start_x = 0
-    end_x = source_w
     
-    start_x += int(crop_shift)
-    end_x += int(crop_shift)
-    
-    start_x = np.clip(start_x, 0, source_w - (end_x - start_x))
-    end_x = np.clip(end_x, (end_x - start_x), source_w)
-    
+    # 3. Extract the final crop from the source image.
+    # The 20-degree buffer on each side ensures that for the maximum possible
+    # crop_shift, this window will not go out of the image bounds.
     panoramic_crop = image_np[start_y:end_y, start_x:end_x]
     
+    # 4. Resize the final crop to the model's required input dimensions.
     resized_image = cv2.resize(panoramic_crop, (target_w, target_h), interpolation=cv2.INTER_AREA)
 
-    # Return as C, H, W for PyTorch
+    # 5. Return as C, H, W for PyTorch.
     return np.transpose(resized_image, (2, 0, 1))
 
 # ===================================================================
