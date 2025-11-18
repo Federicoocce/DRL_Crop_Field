@@ -49,10 +49,15 @@ DAGGER_RETRAIN_EPOCHS = 5   # Fixed number of epochs for DAgger retraining
 HOME_DIR = os.path.expanduser('~')
 MODEL_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_models', 'imitation_learning')
 DATASET_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_datasets', 'imitation_learning')
+# Define separate paths for the final model and the best-performing model
+FINAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_final_model.pth')
+BEST_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_model.pth')
+BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_model.pth')
+
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
-EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_val.pkl')
-TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_train_tot.pkl')
-VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_val.pkl')
+EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_mixed.pkl')
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_cs_s_m.pkl')
+VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_curved_long.pkl')
 
 
 # ===================================================================
@@ -297,27 +302,32 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                 if len(raw_batch) < IL_BATCH_SIZE: continue
 
                 # --- START: Augmentation Debug Visualization ---
-                if i % 16 == 0:  # Check periodically for a candidate to visualize
+                if i % 32 == 0:  # Check periodically
                     first_sample_raw = raw_batch[0]
                     
-                    # Process to get the augmented version and its rotation degree
                     processed_augmented, augmented_degree = preprocessor.process_observation(first_sample_raw)
                     
-                    # ONLY visualize if the augmentation rotation is significant
                     if abs(augmented_degree) > 19.0:
-                        # Process again with augmentation disabled to get the original view
                         original_augment_state = preprocessor.config.augment
                         preprocessor.config.augment = False
                         processed_original, original_degree = preprocessor.process_observation(first_sample_raw)
-                        preprocessor.config.augment = original_augment_state  # Restore setting
+                        preprocessor.config.augment = original_augment_state
                         
-                        # Create batches of size 1 for the visualization function
                         batch_original = {key: val.unsqueeze(0).to(model.device) for key, val in processed_original.items()}
                         batch_augmented = {key: val.unsqueeze(0).to(model.device) for key, val in processed_augmented.items()}
                         
-                        # Call the visualization function, passing the degrees
-                        debug_augmentation_visualize(batch_original, batch_augmented, original_degree, augmented_degree)
+                        original_wps = batch_original['ego_waypoint'][0].cpu().numpy()
+                        augmented_wps = batch_augmented['ego_waypoint'][0].cpu().numpy()
+                        # Call the visualization function, now with waypoints
+                        debug_augmentation_visualize(
+                            batch_original, batch_augmented, 
+                            original_degree, augmented_degree,
+                            original_wps, augmented_wps
+                        )
+                        # ===================== END OF THE FIX =====================
+
                 # --- END: Augmentation Debug Visualization ---
+
 
                 processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] # Get only the data dict
                 batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
@@ -361,11 +371,20 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             logger.info(f"  [Training] Epoch {epoch + 1}/{max_epochs} | Global Step: {current_global_epoch} | Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}")
             wandb.log({"train_loss": avg_train_loss, "val_loss": avg_val_loss}, step=current_global_epoch)
 
-            # --- EARLY STOPPING LOGIC ---
+            # --- LOGIC FOR BEST MODEL SAVING & EARLY STOPPING ---
             if use_early_stopping:
                 if avg_val_loss < best_val_loss:
                     best_val_loss = avg_val_loss
                     patience_counter = 0
+                    # --- START OF THE FIX ---
+                    # If this is the initial training phase, save the best validation model
+                    logger.info(f"    New best validation loss: {best_val_loss:.6f}. Saving model...")
+                    os.makedirs(os.path.dirname(BEST_VAL_MODEL_SAVE_PATH), exist_ok=True)
+                    try:
+                        torch.save(model.state_dict(), BEST_VAL_MODEL_SAVE_PATH)
+                    except Exception as e:
+                        logger.error(f"    Could not save best validation model. Error: {e}")
+                    # --- END OF THE FIX ---
                 else:
                     patience_counter += 1
                 
@@ -402,7 +421,7 @@ def evaluate_model(env, model, config, logger, device, global_epoch_counter):
                 info["termination_reason"] = "deviated_from_path"
                 break
 
-            processed_obs = preprocessor.process_observation(raw_obs)
+            processed_obs, _ = preprocessor.process_observation(raw_obs)
             batch = {key: val.unsqueeze(0).to(device) for key, val in processed_obs.items()}
 
             inference_args = {
@@ -576,36 +595,101 @@ def main(args=None):
         pause_client, unpause_client, env_node=env, run_count=0,
         global_epoch_counter=0, max_epochs=IL_EPOCHS, use_early_stopping=True
     )
+
+    # Load the best model from the initial training phase before starting DAgger
+    logger.info("\n" + "="*60)
+    logger.info(f"Initial training complete. Loading best model from {BEST_VAL_MODEL_SAVE_PATH} for DAgger.")
+    try:
+        model.load_state_dict(torch.load(BEST_VAL_MODEL_SAVE_PATH))
+        model.to(device) # Ensure the model is on the correct device after loading
+        logger.info("Successfully loaded best validation model.")
+    except FileNotFoundError:
+        logger.error(f"Could not find best validation model at {BEST_VAL_MODEL_SAVE_PATH}. Continuing with the last epoch's model.")
+    except Exception as e:
+        logger.error(f"Error loading best validation model: {e}. Continuing with the last epoch's model.")
+    logger.info("="*60 + "\n")
+
     
-    best_reward_so_far = -float('inf')
+    # --- START OF THE FIX ---
+    # Initialize variables for tracking the best model and evaluation stats
+    best_average_reward_so_far = -float('inf')
     run_count = 0
-    course_completed = False
+    success_rate = 0.0
+    NUMBER_OF_EVAL_RUNS = 5
+    # --- END OF THE FIX ---
 
     # 2. DAgger loop: evaluate, aggregate data, and retrain for a fixed number of epochs
-    while not course_completed or best_reward_so_far < TARGET_REWARD_THRESHOLD:
+    while success_rate < 100.0:
         run_count += 1
         logger.info("\n" + "#"*60)
         logger.info(f"STARTING IMITATION LEARNING ATTEMPT #{run_count}")
-        logger.info(f"Current Best Reward: {best_reward_so_far:.2f} | Target Reward: {TARGET_REWARD_THRESHOLD}")
-        logger.info(f"Course Completed in Previous Run: {course_completed}")
+        logger.info(f"Current Best Avg Reward: {best_average_reward_so_far:.2f} | Target Reward: {TARGET_REWARD_THRESHOLD}")
         logger.info("#"*60 + "\n")
 
-        successful_run, new_data, current_reward = evaluate_model(env, model, config, logger, device, global_epoch_counter=global_epoch_counter)
-        course_completed = successful_run
+        # --- START OF THE FIX ---
+        # Perform multiple evaluation runs and collect statistics
+        evaluation_rewards = []
+        all_new_data = []
+        successful_runs_count = 0
+        
+        logger.info(f"Starting {NUMBER_OF_EVAL_RUNS} evaluation runs...")
+        for i in range(NUMBER_OF_EVAL_RUNS):
+            logger.info(f"  --- Evaluation Run [{i + 1}/{NUMBER_OF_EVAL_RUNS}] ---")
+            successful_run, new_data, current_reward = evaluate_model(env, model, config, logger, device, global_epoch_counter=global_epoch_counter)
+            
+            evaluation_rewards.append(current_reward)
+            if successful_run:
+                successful_runs_count += 1
+            else:
+                # Only aggregate data from failed runs
+                all_new_data.extend(new_data)
+        
+        # Calculate and log the statistics
+        average_reward = np.mean(evaluation_rewards)
+        success_rate = (successful_runs_count / NUMBER_OF_EVAL_RUNS) * 100.0
+        
+        logger.info("\n" + "-"*60)
+        logger.info(f"Evaluation Complete. Avg Reward: {average_reward:.2f}, Success Rate: {success_rate:.1f}%")
+        logger.info(f"Individual rewards: {[f'{r:.2f}' for r in evaluation_rewards]}")
+        logger.info("-"*60 + "\n")
 
-        if current_reward > best_reward_so_far:
-            best_reward_so_far = current_reward
-            logger.info(f"New best reward achieved: {best_reward_so_far:.2f}")
-            wandb.log({"best_reward": best_reward_so_far}, step=global_epoch_counter)
+        wandb.log({
+            "average_reward": average_reward, 
+            "success_rate": success_rate,
+            "best_average_reward": best_average_reward_so_far # Log the running best
+        }, step=global_epoch_counter)
+
+        # Check for a new best model and save it
+        if average_reward > best_average_reward_so_far:
+            best_average_reward_so_far = average_reward
+            logger.info(f"*** New best average reward achieved: {best_average_reward_so_far:.2f}! Saving model. ***")
+            os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
+            try:
+                torch.save(model.state_dict(), BEST_MODEL_SAVE_PATH)
+                logger.info(f"    Successfully saved new best model to: {BEST_MODEL_SAVE_PATH}")
+            except Exception as e:
+                logger.error(f"    Could not save the best model. Error: {e}")
 
         # Check completion criteria before deciding to retrain
-        if course_completed and best_reward_so_far >= TARGET_REWARD_THRESHOLD:
+        if success_rate >= 100.0 and best_average_reward_so_far >= TARGET_REWARD_THRESHOLD:
+            logger.info("Success criteria met! Ending DAgger loop.")
             break
 
-        if not successful_run:
-            logger.warn(f"Evaluation failed. Aggregating {len(new_data)} new data points to the training set.")
-            train_dataset.extend(new_data)
-        
+        # Aggregate the data from all failed runs for retraining
+        if all_new_data:
+            logger.warn(f"Aggregating {len(all_new_data)} new data points from {NUMBER_OF_EVAL_RUNS - successful_runs_count} failed runs.")
+            random.shuffle(all_new_data)
+            split_index = int(0.8 * len(all_new_data))
+            new_train_data = all_new_data[:split_index]
+            new_val_data = all_new_data[split_index:]
+            train_dataset.extend(new_train_data)
+            val_dataset.extend(new_val_data)
+            logger.info(f"  - Added {len(new_train_data)} points to training set (new size: {len(train_dataset)})")
+            logger.info(f"  - Added {len(new_val_data)} points to validation set (new size: {len(val_dataset)})")
+        else:
+            logger.info("All evaluation runs were successful. No new data to aggregate.")
+        # --- END OF THE FIX ---
+
         # Retrain for a fixed number of epochs
         global_epoch_counter = train_model(
             model, optimizer, config, train_dataset, val_dataset, logger,
@@ -615,27 +699,32 @@ def main(args=None):
 
 
     logger.info("\n" + "="*60)
-    logger.info(f"SUCCESS CRITERIA MET: Agent completed the course and achieved a reward of {best_reward_so_far:.2f}!")
+    logger.info(f"SUCCESS CRITERIA MET: Agent achieved a 100% success rate and a best average reward of {best_average_reward_so_far:.2f}!")
     logger.info("TRAINING SUCCEEDED!")
     logger.info("="*60)
 
     os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
     try:
-        torch.save(model.state_dict(), MODEL_SAVE_PATH)
-        logger.info(f"Successfully saved trained LidarCenterNet model to: {MODEL_SAVE_PATH}")
-
+        # --- START OF THE FIX ---
+        # Save the final model state for traceability
+        torch.save(model.state_dict(), FINAL_MODEL_SAVE_PATH)
+        logger.info(f"Successfully saved final trained model to: {FINAL_MODEL_SAVE_PATH}")
+        
+        # Create a W&B artifact of the BEST model
+        logger.info(f"Creating W&B artifact from the best model saved at: {BEST_MODEL_SAVE_PATH}")
         artifact = wandb.Artifact(
-            name='transfuser-full-model',
+            name='transfuser-best-model',
             type='model',
-            description='A trained LidarCenterNet model that met the success criteria.',
-            metadata={"final_reward": best_reward_so_far}
+            description='The model that achieved the highest average reward during DAgger training.',
+            metadata={"best_average_reward": best_average_reward_so_far, "final_success_rate": success_rate}
         )
-        artifact.add_file(MODEL_SAVE_PATH)
+        artifact.add_file(BEST_MODEL_SAVE_PATH)
         wandb.log_artifact(artifact)
-        logger.info("Successfully saved model to W&B!")
+        logger.info("Successfully saved best model to W&B!")
+        # --- END OF THE FIX ---
 
     except Exception as e:
-        logger.error(f"Could not save the final model. Error: {e}")
+        logger.error(f"Could not save the final model or artifact. Error: {e}")
 
     logger.info("Closing environment and shutting down.")
     wandb.finish()

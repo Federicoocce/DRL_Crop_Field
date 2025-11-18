@@ -264,19 +264,13 @@ def debug_visualize_batch(batch):
     cv2.waitKey(50)
 
 
-def debug_augmentation_visualize(original_batch, augmented_batch, original_degree, augmented_degree):
+def debug_augmentation_visualize(original_batch, augmented_batch, original_degree, augmented_degree, original_wps, augmented_wps):
     """
-    Displays a side-by-side comparison of an original (un-augmented)
-    and an augmented data sample in four windows. Also prints the rotation degree.
-
-    Args:
-        original_batch: A batch dictionary containing the un-augmented sample.
-        augmented_batch: A batch dictionary containing the augmented sample.
-        original_degree (float): The rotation degree for the original sample.
-        augmented_degree (float): The rotation degree for the augmented sample.
+    Displays a side-by-side comparison of an original and augmented data sample.
+    Draws the full 4-waypoint trajectory graphically on the BEV.
     """
     # --- Helper function to prepare a single BEV image for display ---
-    def create_bev_display_image(batch, degree):
+    def create_bev_display_image(batch, degree, waypoints):
         lidar_bev_tensor = batch['lidar_bev'][0]
         target_point_image = batch['target_point_image'][0]
         
@@ -291,19 +285,52 @@ def debug_augmentation_visualize(original_batch, augmented_batch, original_degre
         bev_display[:, :, 1] = (target_img_viz * 255).astype(np.uint8)   # Green: Target
         bev_display[:, :, 2] = (lidar_above_viz * 255).astype(np.uint8)  # Red: Obstacles
 
+        # ==================== START OF THE FIX ====================
+        # --- Draw the waypoint trajectory graphically on the BEV ---
+        
+        # 1. Define BEV parameters (must match lidar_to_histogram_features)
+        x_meters = 2.0
+        y_max_meters = 2.0
+        pixels_per_meter = 64
+        crop = h
+
+        # 2. Convert all waypoints from meters to pixel coordinates
+        pixel_points = []
+        for wp in waypoints:
+            robot_x_forward, robot_y_left = wp
+            
+            feature_map_height = int(x_meters * 2 * pixels_per_meter)
+            feature_map_width = int(y_max_meters * 2 * pixels_per_meter)
+            
+            pixel_col = int((-robot_y_left + y_max_meters) * pixels_per_meter)
+            pixel_row = int(feature_map_height - 1 - ((robot_x_forward + x_meters) * pixels_per_meter))
+            
+            pixel_points.append((pixel_col, pixel_row))
+
+        # 3. Draw the trajectory line connecting the waypoints
+        # cv2.polylines expects a list of arrays, so we reshape.
+        pts = np.array(pixel_points, np.int32).reshape((-1, 1, 2))
+        cv2.polylines(bev_display, [pts], isClosed=False, color=(0, 255, 255), thickness=2) # Yellow line
+
+        # 4. Draw a circle at each waypoint to make them distinct
+        for point in pixel_points:
+            cv2.circle(bev_display, point, radius=4, color=(0, 165, 255), thickness=-1) # Orange circles
+
         # Add text for the rotation degree
-        text = f"Rot: {degree:.2f} deg"
-        cv2.putText(bev_display, text, (5, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        rot_text = f"Rot: {degree:.2f} deg"
+        cv2.putText(bev_display, rot_text, (5, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+        # ===================== END OF THE FIX =====================
 
         return bev_display
 
-    # --- Helper function to prepare a single RGB image for display ---
+    # --- Helper function to prepare a single RGB image for display (unchanged) ---
     def create_rgb_display_image(batch, degree):
+        # ... (This helper function remains unchanged)
         rgb_tensor = batch['rgb'][0]
         target_point_coords = batch['target_point'][0]
 
         rgb_numpy = rgb_tensor.cpu().numpy()
-        rgb_numpy = np.transpose(rgb_numpy, (1, 2, 0)) # C,H,W to H,W,C
+        rgb_numpy = np.transpose(rgb_numpy, (1, 2, 0))
         rgb_numpy = (rgb_numpy * 255).astype(np.uint8)
         rgb_display = cv2.cvtColor(rgb_numpy, cv2.COLOR_RGB2BGR)
 
@@ -316,17 +343,16 @@ def debug_augmentation_visualize(original_batch, augmented_batch, original_degre
 
     # --- Create and show the four images ---
     
-    # 1. Original Data
+    # Pass the full waypoint arrays (plural wps) to the BEV helper
     original_rgb_display = create_rgb_display_image(original_batch, original_degree)
-    original_bev_display = create_bev_display_image(original_batch, original_degree)
+    original_bev_display = create_bev_display_image(original_batch, original_degree, original_wps)
     cv2.imshow("Original RGB", original_rgb_display)
-    cv2.imshow("Original BEV (R=Obst, G=Tgt, B=Gnd)", original_bev_display)
+    cv2.imshow("Original BEV (Orange Dots = Waypoints)", original_bev_display)
 
-    # 2. Augmented Data
     augmented_rgb_display = create_rgb_display_image(augmented_batch, augmented_degree)
-    augmented_bev_display = create_bev_display_image(augmented_batch, augmented_degree)
+    augmented_bev_display = create_bev_display_image(augmented_batch, augmented_degree, augmented_wps)
     cv2.imshow("Augmented RGB", augmented_rgb_display)
-    cv2.imshow("Augmented BEV (R=Obst, G=Tgt, B=Gnd)", augmented_bev_display)
+    cv2.imshow("Augmented BEV (Orange Dots = Waypoints)", augmented_bev_display)
 
     cv2.waitKey(50)
 # def get_bbox_label(bbox, rad=0):

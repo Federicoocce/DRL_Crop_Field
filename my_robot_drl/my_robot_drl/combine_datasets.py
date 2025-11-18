@@ -7,10 +7,10 @@ HOME_DIR = os.path.expanduser('~')
 DATASET_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_datasets', 'imitation_learning')
 
 # Define the names of the input and output files
-EXPERT_DATA_1_NAME = 'expert_data.pkl'
-EXPERT_DATA_2_NAME = 'expert_data2.pkl'
-VAL_DATA_NAME = 'val_data.pkl' # We'll check for this file but won't modify it
-TRAIN_DATA_OUTPUT_NAME = 'train_data.pkl'
+EXPERT_DATA_1_NAME = '360_mixed.pkl'
+EXPERT_DATA_2_NAME = '360_cs_s.pkl'
+VAL_DATA_NAME = '360_curved_long.pkl' # We'll check for this file but won't modify it
+TRAIN_DATA_OUTPUT_NAME = '360_cs_s_m.pkl'
 
 def combine_and_prepare_datasets():
     """
