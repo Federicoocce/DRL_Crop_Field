@@ -56,8 +56,8 @@ BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
 EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_mixed.pkl')
-TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_cs_s_m.pkl')
-VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_curved_long.pkl')
+TRAIN_DATASET_PATH = "/workspace/360_cs_s_m.pkl"
+VAL_DATASET_PATH = "/workspace/360_curved_long.pkl"
 
 
 # ===================================================================
@@ -689,14 +689,25 @@ def main(args=None):
         else:
             logger.info("All evaluation runs were successful. No new data to aggregate.")
         # --- END OF THE FIX ---
-
-        # Retrain for a fixed number of epochs
+        # Retrain using the exact same logic as the initial training phase:
+        # Train for up to IL_EPOCHS, but stop early if validation loss plateaus.
+        # The best model from this phase is saved to the same BEST_VAL_MODEL_SAVE_PATH, overwriting the previous best.
+        logger.info(f"Starting DAgger retraining phase (Run #{run_count})...")
         global_epoch_counter = train_model(
             model, optimizer, config, train_dataset, val_dataset, logger,
             pause_client, unpause_client, env_node=env, run_count=run_count,
-            global_epoch_counter=global_epoch_counter, max_epochs=DAGGER_RETRAIN_EPOCHS, use_early_stopping=False
+            global_epoch_counter=global_epoch_counter, max_epochs=IL_EPOCHS, 
+            use_early_stopping=True, # Use early stopping
         )
 
+        # After retraining, load the new best validation model for the next evaluation round.
+        logger.info(f"DAgger retraining complete. Loading new best model from {BEST_VAL_MODEL_SAVE_PATH}...")
+        try:
+            model.load_state_dict(torch.load(BEST_VAL_MODEL_SAVE_PATH))
+            model.to(device)
+            logger.info("    Successfully loaded new best model for next evaluation.")
+        except Exception as e:
+            logger.error(f"    Error loading new best model: {e}. Continuing with the last epoch's model.")
 
     logger.info("\n" + "="*60)
     logger.info(f"SUCCESS CRITERIA MET: Agent achieved a 100% success rate and a best average reward of {best_average_reward_so_far:.2f}!")
