@@ -13,4 +13,3 @@ ground_resolution: 0.1
 # --- ADD THESE LINES FOR A COMPLETELY FLAT WORLD ---
 ground_elevation_max: 0.0
 ground_ditch_depth: 0.0
-seed: 30

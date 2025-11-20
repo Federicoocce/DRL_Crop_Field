@@ -1,65 +1,99 @@
-# Update system and install prerequisite tools
-sudo apt update -y && sudo apt upgrade -y
-sudo apt install -y git python3-pip curl software-properties-common locales -y
+#!/bin/bash
 
-# Configure system locale for ROS 2
-sudo locale-gen en_US en_US.UTF-8 -y
-sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 -y
+# --- START OF SCRIPT ---
 
-# Add the ROS 2 repository
+# --- Step 1: System Update and Prerequisite Tools ---
+echo "--> Updating system and installing prerequisite tools..."
+sudo apt-get update -y && sudo apt-get upgrade -y
+sudo apt-get install -y git python3-pip curl software-properties-common locales apt-utils -y
+
+# FIX: Proactively remove the system-installed sympy to prevent pip conflicts.
+
+
+# --- Step 2: Configure Python Environment (as Root) ---
+echo "--> Upgrading pip and installing compatible Python tools as root..."
+sudo pip3 install --upgrade pip
+# FIX: The setuptools version is no longer constrained by the old 'gym' package.
+# A more modern version can be used.
+sudo pip3 install --upgrade "setuptools>=60.0" wheel
+
+# --- Step 3: Configure System Locale for ROS 2 ---
+echo "--> Configuring system locale for ROS 2..."
+sudo locale-gen en_US en_US.UTF-8
+sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+export LANG=en_US.UTF-8
+
+# --- Step 4: Add ROS 2 Repository and Install ---
+echo "--> Adding ROS 2 repository and installing ROS 2 Humble..."
 sudo add-apt-repository universe -y
-sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg 
+sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+sudo apt-get update -y
+sudo apt-get install -y ros-humble-desktop ros-dev-tools
 
-# Install ROS 2 Humble Desktop and developer tools
-sudo apt update -y
-sudo apt install -y ros-humble-desktop ros-dev-tools
 
-# Install all required Python packages for the system's Python interpreter
-# This includes the fixes for NumPy, PyTorch (CUDA 12.x), and lxml
+echo "--> Removing conflicting apt packages..."
+sudo apt-get remove -y python3-sympy
+
+# FIX: Removed 'stable-baselines3' as it is not used in the imitation learning script.
 sudo pip3 install \
-    "stable-baselines3[extra]" \
     gymnasium \
     PyYAML \
     Pillow \
-    opencv-python \
+    "opencv-python~=4.8.0" \
     matplotlib \
     lxml \
     "numpy<2" \
     git+https://github.com/rdesc/pydubins.git \
-    wandb
+    wandb \
+    timm \
+    scikit-image \
+    ujson
 
-# Install PyTorch with CUDA 12.1 support
-sudo pip3 install torch torchvision torchaudio 
+echo "--> Installing PyTorch, MMLab, and other Python packages as root..."
+sudo pip3 install torch==1.12.1+cu113 torchvision==0.13.1+cu113 torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cu113
 
-# Create the workspace and clone the repository
+export CUDA_HOME=/usr/local/cuda
+sudo pip3 install mmcv-full==1.7.1 -f https://download.openmmlab.com/mmcv/dist/cu113/torch1.12.0/index.html
+sudo pip3 install mmdet==2.28.2
+# Force-reinstall a compatible NumPy version. This is a safeguard.
+echo "--> Forcing NumPy version to < 2.0 to ensure compatibility..."
+sudo pip3 install "numpy<2.0" --force-reinstall
+
+# Force-upgrade protobuf to a version compatible with the wandb gencode.
+echo "--> Overriding Protobuf version to fix runtime error..."
+sudo pip3 install --upgrade "protobuf>=3.20"
+
+# --- Step 6: Create and Build ROS 2 Workspace ---
+echo "--> Creating and building the ROS 2 workspace..."
 mkdir -p ~/ros2_ws/src
 cd ~/ros2_ws/src
-git clone -b transformer-implementation-rear-camera https://github.com/Federicoocce/DRL_Crop_Field.git
+git clone -b transfuser_updated https://github.com/Federicoocce/DRL_Crop_Field.git
 
-# Install ROS dependencies and build the workspace
 cd ~/ros2_ws
 sudo rosdep init || echo "rosdep already initialized."
 rosdep update
 rosdep install -i --from-path src --rosdistro humble -y
-echo "" >> /root/.bashrc
-echo "# DRL_Crop_Field Project Configuration" >> /root/.bashrc
-echo "export LIBGL_ALWAYS_SOFTWARE=1" >> /root/.bashrc
-echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc
-echo "source /usr/share/gazebo/setup.bash" >> /root/.bashrc
-echo "source /root/ros2_ws/install/setup.bash" >> /root/.bashrc
+
+source /opt/ros/humble/setup.bash
+colcon build
+
+
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/python3.10/dist-packages/torch/lib
+export LIBGL_ALWAYS_SOFTWARE=1
+export MPLBACKEND=Agg
+source /opt/ros/humble/setup.bash
+source /usr/share/gazebo/setup.bash
+source ~/ros2_ws/install/setup.bash
 
 echo "--- VAST.AI SETUP COMPLETE ---"
-source /opt/ros/humble/setup.bash
-source /usr/share/gazebo/setup.bash
-source ~/ros2_ws/install/setup.bash
-colcon build
-source ~/ros2_ws/install/setup.bash
-echo "source ~/ros2_ws/install/setup.bash" >> ~/.bashrc
-export LIBGL_ALWAYS_SOFTWARE=1
-source /opt/ros/humble/setup.bash
-source /usr/share/gazebo/setup.bash
-source ~/ros2_ws/install/setup.bash
-pip install --upgrade protobuf
+
+# Log in to Weights & Biases
+echo "--> Logging into Weights & Biagi..."
 wandb login 
+
+# Launch the ROS 2 application
+echo "--> Launching the training process..."
 ros2 launch my_robot_drl train_maize_nav.launch.py headless:=False mode:=il
+
+# --- END OF SCRIPT ---
