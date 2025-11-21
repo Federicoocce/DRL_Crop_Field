@@ -33,7 +33,7 @@ from .transfuser_util import (
 # --- CONFIGURATION PARAMETERS ---
 # ===================================================================
 IL_EPOCHS = 100 # Max epochs for the initial training phase
-IL_BATCH_SIZE = 4
+IL_BATCH_SIZE = 32
 IL_LEARNING_RATE = 1e-4
 DATA_COLLECTION_FPS = 2.0
 DATA_COLLECTION_FPS_TURNING = 10.0
@@ -56,8 +56,8 @@ BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
 EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_straight_depth.pkl')
-TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_cs_m_s_depth.pkl')
-VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_cl_depth.pkl')
+TRAIN_DATASET_PATH = "/workspace/360_cs_m_s_depth.pkl"
+VAL_DATASET_PATH = "/workspace/360_cl_depth.pkl"
 
 
 # ===================================================================
