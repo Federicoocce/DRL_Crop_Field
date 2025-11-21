@@ -31,6 +31,42 @@ import matplotlib.pyplot as plt
 from .dense_waypoint import get_dense_lane_waypoints, WorldDescription, Field2DGenerator
 from .config import config
 
+
+def display_sensor_streams(rgb_image=None, depth_image=None, rear_image=None):
+    """
+    Opens OpenCV windows to display sensor data for debugging.
+    This version uses fixed-range normalization for a clearer depth view.
+    """
+    # Visualization constants for depth
+    VIZ_DEPTH_MIN = 0.1  # Meters
+    VIZ_DEPTH_MAX = 5.0  # Meters (clip here for better color variation)
+
+    if rgb_image is not None and rgb_image.size > 0:
+        cv2.imshow("RGB Camera (Front)", cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR))
+
+    if depth_image is not None and depth_image.size > 0:
+        depth_to_show = np.squeeze(depth_image.copy())
+
+        # Clip the depth values to our desired visualization range
+        depth_to_show = np.clip(depth_to_show, VIZ_DEPTH_MIN, VIZ_DEPTH_MAX)
+
+        # Normalize based on the FIXED range, not the dynamic min/max of the image
+        normalized_depth = (depth_to_show - VIZ_DEPTH_MIN) / (VIZ_DEPTH_MAX - VIZ_DEPTH_MIN)
+        
+        # Convert to 8-bit and apply a colormap
+        normalized_depth_8u = (normalized_depth * 255).astype(np.uint8)
+        colored_depth = cv2.applyColorMap(normalized_depth_8u, cv2.COLORMAP_JET)
+        
+        cv2.imshow("Depth Image (Front)", colored_depth)
+
+    if rear_image is not None and rear_image.size > 0:
+        cv2.imshow("RGB Camera (Rear)", cv2.cvtColor(rear_image, cv2.COLOR_RGB2BGR))
+
+    cv2.waitKey(1)
+def close_windows():
+    """Closes all OpenCV windows."""
+    cv2.destroyAllWindows()
+
 def quaternion_from_euler(roll, pitch, yaw): # <--- ADD THIS HELPER FUNCTION
     """Converts euler roll, pitch, yaw to a Quaternion."""
     cy = math.cos(yaw * 0.5)
@@ -67,13 +103,20 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             low=np.array([0.0, -1.0]), high=np.array([0.5, 1.0]), dtype=np.float32
         )
         # --- MODIFIED: Observation Space for RAW Data ---
-        # Define raw image dimensions
-        RAW_IMG_HEIGHT = 576
-        RAW_IMG_WIDTH = 1024
+        # Define raw image dimensions for the NEW front RGB-D camera
+        FRONT_IMG_HEIGHT = 576
+        FRONT_IMG_WIDTH = 1024
+        # Dimensions for the original rear camera
+        REAR_IMG_HEIGHT = 576 
+        REAR_IMG_WIDTH = 1024
         self.MAX_LIDAR_POINTS = 10080
         STATE_VECTOR_SIZE = 4
+        # Far clipping plane from URDF, used for observation space and depth processing
+        self.camera_far_clip = 10.0
+
         obs_space_dict = {
-            'image_raw': spaces.Box(low=0, high=255, shape=(RAW_IMG_HEIGHT, RAW_IMG_WIDTH, 3), dtype=np.uint8),
+            'image_raw': spaces.Box(low=0, high=255, shape=(FRONT_IMG_HEIGHT, FRONT_IMG_WIDTH, 3), dtype=np.uint8),
+            'depth_raw': spaces.Box(low=0.0, high=self.camera_far_clip, shape=(FRONT_IMG_HEIGHT, FRONT_IMG_WIDTH, 1), dtype=np.float32),
             'lidar_raw': spaces.Box(low=-np.inf, high=np.inf, shape=(self.MAX_LIDAR_POINTS, 3), dtype=np.float32),
             'state': spaces.Box(low=-np.inf, high=np.inf, shape=(STATE_VECTOR_SIZE,), dtype=np.float32),
             'gt_waypoints': spaces.Box(low=-np.inf, high=np.inf, shape=(4, 2), dtype=np.float32)
@@ -81,7 +124,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         
         if not self.config.ignore_rear:
             self.get_logger().info("Rear camera is ENABLED in the environment.")
-            obs_space_dict['image_rear_raw'] = spaces.Box(low=0, high=255, shape=(RAW_IMG_HEIGHT, RAW_IMG_WIDTH, 3), dtype=np.uint8)
+            # Use the separate dimensions for the rear camera
+            obs_space_dict['image_rear_raw'] = spaces.Box(low=0, high=255, shape=(REAR_IMG_HEIGHT, REAR_IMG_WIDTH, 3), dtype=np.uint8)
         
         self.observation_space = spaces.Dict(obs_space_dict)
 
@@ -90,14 +134,16 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
         self.reset_sim_client = self.create_client(Empty, '/reset_simulation')
         self.set_state_client = self.create_client(SetEntityState, '/set_entity_state')
-        self.camera_sub = self.create_subscription(Image, '/tracked_robot/rgb_camera/image_raw', self.camera_callback, 10)
+        ### MODIFIED SUBSCRIBERS for RGB-D Camera ###
+        self.get_logger().info("Subscribing to RGB-D camera topics...")
+        self.camera_sub = self.create_subscription(Image, '/tracked_robot/front_rgbd_camera/image_raw', self.camera_callback, 10)
+        self.depth_sub = self.create_subscription(Image, '/tracked_robot/front_rgbd_camera/depth/image_raw', self.depth_callback, 10)
         self.lidar_3d_sub = self.create_subscription(PointCloud2, '/points', self.lidar_3d_callback, 10)
         # --- MODIFICATION: Conditional Subscriber ---
         self.current_rear_image_raw = None # Initialize as None
         if not self.config.ignore_rear:
             self.rear_camera_sub = self.create_subscription(Image, '/tracked_robot/rear_camera/image_raw', self.rear_camera_callback, 10)
-            # Pre-allocate the array only if we are using it
-            self.current_rear_image_raw = np.zeros((RAW_IMG_HEIGHT, RAW_IMG_WIDTH, 3), dtype=np.uint8)
+            self.current_rear_image_raw = np.zeros((REAR_IMG_HEIGHT, REAR_IMG_WIDTH, 3), dtype=np.uint8)
        
         self.bridge = CvBridge()
         
@@ -117,7 +163,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.current_odom = None
         self.current_scan = np.full(360, 2.0, dtype=np.float32)
         # Initialize with expected raw camera size
-        self.current_image_raw = np.zeros((576, 1024, 3), dtype=np.uint8) 
+        self.current_image_raw = np.zeros((FRONT_IMG_HEIGHT, FRONT_IMG_WIDTH, 3), dtype=np.uint8) 
+        self.current_depth_raw = np.zeros((FRONT_IMG_HEIGHT, FRONT_IMG_WIDTH, 1), dtype=np.float32)
         # Initialize empty point cloud
         self.current_lidar_raw = np.zeros((0, 3), dtype=np.float32) 
         self.min_lidar_range = 0.14
@@ -205,13 +252,28 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
     ### MODIFIED CALLBACKS ###
     def camera_callback(self, msg):
-        """Stores raw incoming camera images."""
+        """Stores raw incoming RGB camera images."""
         try:
-            # Just convert to CV2/NumPy, DO NOT CROP here.
             self.current_image_raw = self.bridge.imgmsg_to_cv2(msg, "rgb8")
         except Exception as e:
             self.get_logger().error(f"Error in camera_callback: {e}")
 
+    ### NEW: Callback for Depth Image ###
+    def depth_callback(self, msg):
+        """Stores raw incoming depth images."""
+        try:
+            # The encoding for depth images in Gazebo is typically 32FC1 (32-bit float, 1 channel)
+            # 'passthrough' will keep the original data type and depth
+            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+            
+            # The observation space expects a 3D array (H, W, 1)
+            depth_image_3d = np.expand_dims(cv_image, axis=-1)
+
+            # Replace any NaN (Not a Number) values with the far clipping distance
+            self.current_depth_raw = np.nan_to_num(depth_image_3d, nan=self.camera_far_clip)
+            
+        except Exception as e:
+            self.get_logger().error(f"Error in depth_callback: {e}")
         
     def rear_camera_callback(self, msg):
         """Stores raw incoming rear camera images."""
@@ -346,6 +408,14 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             time.sleep(0.5)
             self.current_odom, self.current_scan = None, np.full(360, 2.0, dtype=np.float32)
             self.current_lidar_raw = np.zeros((0, 3), dtype=np.float32) # Reset raw LiDAR
+            # Correctly get dimensions from the observation space definition
+            FRONT_IMG_HEIGHT = self.observation_space['image_raw'].shape[0]
+            FRONT_IMG_WIDTH = self.observation_space['image_raw'].shape[1]
+
+            self.current_image_raw = np.zeros((FRONT_IMG_HEIGHT, FRONT_IMG_WIDTH, 3), dtype=np.uint8) 
+            self.current_depth_raw = np.zeros((FRONT_IMG_HEIGHT, FRONT_IMG_WIDTH, 1), dtype=np.float32)
+
+            self.current_lidar_raw = np.zeros((0, 3), dtype=np.float32)
             start_time, got_fresh_data = time.time(), False
             while time.time() - start_time < timeout_seconds:
                 rclpy.spin_once(self, timeout_sec=0.1)
@@ -431,11 +501,17 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
     
     def render(self, mode='human'):
-        # This will now show both cameras during data collection and evaluation steps
-        render_sensor_data(
-            camera_image=self.current_image_raw, 
-            lidar_bev=None, # We don't generate BEV here
-            camera_image_rear=self.current_rear_image_raw
+        """
+        Renders the current state of the environment.
+        In 'human' mode, this opens OpenCV windows to display the front RGB,
+        front Depth, and optionally the rear RGB camera streams.
+        
+        To use this for debugging, simply call `env.render()` after `env.step()`.
+        """
+        display_sensor_streams(
+            rgb_image=self.current_image_raw, 
+            depth_image=self.current_depth_raw,
+            rear_image=self.current_rear_image_raw
         )
 
     def step(self, action):
@@ -505,7 +581,6 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         return observation, reward, terminated, truncated, self._get_info()
     
     def _get_observation(self):
-        # ... (Items 1, 2, 3 for state/waypoints remain same) ...
         gt_waypoints_rel = self._get_relative_local_goals()
         distant_goal_rel = self._get_local_coords_from_world_point(self.distant_goal_world_coords)
         linear_vel = self.last_action[0]
@@ -518,12 +593,12 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         
         obs_dict = {
             'image_raw': self.current_image_raw,
+            'depth_raw': self.current_depth_raw, # <-- ADDED DEPTH IMAGE
             'lidar_raw': self.current_lidar_raw,
             'state': state_obs,
             'gt_waypoints': gt_waypoints_rel 
         }
         
-        # --- MODIFICATION: Conditional Return ---
         if not self.config.ignore_rear and self.current_rear_image_raw is not None:
             obs_dict['image_rear_raw'] = self.current_rear_image_raw
         
@@ -783,14 +858,17 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         Cleans up resources, including calling the utility function to close windows.
         """
         self.get_logger().info("Closing MaizeNavigationEnv.")
-        # Call the helper function to destroy all OpenCV windows.
-        close_windows()
-        # ... rest of the cleanup ...
+        close_windows() # Call the helper function to destroy all OpenCV windows.
+        
         if self.cmd_vel_pub: self.destroy_publisher(self.cmd_vel_pub)
         if self.odom_sub: self.destroy_subscription(self.odom_sub)
         if self.scan_sub: self.destroy_subscription(self.scan_sub)
         if self.camera_sub: self.destroy_subscription(self.camera_sub)
         if self.lidar_3d_sub: self.destroy_subscription(self.lidar_3d_sub)
+        ### NEW: Destroy depth subscriber ###
+        if hasattr(self, 'depth_sub') and self.depth_sub: self.destroy_subscription(self.depth_sub)
+        if hasattr(self, 'rear_camera_sub') and self.rear_camera_sub: self.destroy_subscription(self.rear_camera_sub)
+
         if self.reset_sim_client: self.destroy_client(self.reset_sim_client)
         if rclpy.ok(): super().destroy_node()
 

@@ -45,7 +45,7 @@ class GlobalConfig:
     aug_max_rotation = 20 # degree
     debug = False # If true the model in and outputs will be visualized and saved into Os variable Save_Path
     sync_batch_norm = False # If this is true we convert the batch norms, to synced bach norms.
-    train_debug_save_freq = 50 # At which interval to save debug files to disk during training
+    train_debug_save_freq = 200 # At which interval to save debug files to disk during training
 
     bb_confidence_threshold = 0.3 # Confidence of a bounding box that is needed for the detection to be accepted
 
@@ -129,7 +129,7 @@ class GlobalConfig:
 
     # Optimization
     lr = 1e-4 # learning rate
-    multitask = False # whether to use segmentation + depth losses
+    multitask = True # whether to use segmentation + depth losses
     ls_seg   = 1.0
     ls_depth = 10.0
 
@@ -144,7 +144,7 @@ class GlobalConfig:
 
     detailed_losses = ['loss_wp', 'loss_bev', 'loss_depth', 'loss_semantic', 'loss_center_heatmap', 'loss_wh',
                        'loss_offset', 'loss_yaw_class', 'loss_yaw_res', 'loss_velocity', 'loss_brake']
-    detailed_losses_weights = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    detailed_losses_weights = [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     perception_output_features = 512 # Number of features outputted by the perception branch.
     bev_features_chanels = 64 # Number of channels for the BEV feature pyramid

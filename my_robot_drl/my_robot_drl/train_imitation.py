@@ -55,9 +55,9 @@ BEST_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_model.pt
 BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_model.pth')
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
-EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_mixed.pkl')
-TRAIN_DATASET_PATH = "/workspace/360_cs_s_m.pkl"
-VAL_DATASET_PATH = "/workspace/360_curved_long.pkl"
+EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_straight_depth.pkl')
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_cs_m_s_depth.pkl')
+VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_cl_depth.pkl')
 
 
 # ===================================================================
@@ -77,6 +77,8 @@ class DataPreprocessor:
     """
     def __init__(self, config):
         self.config = config
+    
+    
 
     def process_observation(self, raw_obs_dict):
         degree = 0.0
@@ -126,15 +128,23 @@ class DataPreprocessor:
             'ego_waypoint': torch.from_numpy(gt_waypoints_rot.copy()).float(),
             'target_point_image': torch.from_numpy(draw_target_point(local_command_point_rot).copy()).float(),
         }
+                ### MODIFIED: Conditionally process and add depth data ###
+        if self.config.multitask:
+            depth_raw = raw_obs_dict['depth_raw']
+            depth_processed = preprocess_depth_image(depth_raw, target_w, target_h, crop_shift)
+            processed_data['depth'] = torch.from_numpy(depth_processed.copy()).float()
+        else:
+            # Provide a dummy tensor if the task is disabled, so the batching still works
+            processed_data['depth'] = torch.zeros(target_h, target_w)
         # This part remains the same
-        if not self.config.multitask:
+        if self.config.multitask:
             processed_data['bev'] = torch.zeros(self.config.bev_resolution_height, self.config.bev_resolution_width, dtype=torch.long)
             processed_data['label'] = torch.zeros(20, 7)
             h, w = self.config.img_resolution
-            processed_data['depth'] = torch.zeros(h, w)
+            #processed_data['depth'] = torch.zeros(h, w)
             processed_data['semantic'] = torch.zeros(h, w, dtype=torch.long)
-        else:
-            raise NotImplementedError("Multitask=True is not supported by this DRL environment.")
+        #else:
+            #raise NotImplementedError("Multitask=True is not supported by this DRL environment.")
 
         return processed_data, degree
 
@@ -284,17 +294,30 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
     rclpy.spin_until_future_complete(env_node, pause_client.call_async(Empty.Request()))
 
     preprocessor = DataPreprocessor(config)
-    loss_weights = {key: weight for key, weight in zip(config.detailed_losses, config.detailed_losses_weights)}
+    loss_weights = {loss_name: weight for loss_name, weight in zip(config.detailed_losses, config.detailed_losses_weights)}
+    logger.info("Using the following loss weights for training:")
+    for name, weight in loss_weights.items():
+        if weight > 0:
+            logger.info(f"  - {name}: {weight}")
 
-    best_val_loss = float('inf')
+    # Track best WP loss specifically for saving models
+    best_val_wp_loss = float('inf')
     patience_counter = 0
+    
+    debug_save_dir = os.path.join(MODEL_SAVE_DIR, 'debug_viz')
+    os.makedirs(debug_save_dir, exist_ok=True)
 
     try:
         for epoch in range(max_epochs):
+            # ==========================================
             # --- TRAINING PASS ---
+            # ==========================================
             model.train()
             random.shuffle(train_dataset)
-            epoch_train_loss = 0.0
+            
+            # accumulators for logging average epoch losses
+            epoch_train_total_loss = 0.0
+            epoch_train_individual_losses = {k: 0.0 for k in loss_weights.keys() if loss_weights[k] > 0}
             num_train_batches = 0
 
             for i in range(0, len(train_dataset), IL_BATCH_SIZE):
@@ -302,94 +325,134 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                 if len(raw_batch) < IL_BATCH_SIZE: continue
 
                 # --- START: Augmentation Debug Visualization ---
-                if i % 32 == 0:  # Check periodically
-                    first_sample_raw = raw_batch[0]
-                    
-                    processed_augmented, augmented_degree = preprocessor.process_observation(first_sample_raw)
-                    
-                    if abs(augmented_degree) > 19.0:
-                        original_augment_state = preprocessor.config.augment
-                        preprocessor.config.augment = False
-                        processed_original, original_degree = preprocessor.process_observation(first_sample_raw)
-                        preprocessor.config.augment = original_augment_state
-                        
-                        batch_original = {key: val.unsqueeze(0).to(model.device) for key, val in processed_original.items()}
-                        batch_augmented = {key: val.unsqueeze(0).to(model.device) for key, val in processed_augmented.items()}
-                        
-                        original_wps = batch_original['ego_waypoint'][0].cpu().numpy()
-                        augmented_wps = batch_augmented['ego_waypoint'][0].cpu().numpy()
-                        # Call the visualization function, now with waypoints
-                        debug_augmentation_visualize(
-                            batch_original, batch_augmented, 
-                            original_degree, augmented_degree,
-                            original_wps, augmented_wps
-                        )
-                        # ===================== END OF THE FIX =====================
-
+                # if i % 32 == 0: 
+                #     first_sample_raw = raw_batch[0]
+                #     processed_augmented, augmented_degree = preprocessor.process_observation(first_sample_raw)
+                #     if abs(augmented_degree) > 19.0:
+                #         original_augment_state = preprocessor.config.augment
+                #         preprocessor.config.augment = False
+                #         processed_original, original_degree = preprocessor.process_observation(first_sample_raw)
+                #         preprocessor.config.augment = original_augment_state
+                #         batch_original = {key: val.unsqueeze(0).to(model.device) for key, val in processed_original.items()}
+                #         batch_augmented = {key: val.unsqueeze(0).to(model.device) for key, val in processed_augmented.items()}
+                #         original_wps = batch_original['ego_waypoint'][0].cpu().numpy()
+                #         augmented_wps = batch_augmented['ego_waypoint'][0].cpu().numpy()
+                #         debug_augmentation_visualize(batch_original, batch_augmented, original_degree, augmented_degree, original_wps, augmented_wps)
                 # --- END: Augmentation Debug Visualization ---
 
-
-                processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] # Get only the data dict
+                processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] 
                 batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
-     
+                
+                # Pass save path for model debug visualization
+                batch['save_path'] = debug_save_dir 
+
                 losses = model(**batch)
+                
                 total_loss = torch.tensor(0.0, device=model.device)
+                
+                # Aggregate losses
                 for key, value in losses.items():
-                    if key in loss_weights: total_loss += loss_weights[key] * value
+                    # Always track raw value if it's a known loss
+                    if key in epoch_train_individual_losses:
+                        epoch_train_individual_losses[key] += value.item()
+
+                    # Apply weight for optimization
+                    if key in loss_weights and loss_weights[key] > 0:
+                        weighted_loss = loss_weights[key] * value
+                        total_loss += weighted_loss
 
                 optimizer.zero_grad()
                 total_loss.backward()
                 optimizer.step()
 
-                epoch_train_loss += total_loss.item()
+                epoch_train_total_loss += total_loss.item()
                 num_train_batches += 1
             
-            avg_train_loss = epoch_train_loss / num_train_batches if num_train_batches > 0 else 0
+            # Calculate Training Averages
+            avg_train_total = epoch_train_total_loss / num_train_batches if num_train_batches > 0 else 0
+            avg_train_individual = {k: v / num_train_batches for k, v in epoch_train_individual_losses.items() if num_train_batches > 0}
 
+            # ==========================================
             # --- VALIDATION PASS ---
+            # ==========================================
             model.eval()
-            epoch_val_loss = 0.0
+            epoch_val_total_loss = 0.0
+            epoch_val_individual_losses = {k: 0.0 for k in loss_weights.keys() if loss_weights[k] > 0}
             num_val_batches = 0
+            
             with torch.no_grad():
                 for i in range(0, len(val_dataset), IL_BATCH_SIZE):
                     raw_batch = val_dataset[i:i + IL_BATCH_SIZE]
                     if len(raw_batch) < IL_BATCH_SIZE: continue
 
-                    processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] # Get only data
+                    processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] 
                     batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
 
-                    losses = model(**batch)
-                    total_loss = torch.tensor(0.0, device=model.device)
-                    for key, value in losses.items():
-                        if key in loss_weights: total_loss += loss_weights[key] * value
+                    # Note: We don't pass save_path here to avoid saving validation images
                     
-                    epoch_val_loss += total_loss.item()
+                    losses = model(**batch)
+
+                    total_loss = torch.tensor(0.0, device=model.device)
+                    
+                    for key, value in losses.items():
+                        # Always track raw value
+                        if key in epoch_val_individual_losses:
+                            epoch_val_individual_losses[key] += value.item()
+
+                        # Apply weight for total metric
+                        if key in loss_weights and loss_weights[key] > 0:
+                            weighted_loss = loss_weights[key] * value
+                            total_loss += weighted_loss
+                        
+                    epoch_val_total_loss += total_loss.item()
                     num_val_batches += 1
 
-            avg_val_loss = epoch_val_loss / num_val_batches if num_val_batches > 0 else 0
-            current_global_epoch = global_epoch_counter + epoch + 1
-            logger.info(f"  [Training] Epoch {epoch + 1}/{max_epochs} | Global Step: {current_global_epoch} | Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}")
-            wandb.log({"train_loss": avg_train_loss, "val_loss": avg_val_loss}, step=current_global_epoch)
+            # Calculate Validation Averages
+            avg_val_total = epoch_val_total_loss / num_val_batches if num_val_batches > 0 else 0
+            avg_val_individual = {k: v / num_val_batches for k, v in epoch_val_individual_losses.items() if num_val_batches > 0}
 
-            # --- LOGIC FOR BEST MODEL SAVING & EARLY STOPPING ---
+            # Prepare Logging Data
+            current_global_epoch = global_epoch_counter + epoch + 1
+            
+            # Extract specific WP loss for decision making (default to total if not found, but it should exist)
+            current_val_wp_loss = avg_val_individual.get('loss_wp', avg_val_total)
+
+            logger.info(f"  [Epoch {epoch + 1}] Train Total: {avg_train_total:.4f} | Val Total: {avg_val_total:.4f} | Val WP: {current_val_wp_loss:.4f}")
+            
+            # Construct WandB Dictionary
+            wandb_log_data = {
+                "loss_train/total_weighted": avg_train_total,
+                "loss_val/total_weighted": avg_val_total,
+            }
+            # Add individual train losses
+            for k, v in avg_train_individual.items():
+                wandb_log_data[f"loss_train/{k}"] = v
+            # Add individual val losses
+            for k, v in avg_val_individual.items():
+                wandb_log_data[f"loss_val/{k}"] = v
+                
+            wandb.log(wandb_log_data, step=current_global_epoch)
+
+            # ==========================================
+            # --- SAVING LOGIC (BASED ON WP LOSS) ---
+            # ==========================================
             if use_early_stopping:
-                if avg_val_loss < best_val_loss:
-                    best_val_loss = avg_val_loss
+                # Check improvement based ONLY on Waypoint Loss
+                if current_val_wp_loss < best_val_wp_loss:
+                    best_val_wp_loss = current_val_wp_loss
                     patience_counter = 0
-                    # --- START OF THE FIX ---
-                    # If this is the initial training phase, save the best validation model
-                    logger.info(f"    New best validation loss: {best_val_loss:.6f}. Saving model...")
+                    
+                    logger.info(f"    New best WP loss: {best_val_wp_loss:.6f}. Saving model...")
                     os.makedirs(os.path.dirname(BEST_VAL_MODEL_SAVE_PATH), exist_ok=True)
                     try:
                         torch.save(model.state_dict(), BEST_VAL_MODEL_SAVE_PATH)
                     except Exception as e:
                         logger.error(f"    Could not save best validation model. Error: {e}")
-                    # --- END OF THE FIX ---
                 else:
                     patience_counter += 1
                 
                 if patience_counter >= EARLY_STOPPING_PATIENCE:
-                    logger.info(f"Early stopping triggered after {patience_counter} epochs without validation loss improvement.")
+                    logger.info(f"Early stopping triggered after {patience_counter} epochs without WP loss improvement.")
                     break
     finally:
         rclpy.spin_until_future_complete(env_node, unpause_client.call_async(Empty.Request()))
@@ -515,6 +578,42 @@ def preprocess_front_camera_image(image_np, target_w, target_h, crop_shift=0):
 
     # 5. Return as C, H, W for PyTorch.
     return np.transpose(resized_image, (2, 0, 1))
+
+def preprocess_depth_image(image_np, target_w, target_h, crop_shift=0):
+    """
+    Transforms the raw depth image with the EXACT same cropping and resizing
+    as the RGB image to ensure perfect alignment. Normalizes depth to [0, 1].
+    """
+    if image_np.ndim == 3:
+        image_np = np.squeeze(image_np, axis=-1)
+
+    CAMERA_FULL_FOV = 130.0
+    SIDE_BUFFER_DEG = 20.0
+    source_h, source_w = image_np.shape
+    
+    effective_fov = CAMERA_FULL_FOV - 2 * SIDE_BUFFER_DEG
+    crop_w = int((effective_fov / CAMERA_FULL_FOV) * source_w)
+    target_aspect_ratio = target_w / target_h
+    crop_h = int(crop_w / target_aspect_ratio)
+
+    center_x = source_w / 2
+    center_y = source_h / 2
+    start_x_centered = center_x - (crop_w / 2)
+    start_y = int(center_y - (crop_h / 2))
+    start_x = int(start_x_centered + crop_shift)
+    
+    end_x = start_x + crop_w
+    end_y = start_y + crop_h
+    
+    panoramic_crop = image_np[start_y:end_y, start_x:end_x]
+    resized_image = cv2.resize(panoramic_crop, (target_w, target_h), interpolation=cv2.INTER_AREA)
+
+    # Normalize depth to [0, 1] for the loss function. Clip at a max distance.
+    MAX_DEPTH_METERS = 10.0 
+    resized_image = np.clip(resized_image, 0.0, MAX_DEPTH_METERS)
+    normalized_depth = resized_image / MAX_DEPTH_METERS
+    
+    return normalized_depth # Returns (H, W)
 
 # ===================================================================
 # --- MAIN EXECUTION ---

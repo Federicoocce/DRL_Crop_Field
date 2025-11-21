@@ -573,7 +573,7 @@ class LidarCenterNet(nn.Module):
             raise("The chosen vision backbone does not exist. The options are: transFuser, late_fusion, geometric_fusion, latentTF")
 
         if config.multitask:
-            self.seg_decoder   = SegDecoder(self.config,   self.config.perception_output_features).to(self.device)
+            #self.seg_decoder   = SegDecoder(self.config,   self.config.perception_output_features).to(self.device)
             self.depth_decoder = DepthDecoder(self.config, self.config.perception_output_features).to(self.device)
 
         channel = config.channel
@@ -732,6 +732,9 @@ class LidarCenterNet(nn.Module):
 
     def forward(self, rgb, lidar_bev, ego_waypoint, target_point, target_point_image, ego_vel, bev, label, depth, semantic, num_points=None, save_path=None, bev_points=None, cam_points=None):
         loss = {}
+        preds = None
+        pred_bev = None
+        pred_depth = None
 
         if(self.use_point_pillars == True):
             lidar_bev = self.point_pillar_net(lidar_bev, num_points)
@@ -788,24 +791,43 @@ class LidarCenterNet(nn.Module):
 
         # This part was already correct
         if self.config.multitask:
-            pred_semantic = self.seg_decoder(image_features_grid)
+            #pred_semantic = self.seg_decoder(image_features_grid)
             pred_depth = self.depth_decoder(image_features_grid)
-            loss_semantic = self.config.ls_seg * F.cross_entropy(pred_semantic, semantic).mean()
+            #loss_semantic = self.config.ls_seg * F.cross_entropy(pred_semantic, semantic).mean()
             loss_depth = self.config.ls_depth * F.l1_loss(pred_depth, depth).mean()
             loss.update({
-                "loss_depth": loss_depth,
-                "loss_semantic": loss_semantic
+                "loss_depth": loss_depth
+                #"loss_semantic": loss_semantic
             })
         self.i += 1
         if ((self.config.debug == True) and (self.i % self.config.train_debug_save_freq == 0) and (save_path != None)):
             with torch.no_grad():
-                results = self.head.get_bboxes(preds[0], preds[1], preds[2], preds[3], preds[4], preds[5], preds[6])
-                bboxes, _ = results[0]
-                bboxes = bboxes[bboxes[:, -1] > self.config.bb_confidence_threshold]
-                self.visualize_model_io(save_path, self.i, self.config, rgb, lidar_bev, target_point,
-                                   pred_wp, pred_bev, pred_semantic, pred_depth, bboxes, self.device,
-                                   gt_bboxes=label, expert_waypoints=ego_waypoint, stuck_detector=0, forced_move=False)
+                # HANDLE BBOXES: Check if preds exists
+                if preds is not None:
+                    results = self.head.get_bboxes(preds[0], preds[1], preds[2], preds[3], preds[4], preds[5], preds[6])
+                    bboxes, _ = results[0]
+                    bboxes = bboxes[bboxes[:, -1] > self.config.bb_confidence_threshold]
+                else:
+                    # If detection was skipped, create an empty bbox tensor
+                    bboxes = torch.zeros((0, 8)).to(self.device)
 
+                # HANDLE BEV: Check if pred_bev exists
+                if pred_bev is not None:
+                    pred_bev_viz = pred_bev
+                else:
+                    # If BEV was skipped, create dummy black image
+                    pred_bev_viz = torch.zeros((rgb.shape[0], 3, self.config.bev_resolution_height, self.config.bev_resolution_width)).to(self.device)
+
+                # HANDLE DEPTH
+                pred_depth_viz = pred_depth if self.config.multitask else None
+
+                self.visualize_model_io(save_path, self.i, self.config, rgb, lidar_bev, target_point,
+                                   pred_wp, 
+                                   pred_bev_viz, 
+                                   None, 
+                                   pred_depth_viz, bboxes, self.device,
+                                   gt_bboxes=label, expert_waypoints=ego_waypoint, stuck_detector=0, forced_move=False,
+                                   gt_depth=depth)
         return loss
 
 
@@ -936,33 +958,44 @@ class LidarCenterNet(nn.Module):
         point = np.clip(point, 0, 512)
         cv2.circle(image, tuple(point), radius=5, color=color, thickness=3)
         return image
-
+    
     def visualize_model_io(self, save_path, step, config, rgb, lidar_bev, target_point,
                         pred_wp, pred_bev, pred_semantic, pred_depth, bboxes, device,
-                        gt_bboxes=None, expert_waypoints=None, stuck_detector=0, forced_move=False):
+                        gt_bboxes=None, expert_waypoints=None, stuck_detector=0, forced_move=False,
+                        gt_depth=None): # <--- 1. ADD gt_depth ARGUMENT
         font = ImageFont.load_default()
-        i = 0 # We only visualize the first image if there is a batch of them.
-        if config.multitask:
-            classes_list = config.classes_list
-            converter = np.array(classes_list)
+        i = 0 
 
-            depth_image = pred_depth[i].detach().cpu().numpy()
+        # --- 2. DEPTH VISUALIZATION LOGIC ---
+        depth_stack = None
+        
+        # Process Predicted Depth
+        if pred_depth is not None:
+            p_d_img = pred_depth[i].detach().cpu().numpy()
+            p_d_img = (np.clip(p_d_img, 0, 1) * 255).astype(np.uint8)
+            p_d_color = cv2.applyColorMap(p_d_img, cv2.COLORMAP_MAGMA)
+            cv2.putText(p_d_color, "Pred Depth", (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            depth_stack = p_d_color
 
-            indices = np.argmax(pred_semantic.detach().cpu().numpy(), axis=1)
-            semantic_image = converter[indices[i, ...], ...].astype('uint8')
+        # Process Ground Truth Depth
+        if gt_depth is not None:
+            g_d_img = gt_depth[i].detach().cpu().numpy()
+            g_d_img = (np.clip(g_d_img, 0, 1) * 255).astype(np.uint8)
+            g_d_color = cv2.applyColorMap(g_d_img, cv2.COLORMAP_MAGMA)
+            cv2.putText(g_d_color, "GT Depth", (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
+            if depth_stack is not None:
+                # Stack GT on top of Prediction
+                depth_stack = np.concatenate((g_d_color, depth_stack), axis=0)
+            else:
+                depth_stack = g_d_color
 
-            ds_image = np.stack((depth_image, depth_image, depth_image), axis=2)
-            ds_image = (ds_image * 255).astype(np.uint8)
-            ds_image = np.concatenate((ds_image, semantic_image), axis=0)
-            ds_image = cv2.resize(ds_image, (640, 256))
-            ds_image = np.concatenate([ds_image, np.zeros_like(ds_image[:50])], axis=0)
-
+        # --- 3. BEV VISUALIZATION (Standard) ---
         images = np.concatenate(list(lidar_bev.detach().cpu().numpy()[i][:2]), axis=1)
         images = (images * 255).astype(np.uint8)
         images = np.stack([images, images, images], axis=-1)
         images = np.concatenate([images, np.zeros_like(images[:50])], axis=0)
 
-        # draw bbox GT
         if (not (gt_bboxes is None)):
             rotated_bboxes_gt = []
             for bbox in gt_bboxes.detach().cpu().numpy()[i]:
@@ -970,11 +1003,13 @@ class LidarCenterNet(nn.Module):
                 rotated_bboxes_gt.append(bbox)
             images = self.draw_bboxes(rotated_bboxes_gt, images, color=(0, 255, 0), brake_color=(0, 255, 128))
 
-        rotated_bboxes = []
-        for bbox in bboxes.detach().cpu().numpy():
-            bbox = self.get_rotated_bbox(bbox[:7])
-            rotated_bboxes.append(bbox)
-        images = self.draw_bboxes(rotated_bboxes, images, color=(255, 0, 0), brake_color=(0, 255, 255))
+        # Only draw predicted bboxes if they exist (not empty)
+        if len(bboxes) > 0:
+            rotated_bboxes = []
+            for bbox in bboxes.detach().cpu().numpy():
+                bbox = self.get_rotated_bbox(bbox[:7])
+                rotated_bboxes.append(bbox)
+            images = self.draw_bboxes(rotated_bboxes, images, color=(255, 0, 0), brake_color=(0, 255, 255))
 
         label = torch.zeros((1, 1, 7)).to(device)
         label[:, -1, 0] = 128.
@@ -983,24 +1018,20 @@ class LidarCenterNet(nn.Module):
         if not expert_waypoints is None:
             images = self.draw_waypoints(label[0], expert_waypoints[i:i+1], images, color=(0, 0, 255))
 
-        images = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, 2:]), images, color=(255, 255, 255)) # Auxliary waypoints in white
-        images = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, :2]), images, color=(255, 0, 0))     # First two, relevant waypoints in blue
-
-        # draw target points
+        images = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, 2:]), images, color=(255, 255, 255)) 
+        images = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, :2]), images, color=(255, 0, 0))     
         images = self.draw_target_point(target_point[i].detach().cpu().numpy(), images)
 
-        # stuck text
-        images = Image.fromarray(images)
-        draw = ImageDraw.Draw(images)
-        draw.text((10, 0), "stuck detector:   %04d" % (stuck_detector), font=font)
-        draw.text((10, 30), "forced move:      %s" % (" True" if forced_move else "False"), font=font,
-                  fill=(255, 0, 0, 255) if forced_move else (255, 255, 255, 255))
-        images = np.array(images)
+        # Handle BEV Output (Check if it exists)
+        if pred_bev is not None:
+            bev = pred_bev[i].detach().cpu().numpy().argmax(axis=0) / 2.
+            bev = np.stack([bev, bev, bev], axis=2) * 255.
+            bev_image = bev.astype(np.uint8)
+            bev_image = cv2.resize(bev_image, (256, 256))
+        else:
+            # Placeholder black image if BEV task is off
+            bev_image = np.zeros((256, 256, 3), dtype=np.uint8)
 
-        bev = pred_bev[i].detach().cpu().numpy().argmax(axis=0) / 2.
-        bev = np.stack([bev, bev, bev], axis=2) * 255.
-        bev_image = bev.astype(np.uint8)
-        bev_image = cv2.resize(bev_image, (256, 256))
         bev_image = np.concatenate([bev_image, np.zeros_like(bev_image[:50])], axis=0)
 
         if not expert_waypoints is None:
@@ -1008,28 +1039,124 @@ class LidarCenterNet(nn.Module):
 
         bev_image = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, 2:]), bev_image, color=(255, 255, 255))
         bev_image = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, :2]), bev_image, color=(255, 0, 0))
-
         bev_image = self.draw_target_point(target_point[i].detach().cpu().numpy(), bev_image)
-
-        if (not (expert_waypoints is None)):
-            aim = expert_waypoints[i:i + 1, :2].detach().cpu().numpy()[0].mean(axis=0)
-            expert_angle = np.degrees(np.arctan2(aim[1], aim[0] + self.config.lidar_pos[0]))
-
-            aim = pred_wp[i:i + 1, :2].detach().cpu().numpy()[0].mean(axis=0)
-            ego_angle = np.degrees(np.arctan2(aim[1], aim[0] + self.config.lidar_pos[0]))
-            angle_error = normalize_angle_degree(expert_angle - ego_angle)
-
-            bev_image = Image.fromarray(bev_image)
-            draw = ImageDraw.Draw(bev_image)
-            draw.text((0, 0), "Angle error:        %.2f°" % (angle_error), font=font)
 
         bev_image = np.array(bev_image)
 
+        # --- 4. FINAL ASSEMBLY ---
         rgb_image = rgb[i].permute(1, 2, 0).detach().cpu().numpy()[:, :, [2, 1, 0]]
-        rgb_image = cv2.resize(rgb_image, (1280 + 128, 320 + 32))
-        assert (config.multitask)
-        images = np.concatenate((bev_image, images, ds_image), axis=1)
+        
+        # Layout: RGB | BEV | LiDAR Raw
+        target_h = images.shape[0] 
+        rgb_aspect = rgb_image.shape[1] / rgb_image.shape[0]
+        target_w = int(target_h * rgb_aspect)
+        rgb_image = cv2.resize(rgb_image, (target_w, target_h))
 
-        images = np.concatenate((rgb_image, images), axis=0)
+        main_panel = np.concatenate((rgb_image, bev_image, images), axis=1)
 
-        cv2.imwrite(str(save_path + ("/%d.png" % (step // 2))), images)
+        # Add Depth Stack if it exists
+        if depth_stack is not None:
+            ds_aspect = depth_stack.shape[1] / depth_stack.shape[0]
+            ds_target_w = int(target_h * ds_aspect)
+            depth_stack = cv2.resize(depth_stack, (ds_target_w, target_h))
+            final_image = np.concatenate((main_panel, depth_stack), axis=1)
+        else:
+            final_image = main_panel
+
+        cv2.imwrite(str(save_path + ("/%d.png" % (step // 2))), final_image)
+    # def visualize_model_io(self, save_path, step, config, rgb, lidar_bev, target_point,
+    #                     pred_wp, pred_bev, pred_semantic, pred_depth, bboxes, device,
+    #                     gt_bboxes=None, expert_waypoints=None, stuck_detector=0, forced_move=False):
+    #     font = ImageFont.load_default()
+    #     i = 0 # We only visualize the first image if there is a batch of them.
+    #     if config.multitask:
+    #         classes_list = config.classes_list
+    #         converter = np.array(classes_list)
+
+    #         depth_image = pred_depth[i].detach().cpu().numpy()
+
+    #         indices = np.argmax(pred_semantic.detach().cpu().numpy(), axis=1)
+    #         semantic_image = converter[indices[i, ...], ...].astype('uint8')
+
+    #         ds_image = np.stack((depth_image, depth_image, depth_image), axis=2)
+    #         ds_image = (ds_image * 255).astype(np.uint8)
+    #         ds_image = np.concatenate((ds_image, semantic_image), axis=0)
+    #         ds_image = cv2.resize(ds_image, (640, 256))
+    #         ds_image = np.concatenate([ds_image, np.zeros_like(ds_image[:50])], axis=0)
+
+    #     images = np.concatenate(list(lidar_bev.detach().cpu().numpy()[i][:2]), axis=1)
+    #     images = (images * 255).astype(np.uint8)
+    #     images = np.stack([images, images, images], axis=-1)
+    #     images = np.concatenate([images, np.zeros_like(images[:50])], axis=0)
+
+    #     # draw bbox GT
+    #     if (not (gt_bboxes is None)):
+    #         rotated_bboxes_gt = []
+    #         for bbox in gt_bboxes.detach().cpu().numpy()[i]:
+    #             bbox = self.get_rotated_bbox(bbox)
+    #             rotated_bboxes_gt.append(bbox)
+    #         images = self.draw_bboxes(rotated_bboxes_gt, images, color=(0, 255, 0), brake_color=(0, 255, 128))
+
+    #     rotated_bboxes = []
+    #     for bbox in bboxes.detach().cpu().numpy():
+    #         bbox = self.get_rotated_bbox(bbox[:7])
+    #         rotated_bboxes.append(bbox)
+    #     images = self.draw_bboxes(rotated_bboxes, images, color=(255, 0, 0), brake_color=(0, 255, 255))
+
+    #     label = torch.zeros((1, 1, 7)).to(device)
+    #     label[:, -1, 0] = 128.
+    #     label[:, -1, 1] = 256.
+
+    #     if not expert_waypoints is None:
+    #         images = self.draw_waypoints(label[0], expert_waypoints[i:i+1], images, color=(0, 0, 255))
+
+    #     images = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, 2:]), images, color=(255, 255, 255)) # Auxliary waypoints in white
+    #     images = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, :2]), images, color=(255, 0, 0))     # First two, relevant waypoints in blue
+
+    #     # draw target points
+    #     images = self.draw_target_point(target_point[i].detach().cpu().numpy(), images)
+
+    #     # stuck text
+    #     images = Image.fromarray(images)
+    #     draw = ImageDraw.Draw(images)
+    #     draw.text((10, 0), "stuck detector:   %04d" % (stuck_detector), font=font)
+    #     draw.text((10, 30), "forced move:      %s" % (" True" if forced_move else "False"), font=font,
+    #               fill=(255, 0, 0, 255) if forced_move else (255, 255, 255, 255))
+    #     images = np.array(images)
+
+    #     bev = pred_bev[i].detach().cpu().numpy().argmax(axis=0) / 2.
+    #     bev = np.stack([bev, bev, bev], axis=2) * 255.
+    #     bev_image = bev.astype(np.uint8)
+    #     bev_image = cv2.resize(bev_image, (256, 256))
+    #     bev_image = np.concatenate([bev_image, np.zeros_like(bev_image[:50])], axis=0)
+
+    #     if not expert_waypoints is None:
+    #         bev_image = self.draw_waypoints(label[0], expert_waypoints[i:i+1], bev_image, color=(0, 0, 255))
+
+    #     bev_image = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, 2:]), bev_image, color=(255, 255, 255))
+    #     bev_image = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, :2]), bev_image, color=(255, 0, 0))
+
+    #     bev_image = self.draw_target_point(target_point[i].detach().cpu().numpy(), bev_image)
+
+    #     if (not (expert_waypoints is None)):
+    #         aim = expert_waypoints[i:i + 1, :2].detach().cpu().numpy()[0].mean(axis=0)
+    #         expert_angle = np.degrees(np.arctan2(aim[1], aim[0] + self.config.lidar_pos[0]))
+
+    #         aim = pred_wp[i:i + 1, :2].detach().cpu().numpy()[0].mean(axis=0)
+    #         ego_angle = np.degrees(np.arctan2(aim[1], aim[0] + self.config.lidar_pos[0]))
+    #         angle_error = normalize_angle_degree(expert_angle - ego_angle)
+
+    #         bev_image = Image.fromarray(bev_image)
+    #         draw = ImageDraw.Draw(bev_image)
+    #         draw.text((0, 0), "Angle error:        %.2f°" % (angle_error), font=font)
+
+    #     bev_image = np.array(bev_image)
+
+    #     rgb_image = rgb[i].permute(1, 2, 0).detach().cpu().numpy()[:, :, [2, 1, 0]]
+    #     rgb_image = cv2.resize(rgb_image, (1280 + 128, 320 + 32))
+    #     assert (config.multitask)
+    #     images = np.concatenate((bev_image, images, ds_image), axis=1)
+
+    #     images = np.concatenate((rgb_image, images), axis=0)
+
+    #     cv2.imwrite(str(save_path + ("/%d.png" % (step // 2))), images)

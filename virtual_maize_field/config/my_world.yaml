@@ -3,6 +3,7 @@ rows_count: 6
 row_segments:
   - sincurved
 
+
 hole_prob: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 hole_size_max: [0, 0, 0, 0, 0, 0]
 row_segment_sincurved_offset_min: 0.2

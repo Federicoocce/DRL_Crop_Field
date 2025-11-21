@@ -68,7 +68,7 @@ sudo pip3 install --upgrade "protobuf>=3.20"
 echo "--> Creating and building the ROS 2 workspace..."
 mkdir -p ~/ros2_ws/src
 cd ~/ros2_ws/src
-git clone -b transfuser_updated https://github.com/Federicoocce/DRL_Crop_Field.git
+git clone -b transfuser_auxiliary_tasks https://github.com/Federicoocce/DRL_Crop_Field.git
 
 cd ~/ros2_ws
 sudo rosdep init || echo "rosdep already initialized."
