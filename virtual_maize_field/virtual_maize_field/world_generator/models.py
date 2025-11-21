@@ -132,6 +132,7 @@ CROP_MODELS = {
     # "cylinder": GazeboModel("cylinder"),
     "maize_01": GazeboModel(model_name="maize_01"),
     "maize_02": GazeboModel(model_name="maize_02"),
+    "maize_detailed_0246": GazeboModel(model_name="maize_detailed_0246", static=True, random_yaw=True)
 }
 
 WEED_MODELS = {

@@ -215,15 +215,15 @@
     <!-- Gazebo Plugin for SICK multiScan136 3D LiDAR -->
     <gazebo reference="lidar_3d_link">
         <sensor name="lidar_3d_sensor" type="ray">
-            <visualize>false</visualize>
+            <visualize>true</visualize>
             <update_rate>20</update_rate>
             <ray>
                 <scan>
                     <horizontal>
                         <samples>720</samples>
                         <resolution>1</resolution>
-                        <min_angle>-${PI}</min_angle>
-                        <max_angle>${PI}</max_angle>
+                        <min_angle>-${1.75}</min_angle>
+                        <max_angle>${1.75}</max_angle>
                     </horizontal>
                     <vertical>
                         <samples>14</samples>
