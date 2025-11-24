@@ -7,9 +7,9 @@ import os
 from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
 
 class RealTimeSemanticMapper:
-    def __init__(self, device='cuda', resolution=0.04, map_size_px=1000):
+    def __init__(self, device='cuda', resolution=0.02, map_size_px=2000):
         """
-        resolution: 0.04 = 4cm voxels (High Density)
+        resolution: 0.02 = 2cm voxels (High Density)
         """
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
         print(f"Initializing RealTimeMapper on {self.device} (Farm Logic | Dense Grid)...")
@@ -109,7 +109,7 @@ class RealTimeSemanticMapper:
         
         # Range Filter
         dists = torch.norm(lidar_t, dim=1)
-        valid_pts = (dists > 0.15) & (dists < 3.5) # Slightly increased range
+        valid_pts = (dists > 0.15) & (dists < 3.5)
         lidar_t = lidar_t[valid_pts]
         if lidar_t.shape[0] == 0: return self.cached_seg_viz
 
@@ -226,14 +226,16 @@ class RealTimeSemanticMapper:
             return
         
         full_path = os.path.abspath(filename)
-        print(f"Building 3D Map from {len(self.voxel_grid)} voxels...")
+        print(f"Filtering and Building 3D Map from {len(self.voxel_grid)} voxels...")
         
         final_pts = []
         final_colors = []
         
+        # --- 1. VOTING FILTER ---
         for key, votes in self.voxel_grid.items():
             total_votes = sum(votes)
-            if total_votes < 3: continue # Filter weak noise
+            # Threshold: Voxel must be seen at least 4 times to be saved
+            if total_votes < 4: continue 
             
             winner_class = np.argmax(votes)
             
@@ -255,9 +257,17 @@ class RealTimeSemanticMapper:
             print("Map empty after voting.")
             return
 
+        # Create Open3D Object
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(np.array(final_pts, dtype=np.float32))
         pcd.colors = o3d.utility.Vector3dVector(np.array(final_colors, dtype=np.float32))
+
+        # --- 2. RADIUS OUTLIER REMOVAL (Clean Scattered Points) ---
+        print("Running Radius Outlier Removal...")
+        # Every point must have at least 5 neighbors within a 6cm radius
+        # Since resolution is 4cm, neighbors should be adjacent voxels
+        cl, ind = pcd.remove_radius_outlier(nb_points=5, radius=0.06)
+        pcd_clean = pcd.select_by_index(ind)
         
-        o3d.io.write_point_cloud(full_path, pcd)
-        print(f"Saved Voted 3D Map to: {full_path}")
+        o3d.io.write_point_cloud(full_path, pcd_clean)
+        print(f"Saved Cleaned 3D Map to: {full_path}")

@@ -130,7 +130,7 @@ def to_gazebo_models(
 
 CROP_MODELS = {
     # "cylinder": GazeboModel("cylinder"),
-    "maize_01": GazeboModel(model_name="maize_01"),
+    "maize_01": GazeboModel(model_name="maize_01", static=True),
     "maize_02": GazeboModel(model_name="maize_02", static=True),
     "maize_detailed_0246": GazeboModel(model_name="maize_detailed_0246", static=True, random_yaw=True)
 }

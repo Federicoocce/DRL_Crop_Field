@@ -16,12 +16,14 @@
         </inertia>
         <pose>0 0 0.1 0 0 0</pose>
       </inertial>
+      <!-- COLLISION (Updated to use Mesh) -->
       <collision name='collision'>
-        <pose>0 0 0.2 0 -0 0</pose>
+        <pose>0 0 0 0 -0 0</pose> <!-- Pose set to 0 to align with visual -->
         <geometry>
-          <box>
-            <size>0.02 0.02 0.4</size>
-          </box>
+          <mesh>
+            <uri>model://maize_01/meshes/maize_01.dae</uri>
+            <scale>0.683166466464586 0.683166466464586 0.683166466464586</scale>
+          </mesh>
         </geometry>
         <max_contacts>10</max_contacts>
         <surface>
