@@ -4,6 +4,7 @@ import numpy as np
 import cv2
 import open3d as o3d
 import os
+import random
 from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
 
 class RealTimeSemanticMapper:
@@ -12,13 +13,15 @@ class RealTimeSemanticMapper:
         resolution: 0.02 = 2cm voxels (High Density)
         """
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
-        print(f"Initializing RealTimeMapper on {self.device} (Farm Logic | Dense Grid)...")
+        print(f"Initializing RealTimeMapper on {self.device} (Strict Filtering | No Sky)...")
 
-        # --- AI Model ---
-        # We use the robust NVIDIA model, but interpret the classes as Farm objects
+        # --- AI Model (Segformer B1) ---
         model_name = "nvidia/segformer-b1-finetuned-ade-512-512" 
         self.processor = SegformerImageProcessor.from_pretrained(model_name)
         self.model = SegformerForSemanticSegmentation.from_pretrained(model_name).to(self.device).half().eval()
+        
+        # Load Labels for Debugging
+        self.id2label = self.model.config.id2label
 
         # --- Map Config ---
         self.res = resolution 
@@ -28,7 +31,7 @@ class RealTimeSemanticMapper:
         
         # 2D Grid [H, W, 3]
         self.grid = torch.zeros((self.map_size, self.map_size, 3), device=self.device, dtype=torch.float32)
-        # Higher Hit log-odds to fill map faster (denser feel)
+        # Higher Hit log-odds to fill map faster
         self.L_HIT = 1.2 
         self.L_MISS = -0.1
 
@@ -55,8 +58,10 @@ class RealTimeSemanticMapper:
         
         self.lidar_x_offset = 0.20
 
-        # --- FARM SEMANTIC MAPPING (ADE20k IDs) ---
-        # 1 = DRIVABLE (Soil, Grass)
+        # --- STRICT FARM MAPPING ---
+        # Any ID NOT in these lists will be mapped to 0 (Unknown) and IGNORED by the mapper.
+        
+        # 1 = DRIVABLE
         self.drivable_ids = [
             9,   # Grass
             13,  # Earth
@@ -66,19 +71,23 @@ class RealTimeSemanticMapper:
             91,  # Dirt
             6,   # Road
             52,  # Path
-            94   # Step/Stair (often misclassified dirt)
+            94   # Step/Stair (often misclassified dirt bumps)
         ]
 
-        # 2 = OBSTACLE (Crops, Trees, Plants)
+        # 2 = OBSTACLE
         self.obstacle_ids = [
             17,  # Plant
             4,   # Tree
             66,  # Flower
             72,  # Palm
             126, # Pole (often corn stalks)
-            5,   # Ceiling (sometimes sky/tall crops artifact)
-            12   # Person (Scarecrows?)
+            12,  # Person
+            10   # Fence
         ]
+        
+        # Debug Colors
+        np.random.seed(42)
+        self.class_colors = np.random.randint(0, 255, (200, 3), dtype=np.uint8)
 
     def reset_map(self, start_x, start_y):
         self.grid.zero_()
@@ -94,7 +103,6 @@ class RealTimeSemanticMapper:
         if self.cached_seg_viz is None:
             self.cached_seg_viz = img_np.copy()
 
-        # Run every 2 frames for speed
         if self.frame_count % 2 != 0:
             return self.cached_seg_viz
 
@@ -118,26 +126,49 @@ class RealTimeSemanticMapper:
             outputs = self.model(**inputs)
             logits = F.interpolate(outputs.logits.float(), size=(self.img_h, self.img_w), 
                                   mode="bilinear", align_corners=False)
-            seg_ids = logits.argmax(dim=1)[0]
+            seg_ids = logits.argmax(dim=1)[0] # [H, W]
 
-        # --- 3. Visualization ---
+        # --- 3. DEBUG VISUALIZATION (Shows ALL classes, even Sky) ---
+        seg_cpu = seg_ids.cpu().numpy().astype(np.uint8)
+        unique_classes = np.unique(seg_cpu)
+        
+        # Colored overlay
+        color_mask = self.class_colors[seg_cpu]
+        viz_img = cv2.addWeighted(img_np, 0.6, color_mask, 0.4, 0)
+        
+        # Draw Labels
+        for cls_id in unique_classes:
+            if cls_id == 0: continue # Skip background
+            
+            mask = (seg_cpu == cls_id).astype(np.uint8)
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            if contours:
+                largest_cnt = max(contours, key=cv2.contourArea)
+                if cv2.contourArea(largest_cnt) > 400: 
+                    M = cv2.moments(largest_cnt)
+                    if M["m00"] != 0:
+                        cX = int(M["m10"] / M["m00"])
+                        cY = int(M["m01"] / M["m00"])
+                        
+                        label_name = self.id2label.get(cls_id, "Unknown")
+                        text = f"{label_name} [{cls_id}]"
+                        
+                        cv2.putText(viz_img, text, (cX, cY), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+                        cv2.putText(viz_img, text, (cX, cY), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
+        self.cached_seg_viz = viz_img
+
+        # --- 4. Projection & Logic ---
         sem_labels = seg_ids.clamp(0, 199)
         lookup = torch.zeros(200, device=self.device, dtype=torch.uint8)
         lookup[self.drivable_ids] = 1 
         lookup[self.obstacle_ids] = 2 
+        # Everything else (Sky, Building, etc) stays 0
         
         class_mask = lookup[sem_labels] # [H, W]
         
-        mask_cpu = class_mask.cpu().numpy().astype(np.uint8)
-        color_viz = np.zeros((self.img_h, self.img_w, 3), dtype=np.uint8)
-        # BGR Colors for OpenCV
-        color_viz[mask_cpu == 1] = [100, 100, 100] # Gray (Soil/Grass)
-        color_viz[mask_cpu == 2] = [0, 255, 0]     # Green (Crops)
-        color_viz[mask_cpu == 0] = [0, 0, 255]     # Red (Unknown)
-        
-        self.cached_seg_viz = cv2.addWeighted(img_np, 0.6, color_viz, 0.4, 0)
-
-        # --- 4. Projection ---
+        # Project Lidar
         ones = torch.ones((lidar_t.shape[0], 1), device=self.device)
         pts_hom = torch.cat([lidar_t, ones], dim=1)
         pts_cam = (self.lidar_to_cam @ pts_hom.T).T
@@ -149,6 +180,18 @@ class RealTimeSemanticMapper:
         u, v = u[valid_uv].long(), v[valid_uv].long()
         pts_local = lidar_t[valid_uv]
         point_classes = class_mask[v, u].long()
+
+        # --- STRICT FILTERING START ---
+        # Ignore anything that is Class 0 (Unknown/Sky/Others)
+        # We ONLY want Drive(1) or Obstacle(2)
+        valid_map_points = point_classes > 0 
+        
+        # Apply mask
+        pts_local = pts_local[valid_map_points]
+        point_classes = point_classes[valid_map_points]
+        
+        if pts_local.shape[0] == 0: return self.cached_seg_viz
+        # --- STRICT FILTERING END ---
 
         # --- 5. Update 2D Map ---
         pts_base_x = pts_local[:, 0] + self.lidar_x_offset
@@ -170,7 +213,7 @@ class RealTimeSemanticMapper:
         updates[one_hot == 0] = self.L_MISS
         self.grid.view(-1, 3).scatter_add_(0, flat_idx.unsqueeze(1).repeat(1, 3), updates)
 
-        # --- 6. Update 3D Voxel Grid (CPU) ---
+        # --- 6. Update 3D Voxel Grid ---
         if self.collect_3d:
             gx = x_global.cpu().numpy()
             gy = y_global.cpu().numpy()
@@ -183,11 +226,12 @@ class RealTimeSemanticMapper:
             
             for i in range(len(ix)):
                 key = (ix[i], iy[i], iz[i])
-                c = cls[i]
+                c = cls[i] # c is guaranteed to be 1 or 2 now
+                
                 if key not in self.voxel_grid:
                     self.voxel_grid[key] = [0, 0, 0] 
-                if c < 3:
-                    self.voxel_grid[key][c] += 1
+                
+                self.voxel_grid[key][c] += 1
             
         return self.cached_seg_viz
 
@@ -231,14 +275,15 @@ class RealTimeSemanticMapper:
         final_pts = []
         final_colors = []
         
-        # --- 1. VOTING FILTER ---
         for key, votes in self.voxel_grid.items():
             total_votes = sum(votes)
-            # Threshold: Voxel must be seen at least 4 times to be saved
-            if total_votes < 4: continue 
+            if total_votes < 3: continue 
             
             winner_class = np.argmax(votes)
             
+            # Skip if the winner is Class 0 (just in case)
+            if winner_class == 0: continue
+
             # Use center of voxel
             px = key[0] * self.res + (self.res/2)
             py = key[1] * self.res + (self.res/2)
@@ -250,23 +295,17 @@ class RealTimeSemanticMapper:
                 final_colors.append([0.6, 0.4, 0.2]) # Soil Brown
             elif winner_class == 2:
                 final_colors.append([0.0, 1.0, 0.0]) # Crop Green
-            else:
-                final_colors.append([0.3, 0.3, 0.3]) # Unk Dark Gray
                 
         if len(final_pts) == 0:
             print("Map empty after voting.")
             return
 
-        # Create Open3D Object
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(np.array(final_pts, dtype=np.float32))
         pcd.colors = o3d.utility.Vector3dVector(np.array(final_colors, dtype=np.float32))
 
-        # --- 2. RADIUS OUTLIER REMOVAL (Clean Scattered Points) ---
         print("Running Radius Outlier Removal...")
-        # Every point must have at least 5 neighbors within a 6cm radius
-        # Since resolution is 4cm, neighbors should be adjacent voxels
-        cl, ind = pcd.remove_radius_outlier(nb_points=5, radius=0.06)
+        cl, ind = pcd.remove_radius_outlier(nb_points=6, radius=0.1)
         pcd_clean = pcd.select_by_index(ind)
         
         o3d.io.write_point_cloud(full_path, pcd_clean)
