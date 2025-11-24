@@ -1,6 +1,5 @@
 import os
 import sys
-import argparse
 import numpy as np
 import cv2
 import torch
@@ -9,11 +8,19 @@ import pickle
 import copy
 from tqdm import tqdm
 
-# --- TRANSFORMERS IMPORTS ---
+# --- LIBRARIES ---
 try:
     from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
 except ImportError:
-    print("Error: Transformers library not installed. Run: pip install transformers")
+    print("Error: Transformers not installed. Run: pip install transformers")
+    sys.exit(1)
+
+try:
+    import open3d as o3d
+    HAS_OPEN3D = True
+    print("Using Open3D for ICP (SLAM).")
+except ImportError:
+    print("Error: Open3D not found. Run: pip install open3d")
     sys.exit(1)
 
 # ==============================================================================
@@ -25,249 +32,220 @@ OUTPUT_PKL_PATH = os.path.expanduser('~/ros2_ws/drl_datasets/imitation_learning/
 IMG_WIDTH, IMG_HEIGHT = 1024, 576
 FX, FY, CX, CY = 236.5, 236.5, 512.0, 288.0
 
-LIDAR_TO_CAM = np.array([[0, -1, 0, 0], [0, 0, -1, 0], [1, 0, 0, 0], [0, 0, 0, 1]], dtype=np.float32)
+LIDAR_TO_CAM = np.array([
+    [0, -1, 0, 0],
+    [0,  0, -1, 0],
+    [1,  0,  0, 0],
+    [0,  0,  0, 1]
+], dtype=np.float32)
 
-# --- ZOOM SETTINGS ---
-MAP_SIZE_PIXELS = 256
-# Resolution: 2.5 cm per pixel -> 6.4m wide view
-MAP_RES_METERS = 0.025 
-MAP_SIZE_METERS = MAP_SIZE_PIXELS * MAP_RES_METERS 
-
-# Simulation Step Time
-DT = 0.1 
-
-# Filter settings
-MIN_LIDAR_DIST = 0.2   
-MAX_LIDAR_DIST = 80.0  
+GRID_SIZE = 512       
+GRID_RES = 0.05       
 
 # ==============================================================================
-# --- ODOMETRY CLASS ---
+# --- MAP CLASS ---
 # ==============================================================================
-
-class DeadReckoningTracker:
-    def __init__(self):
-        self.x = 0.0
-        self.y = 0.0
-        self.theta = 0.0
+class BayesianSemanticMap:
+    def __init__(self, device='cuda'):
+        self.device = device
+        self.num_classes = 3
+        # FIX: Changed to float32 to match update tensors and prevent RuntimeError
+        self.grid = torch.zeros((GRID_SIZE, GRID_SIZE, self.num_classes), device=device, dtype=torch.float32)
         
-    def update(self, linear_vel, angular_vel, dt):
-        self.theta += angular_vel * dt
-        self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
-        self.x += linear_vel * np.cos(self.theta) * dt
-        self.y += linear_vel * np.sin(self.theta) * dt
-        return self.get_pose_matrix()
-    
-    def get_pose_matrix(self):
-        c = np.cos(self.theta)
-        s = np.sin(self.theta)
-        pose = np.eye(4)
-        pose[0, 0] = c
-        pose[0, 1] = -s
-        pose[0, 3] = self.x
-        pose[1, 0] = s
-        pose[1, 1] = c
-        pose[1, 3] = self.y
-        return pose
+        self.PROB_HIT = 0.65 
+        self.L_HIT = np.log(self.PROB_HIT / (1 - self.PROB_HIT))
+        self.L_MISS = np.log((1 - self.PROB_HIT) / self.PROB_HIT) * 0.1 
+
+    def update(self, points_global, labels, pose_inv):
+        if len(points_global) == 0: return
+        u = ((points_global[:, 0] / GRID_RES) + (GRID_SIZE / 2)).astype(int)
+        v = ((points_global[:, 1] / GRID_RES) + (GRID_SIZE / 2)).astype(int)
+        valid = (u >= 0) & (u < GRID_SIZE) & (v >= 0) & (v < GRID_SIZE)
+        u, v, lbs = u[valid], v[valid], labels[valid]
+        if len(u) == 0: return
+
+        u_t = torch.from_numpy(u).to(self.device).long()
+        v_t = torch.from_numpy(v).to(self.device).long()
+        lbl_t = torch.from_numpy(lbs).to(self.device).long()
+
+        flat_indices = u_t * GRID_SIZE + v_t
+        
+        # Now both self.grid and updates are float32
+        updates = torch.full((len(lbl_t), self.num_classes), self.L_MISS, device=self.device)
+        updates.scatter_(1, lbl_t.unsqueeze(1), self.L_HIT)
+
+        for c in range(self.num_classes):
+            self.grid[:, :, c].view(-1).scatter_add_(0, flat_indices, updates[:, c])
+
+    def get_bev(self, current_pose_matrix):
+        map_probs = self.grid.float()
+        map_indices = torch.argmax(map_probs, dim=2).cpu().numpy().astype(np.uint8)
+        bev_global = np.zeros((GRID_SIZE, GRID_SIZE, 3), dtype=np.uint8)
+        bev_global[map_indices == 1] = [100, 100, 100] 
+        bev_global[map_indices == 2] = [255, 255, 255] 
+
+        rx, ry = current_pose_matrix[0, 3], current_pose_matrix[1, 3]
+        ru = int((rx / GRID_RES) + (GRID_SIZE / 2))
+        rv = int((ry / GRID_RES) + (GRID_SIZE / 2))
+
+        VIEW_SIZE = 256
+        half = VIEW_SIZE // 2
+        padded = cv2.copyMakeBorder(bev_global, half, half, half, half, cv2.BORDER_CONSTANT, value=0)
+        start_row, start_col = rv, ru 
+        local_crop = padded[start_row:start_row+VIEW_SIZE, start_col:start_col+VIEW_SIZE]
+        
+        yaw = np.arctan2(current_pose_matrix[1, 0], current_pose_matrix[0, 0])
+        degree = np.degrees(yaw)
+        center = (VIEW_SIZE // 2, VIEW_SIZE // 2)
+        M = cv2.getRotationMatrix2D(center, degree + 90, 1.0)
+        return cv2.warpAffine(local_crop, M, (VIEW_SIZE, VIEW_SIZE))
 
 # ==============================================================================
-# --- PROCESSOR CLASS ---
+# --- PROCESSOR ---
 # ==============================================================================
-
 class DatasetProcessor:
     def __init__(self):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        print(f"Initializing Processor on {self.device}...")
         
-        self.tracker = DeadReckoningTracker()
-        
-        # --- FIXED MODEL NAME ---
+        print("Loading Semantic Model...")
         model_name = "nvidia/segformer-b2-finetuned-ade-512-512"
-        print(f"Loading High-Accuracy Model: {model_name}...")
+        self.processor = SegformerImageProcessor.from_pretrained(model_name)
+        self.seg_model = SegformerForSemanticSegmentation.from_pretrained(model_name).to(self.device).eval()
         
-        try:
-            self.processor = SegformerImageProcessor.from_pretrained(model_name)
-            self.seg_model = SegformerForSemanticSegmentation.from_pretrained(model_name)
-            self.seg_model.to(self.device).eval()
-        except Exception as e:
-            print(f"Model Load Error: {e}")
-            sys.exit(1)
-            
-        # --- DYNAMIC CLASS MAPPING ---
-        self.id2label = self.seg_model.config.id2label
-        self.drivable_ids = []
+        self.map = BayesianSemanticMap(self.device)
+        self.drivable_ids = [13, 9, 52, 91, 14, 29] 
+        self.obstacle_ids = [4, 17, 66, 72] 
         
-        # Keywords for drivable terrain
-        drivable_keywords = ['earth', 'ground', 'soil', 'dirt', 'path', 'road', 'field', 'grass', 'sand', 'land']
-        
-        print("\n--- Class Mapping ---")
-        for i, label in self.id2label.items():
-            if any(k in label.lower() for k in drivable_keywords):
-                self.drivable_ids.append(i)
-        
-        print(f"Mapped {len(self.drivable_ids)} classes to DRIVABLE (Earth, Soil, etc.)")
-        print("All other classes (Plants, Sky, Obstacles) are OBSTACLES.")
-        
-        # Generate random colors for debug visualization (150 classes)
-        np.random.seed(42)
-        self.color_palette = np.random.randint(0, 255, (200, 3), dtype=np.uint8)
+        self.prev_pcd = None
+        self.icp_threshold = 0.5 
 
-    def get_semantic_raw(self, image_rgb):
-        inputs = self.processor(images=image_rgb, return_tensors="pt").to(self.device)
+    def get_semantic_labels(self, img_rgb, points_lidar):
+        inputs = self.processor(images=img_rgb, return_tensors="pt").to(self.device)
         with torch.no_grad():
-            outputs = self.seg_model(**inputs)
-        logits = F.interpolate(outputs.logits, size=(image_rgb.shape[0], image_rgb.shape[1]), mode="bilinear", align_corners=False)
-        return logits.argmax(dim=1)[0].cpu().numpy()
+            logits = self.seg_model(**inputs).logits
+        
+        mask = F.interpolate(logits, size=img_rgb.shape[:2], mode="bilinear", align_corners=False)
+        seg_ids = mask.argmax(dim=1)[0].cpu().numpy()
 
-    def paint_point_cloud(self, points_3d, image_rgb):
-        if len(points_3d) == 0: return np.zeros((0, 4))
-        
-        raw_ids = self.get_semantic_raw(image_rgb)
-        
-        pts_hom = np.hstack((points_3d, np.ones((len(points_3d), 1))))
+        pts_hom = np.hstack((points_lidar, np.ones((len(points_lidar), 1))))
         pts_cam = (LIDAR_TO_CAM @ pts_hom.T).T
         depth = pts_cam[:, 2]
-        
-        u = ((FX * pts_cam[:, 0]) / (depth + 1e-6)) + CX
-        v = ((FY * pts_cam[:, 1]) / (depth + 1e-6)) + CY
-        
+        u = ((FX * pts_cam[:, 0]) / (depth + 1e-5)) + CX
+        v = ((FY * pts_cam[:, 1]) / (depth + 1e-5)) + CY
+
         valid = (depth > 0.1) & (u >= 0) & (u < IMG_WIDTH) & (v >= 0) & (v < IMG_HEIGHT)
-        u, v = u.astype(int), v.astype(int)
+        u_valid, v_valid = u[valid].astype(int), v[valid].astype(int)
+        p_valid = points_lidar[valid]
         
-        labeled = np.zeros((len(points_3d), 4))
-        labeled[:, :3] = points_3d
+        if len(p_valid) == 0: return np.array([]), np.array([])
+
+        pixel_classes = seg_ids[v_valid, u_valid]
+        labels = np.zeros_like(pixel_classes)
+        labels[np.isin(pixel_classes, self.drivable_ids)] = 1
+        labels[np.isin(pixel_classes, self.obstacle_ids)] = 2
+        return p_valid, labels
+
+    def get_odometry_guess(self, v, w, dt=0.1):
+        dx = v * np.cos(w * dt / 2.0) * dt 
+        dy = v * np.sin(w * dt / 2.0) * dt
+        dtheta = w * dt
+        guess = np.eye(4)
+        guess[0, 0] = np.cos(dtheta)
+        guess[0, 1] = -np.sin(dtheta)
+        guess[1, 0] = np.sin(dtheta)
+        guess[1, 1] = np.cos(dtheta)
+        guess[0, 3] = dx
+        guess[1, 3] = dy
+        return guess
+
+    def run(self):
+        if not os.path.exists(INPUT_PKL_PATH):
+            print(f"Data not found: {INPUT_PKL_PATH}")
+            return
+
+        print(f"Loading dataset...")
+        with open(INPUT_PKL_PATH, 'rb') as f:
+            raw_dataset = pickle.load(f)
+
+        processed_dataset = []
+        global_pose = np.eye(4)
         
-        if valid.any():
-            point_classes = raw_ids[v[valid], u[valid]]
-            is_drivable = np.isin(point_classes, self.drivable_ids)
-            labeled[valid, 3] = 1.0 - is_drivable.astype(float)
+        print("Processing Frames...")
+        for i, frame in enumerate(tqdm(raw_dataset)):
+            img = frame['image_raw']
+            lidar_raw = frame['lidar_raw']
             
-        return labeled
+            # 1. Clean Data
+            lidar_clean = lidar_raw[~np.isnan(lidar_raw).any(axis=1)]
+            lidar_clean = lidar_clean[~np.isinf(lidar_clean).any(axis=1)]
+            norms = np.linalg.norm(lidar_clean, axis=1)
+            valid_mask = (norms > 0.1) & (norms < 4.5) 
+            lidar_clean = lidar_clean[valid_mask]
 
-    def rasterize_bev(self, points_global, current_pose_inv):
-        if len(points_global) == 0: return np.zeros((MAP_SIZE_PIXELS, MAP_SIZE_PIXELS, 3), dtype=np.uint8)
-        
-        pts_hom = np.hstack((points_global[:, :3], np.ones((len(points_global), 1))))
-        pts_local = (current_pose_inv @ pts_hom.T).T
-        
-        mask = (pts_local[:, 2] > -1.0) & (pts_local[:, 2] < 3.0)
-        pts_local, labels = pts_local[mask], points_global[mask, 3]
-        if len(pts_local) == 0: return np.zeros((MAP_SIZE_PIXELS, MAP_SIZE_PIXELS, 3), dtype=np.uint8)
-
-        half_dim = MAP_SIZE_METERS / 2
-        
-        row_float = (MAP_SIZE_PIXELS - 1) - ((pts_local[:, 0] + half_dim) / MAP_RES_METERS)
-        col_float = (MAP_SIZE_PIXELS / 2) - (pts_local[:, 1] / MAP_RES_METERS)
-        
-        row = row_float.astype(int)
-        col = col_float.astype(int)
-        
-        valid = (row >= 0) & (row < MAP_SIZE_PIXELS) & (col >= 0) & (col < MAP_SIZE_PIXELS)
-        row, col, labels = row[valid], col[valid], labels[valid]
-        
-        bev = np.zeros((MAP_SIZE_PIXELS, MAP_SIZE_PIXELS, 3), dtype=np.uint8)
-        
-        if len(row) > 0:
-            mask_obs = labels > 0.5
-            mask_drive = labels <= 0.5
-            bev[row[mask_obs], col[mask_obs], 0] = 255   
-            bev[row[mask_drive], col[mask_drive], 2] = 255 
+            v = float(frame['state'][2])
+            w = float(frame['state'][3])
             
-        return cv2.morphologyEx(bev, cv2.MORPH_CLOSE, np.ones((3,3), np.uint8))
+            # Calculate Odometry Guess (always needed as fallback or initialization)
+            odom_guess = self.get_odometry_guess(v, w, dt=0.1)
+            relative_trans = odom_guess # Default to Odom
 
-# ==============================================================================
-# --- MAIN EXECUTION ---
-# ==============================================================================
-
-def process_data():
-    if not os.path.exists(INPUT_PKL_PATH):
-        print(f"Error: Input not found at {INPUT_PKL_PATH}")
-        return
-
-    print(f"Loading data from {INPUT_PKL_PATH}...")
-    with open(INPUT_PKL_PATH, 'rb') as f:
-        raw_dataset = pickle.load(f)
-    
-    proc = DatasetProcessor()
-    processed_frames = [] 
-    
-    print("\n--- PHASE 1: TRACKING & SEGMENTATION ---")
-    
-    for i, frame in enumerate(tqdm(raw_dataset)):
-        img = frame['image_raw']
-        lidar_raw = frame['lidar_raw'][:, :3]
-        
-        try:
-            linear_v = float(frame['state'][2])
-            angular_w = float(frame['state'][3])
-        except:
-            linear_v, angular_w = 0.0, 0.0
-
-        # 1. UPDATE POSE
-        pose = proc.tracker.update(linear_v, angular_w, DT)
-
-        # 2. PAINT
-        dists = np.linalg.norm(lidar_raw, axis=1)
-        mask_valid = (dists > MIN_LIDAR_DIST) & (dists < MAX_LIDAR_DIST)
-        lidar_clean = lidar_raw[mask_valid]
-        
-        labeled_local = proc.paint_point_cloud(lidar_clean.astype(np.float32), img)
-        
-        pts_hom = np.hstack((labeled_local[:, :3], np.ones((len(labeled_local), 1))))
-        pts_global = (pose @ pts_hom.T).T
-        pts_global_labeled = np.hstack((pts_global[:, :3], labeled_local[:, 3:4]))
-        
-        processed_frames.append({'pose': pose, 'points_global': pts_global_labeled})
-
-        # --- DEBUG VISUALIZATION (Every 50 Frames) ---
-        if i % 50 == 0:
-            raw_ids = proc.get_semantic_raw(img)
-            unique_ids = np.unique(raw_ids)
-            color_mask = proc.color_palette[raw_ids]
+            # FIX: Only run Open3D if we have enough points (avoid warning/crash)
+            if len(lidar_clean) > 20:
+                curr_pcd = o3d.geometry.PointCloud()
+                curr_pcd.points = o3d.utility.Vector3dVector(lidar_clean)
+                
+                # Estimate normals (needed for Point-to-Plane)
+                try:
+                    curr_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.5, max_nn=30))
+                    
+                    if self.prev_pcd is not None:
+                        # Attempt ICP
+                        try:
+                            reg_p2p = o3d.pipelines.registration.registration_icp(
+                                curr_pcd, self.prev_pcd, self.icp_threshold, odom_guess,
+                                o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+                                o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=30)
+                            )
+                            # Only accept if fitness is decent
+                            if reg_p2p.fitness > 0.1:
+                                relative_trans = reg_p2p.transformation
+                        except Exception:
+                            pass # Keep relative_trans as odom_guess
+                    
+                    self.prev_pcd = curr_pcd
+                except Exception:
+                    # If normal estimation fails, just rely on Odometry
+                    pass
             
-            blended = cv2.addWeighted(img, 0.6, color_mask, 0.4, 0)
-            blended_bgr = cv2.cvtColor(blended, cv2.COLOR_RGB2BGR)
-            
-            print(f"\n[Frame {i}] Found Classes:")
-            for uid in unique_ids:
-                label_name = proc.id2label[uid]
-                status = "DRIVABLE" if uid in proc.drivable_ids else "OBSTACLE"
-                print(f"  - {label_name} (ID {uid}) -> {status}")
-            
-            cv2.imshow("B2 Segmentation (All Classes)", blended_bgr)
-            cv2.waitKey(0) 
+            # Update Global Pose
+            global_pose = global_pose @ relative_trans
 
-    print("\n--- PHASE 2: Map Generation ---")
-    final_dataset = []
-    WINDOW_SIZE = 15 
-    
-    for i, original_frame in enumerate(tqdm(raw_dataset)):
-        if i >= len(processed_frames): break
-        curr_pose_inv = np.linalg.inv(processed_frames[i]['pose'])
-        
-        start, end = max(0, i - WINDOW_SIZE), min(len(processed_frames), i + WINDOW_SIZE)
-        clouds = [processed_frames[j]['points_global'] for j in range(start, end)]
-        full_cloud = np.vstack(clouds) if clouds else np.zeros((0, 4))
-        
-        bev_map = proc.rasterize_bev(full_cloud, curr_pose_inv)
-        
-        if i % 50 == 0:
-            cv2.imshow("BEV Map (Blue=Obstacle, Red=Drivable)", bev_map)
-            cv2.waitKey(0) 
-        
-        new_sample = copy.deepcopy(original_frame)
-        new_sample['bev_semantic_label'] = bev_map
-        final_dataset.append(new_sample)
-        
-    cv2.destroyAllWindows()
-    
-    os.makedirs(os.path.dirname(OUTPUT_PKL_PATH), exist_ok=True)
-    with open(OUTPUT_PKL_PATH, 'wb') as f:
-        pickle.dump(final_dataset, f)
-    print(f"Saved to {OUTPUT_PKL_PATH}")
+            # --- SEMANTICS & MAPPING ---
+            # Use global pose to update map
+            if len(lidar_clean) > 0:
+                pts_labeled, labels = self.get_semantic_labels(img, lidar_clean)
+                if len(pts_labeled) > 0:
+                    pts_hom = np.hstack((pts_labeled, np.ones((len(pts_labeled), 1))))
+                    pts_global = (global_pose @ pts_hom.T).T[:, :3]
+                    self.map.update(pts_global, labels, np.linalg.inv(global_pose))
+
+            bev_img = self.map.get_bev(global_pose)
+            
+            # --- SAVE ---
+            new_frame = frame.copy()
+            new_frame['bev_semantic'] = bev_img 
+            new_frame['pose_slam'] = global_pose
+            processed_dataset.append(new_frame)
+            
+            if i % 50 == 0:
+                cv2.imshow("Semantic BEV", bev_img)
+                cv2.waitKey(1)
+
+        with open(OUTPUT_PKL_PATH, 'wb') as f:
+            pickle.dump(processed_dataset, f)
+        print(f"Saved processed data to {OUTPUT_PKL_PATH}")
+        cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--process', action='store_true')
-    args = parser.parse_args()
-    if args.process: process_data()
-    else: print("Use --process")
+    proc = DatasetProcessor()
+    proc.run()
