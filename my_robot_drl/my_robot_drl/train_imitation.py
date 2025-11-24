@@ -33,7 +33,7 @@ from .transfuser_util import (
 # --- CONFIGURATION PARAMETERS ---
 # ===================================================================
 IL_EPOCHS = 100 # Max epochs for the initial training phase
-IL_BATCH_SIZE = 4
+IL_BATCH_SIZE = 32
 IL_LEARNING_RATE = 1e-4
 DATA_COLLECTION_FPS = 2.0
 DATA_COLLECTION_FPS_TURNING = 10.0
@@ -56,8 +56,8 @@ BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
 EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_mixed.pkl')
-TRAIN_DATASET_PATH = "/workspace/360_cs_s_m.pkl"
-VAL_DATASET_PATH = "/workspace/360_curved_long.pkl"
+TRAIN_DATASET_PATH = "/workspace/180_cs_s_m_depth.pkl"
+VAL_DATASET_PATH = "/workspace/180_cl_depth.pkl"
 
 
 # ===================================================================
@@ -302,7 +302,7 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                 if len(raw_batch) < IL_BATCH_SIZE: continue
 
                 # --- START: Augmentation Debug Visualization ---
-                if i % 32 == 0:  # Check periodically
+                if i % 64 == 0:  # Check periodically
                     first_sample_raw = raw_batch[0]
                     
                     processed_augmented, augmented_degree = preprocessor.process_observation(first_sample_raw)
