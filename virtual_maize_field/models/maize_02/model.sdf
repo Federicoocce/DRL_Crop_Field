@@ -1,6 +1,7 @@
 <?xml version="1.0" ?>
 <sdf version="1.6">
   <model name='maize_02'>
+    <static>true</static>
     <pose frame=''>0 0 0.05 0 -0 0</pose>
     <link name='maize_02_link'>
       <inertial>
@@ -14,14 +15,16 @@
           <iyz>0</iyz>
           <izz>0.000016666667</izz>
         </inertia>
-        <pose>0 0 0.1 0 0 0</pose>
       </inertial>
+      
+      <!-- COLLISION (Updated to use Mesh) -->
       <collision name='collision'>
-        <pose>0 0 0.2 0 -0 0</pose>
+        <pose>0 0 0 0 -0 0</pose> <!-- Pose set to 0 to align with visual -->
         <geometry>
-          <box>
-            <size>0.02 0.02 0.4</size>
-          </box>
+          <mesh>
+            <uri>model://maize_02/meshes/maize_02.dae</uri>
+            <scale>0.683166466464586 0.683166466464586 0.683166466464586</scale>
+          </mesh>
         </geometry>
         <max_contacts>10</max_contacts>
         <surface>
@@ -37,6 +40,8 @@
           </friction>
         </surface>
       </collision>
+
+      <!-- VISUAL -->
       <visual name='visual'>
         <geometry>
           <mesh>
@@ -45,6 +50,7 @@
           </mesh>
         </geometry>
       </visual>
+      
       <self_collide>0</self_collide>
       <enable_wind>0</enable_wind>
       <kinematic>0</kinematic>
