@@ -26,6 +26,7 @@ import dubins
 import random
 from shapely.geometry import LineString
 import matplotlib.pyplot as plt
+from .realtime_mapper import RealTimeSemanticMapper
 
 
 from .dense_waypoint import get_dense_lane_waypoints, WorldDescription, Field2DGenerator
@@ -113,13 +114,15 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         STATE_VECTOR_SIZE = 4
         # Far clipping plane from URDF, used for observation space and depth processing
         self.camera_far_clip = 10.0
-
+        # Resolution 5cm/px, Map Size 50m x 50m (1000px)
+        self.mapper = RealTimeSemanticMapper(resolution=0.05, map_size_px=1000)
         obs_space_dict = {
             'image_raw': spaces.Box(low=0, high=255, shape=(FRONT_IMG_HEIGHT, FRONT_IMG_WIDTH, 3), dtype=np.uint8),
             'depth_raw': spaces.Box(low=0.0, high=self.camera_far_clip, shape=(FRONT_IMG_HEIGHT, FRONT_IMG_WIDTH, 1), dtype=np.float32),
             'lidar_raw': spaces.Box(low=-np.inf, high=np.inf, shape=(self.MAX_LIDAR_POINTS, 3), dtype=np.float32),
             'state': spaces.Box(low=-np.inf, high=np.inf, shape=(STATE_VECTOR_SIZE,), dtype=np.float32),
-            'gt_waypoints': spaces.Box(low=-np.inf, high=np.inf, shape=(4, 2), dtype=np.float32)
+            'gt_waypoints': spaces.Box(low=-np.inf, high=np.inf, shape=(4, 2), dtype=np.float32),
+            'bev_semantic' : spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
         }
         
         if not self.config.ignore_rear:
@@ -487,11 +490,17 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
             target_wp = self.waypoints[self.target_waypoint_index]
             robot_pos = self.current_odom.pose.pose.position
+            initial_x = self.current_odom.pose.pose.position.x
+            initial_y = self.current_odom.pose.pose.position.y
+            
+            # Reset the map and center it on the spawn point
+            self.mapper.reset_map(initial_x, initial_y)
+                
             self.last_distance_to_target = math.sqrt((target_wp['x'] - robot_pos.x)**2 + (target_wp['y'] - robot_pos.y)**2)
             
             self.episode_done = False
             self.last_action = np.array([0.0, 0.0], dtype=np.float32)
-            # self.render()
+            self.render()
             break
         
         observation = self._get_observation()
@@ -499,20 +508,40 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.get_logger().info(f"Reset complete. Initial target: #{self.target_waypoint_index}")
         return observation, info
 
-    
-    def render(self, mode='human'):
-        """
-        Renders the current state of the environment.
-        In 'human' mode, this opens OpenCV windows to display the front RGB,
-        front Depth, and optionally the rear RGB camera streams.
         
-        To use this for debugging, simply call `env.render()` after `env.step()`.
-        """
-        display_sensor_streams(
-            rgb_image=self.current_image_raw, 
-            depth_image=self.current_depth_raw,
-            rear_image=self.current_rear_image_raw
-        )
+    def render(self, mode='human'):
+            # 1. Update Map and Get Segmentation Image
+            if self.current_odom:
+                rx = self.current_odom.pose.pose.position.x
+                ry = self.current_odom.pose.pose.position.y
+                _r, _p, ryaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
+                
+                # Call mapper here to ensure we get the image
+                if self.current_image_raw is not None and len(self.current_lidar_raw) > 0:
+                    seg_viz = self.mapper.process_one_step(
+                        self.current_image_raw, 
+                        self.current_lidar_raw, 
+                        rx, ry, ryaw
+                    )
+                    # --- DISPLAY SEGMENTATION HERE ---
+                    if seg_viz is not None:
+                        cv2.imshow("Semantic Segmentation", seg_viz)
+
+            # 2. Display Sensor Streams
+            display_sensor_streams(
+                rgb_image=self.current_image_raw, 
+                depth_image=self.current_depth_raw,
+                rear_image=self.current_rear_image_raw
+            )
+
+            # 3. Display Global Map
+            if self.current_odom:
+                global_map_img = self.mapper.get_debug_image(rx, ry)
+                disp_size = 600
+                global_map_small = cv2.resize(global_map_img, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
+                cv2.imshow("Global Semantic Map", global_map_small)
+
+            cv2.waitKey(1)
 
     def step(self, action):
         """
@@ -576,7 +605,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         
         # Increment a debug counter (optional)
         self.debug_counter += 1
-        #self.render()
+        self.render()
         # 5. Return the standard 5-tuple for Gymnasium environments
         return observation, reward, terminated, truncated, self._get_info()
     
@@ -586,15 +615,30 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         linear_vel = self.last_action[0]
         angular_vel = self.last_action[1]
 
+        if self.current_odom:
+            rx = self.current_odom.pose.pose.position.x
+            ry = self.current_odom.pose.pose.position.y
+            _r, _p, ryaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
+        else:
+            rx, ry, ryaw = 0.0, 0.0, 0.0
+        # Only update if we have valid sensor data
+        if self.current_image_raw is not None and len(self.current_lidar_raw) > 0:
+            self.mapper.process_one_step(
+                self.current_image_raw, 
+                self.current_lidar_raw, 
+                rx, ry, ryaw
+            )
         state_obs = np.concatenate([
             np.array(distant_goal_rel, dtype=np.float32),
             np.array([linear_vel, angular_vel], dtype=np.float32)
         ])
-        
+        # This returns a 256x256x3 image centered on robot, rotated X-up
+        bev_semantic_img = self.mapper.get_local_bev(rx, ry, ryaw)
         obs_dict = {
             'image_raw': self.current_image_raw,
             'depth_raw': self.current_depth_raw, # <-- ADDED DEPTH IMAGE
             'lidar_raw': self.current_lidar_raw,
+            'bev_semantic': bev_semantic_img, 
             'state': state_obs,
             'gt_waypoints': gt_waypoints_rel 
         }
@@ -868,7 +912,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         ### NEW: Destroy depth subscriber ###
         if hasattr(self, 'depth_sub') and self.depth_sub: self.destroy_subscription(self.depth_sub)
         if hasattr(self, 'rear_camera_sub') and self.rear_camera_sub: self.destroy_subscription(self.rear_camera_sub)
-
+        if hasattr(self, 'mapper'):
+            self.mapper.save_3d_map("final_session_map.ply")
         if self.reset_sim_client: self.destroy_client(self.reset_sim_client)
         if rclpy.ok(): super().destroy_node()
 

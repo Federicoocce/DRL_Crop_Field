@@ -55,7 +55,7 @@ BEST_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_model.pt
 BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_model.pth')
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
-EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_straight_depth.pkl')
+EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_straight_depth_timestamp.pkl')
 TRAIN_DATASET_PATH = "/workspace/360_cs_m_s_depth.pkl"
 VAL_DATASET_PATH = "/workspace/360_cl_depth.pkl"
 
@@ -69,17 +69,10 @@ VAL_DATASET_PATH = "/workspace/360_cl_depth.pkl"
 # ===================================================================
 # --- DATA PREPROCESSOR CLASS (CORRECTED) ---
 # ===================================================================
-
 class DataPreprocessor:
-    """
-    This corrected version removes the dependency on the complex 'align' function
-    and performs a direct, clear rotation for data augmentation.
-    """
     def __init__(self, config):
         self.config = config
     
-    
-
     def process_observation(self, raw_obs_dict):
         degree = 0.0
         rad = 0.0
@@ -93,58 +86,52 @@ class DataPreprocessor:
         target_h, target_w = self.config.img_resolution
         img_processed = preprocess_front_camera_image(img_raw, target_w, target_h, crop_shift)
 
-        # 2. Process LiDAR and Waypoints with consistent augmentation
+        # 2. Process LiDAR and Waypoints
         pc_raw = raw_obs_dict['lidar_raw']
         gt_waypoints = raw_obs_dict['gt_waypoints']
         local_command_point = raw_obs_dict['state'][0:2]
 
-        # Create a single 2D rotation matrix for all assets
-        # Standard ROS convention: positive rotation is counter-clockwise
+        # Rotation matrix
         rotation_matrix_2d = np.array([[np.cos(rad), -np.sin(rad)],
                                        [np.sin(rad),  np.cos(rad)]])
 
         # --- Augment LiDAR ---
-        # Apply the rotation to the X and Y coordinates of the point cloud
         pc_rotated = pc_raw.copy()
         pc_rotated[:, :2] = (rotation_matrix_2d @ pc_raw[:, :2].T).T
-        # ==================== START OF THE FIX ====================
-        # Convert to BEV histogram (which returns H, W, C) and then
-        # immediately permute to the PyTorch standard (C, H, W).
+        
         lidar_bev_hwc = lidar_to_histogram_features(pc_rotated)
         lidar_bev_chw = np.transpose(lidar_bev_hwc, (2, 0, 1))
-        # ===================== END OF THE FIX =====================
         
-        # --- Augment Ground-Truth Waypoints and Target Point ---
+        # --- Augment Ground-Truth Waypoints ---
         gt_waypoints_rot = (rotation_matrix_2d @ gt_waypoints.T).T
         local_command_point_rot = (rotation_matrix_2d @ local_command_point.T).T
         
         # 3. Assemble final dictionary
         processed_data = {
             'rgb': torch.from_numpy(img_processed.copy()).float(),
-            # Use the correctly permuted array
             'lidar_bev': torch.from_numpy(lidar_bev_chw.copy()).float(),
             'target_point': torch.from_numpy(local_command_point_rot.copy()).float(),
             'ego_vel': torch.tensor([raw_obs_dict['state'][2]]).float(),
             'ego_waypoint': torch.from_numpy(gt_waypoints_rot.copy()).float(),
             'target_point_image': torch.from_numpy(draw_target_point(local_command_point_rot).copy()).float(),
         }
-                ### MODIFIED: Conditionally process and add depth data ###
+
+        # Add timestamp if available (useful if we process this later)
+        if 'timestamp' in raw_obs_dict:
+             processed_data['timestamp'] = torch.tensor([raw_obs_dict['timestamp']]).float()
+
         if self.config.multitask:
             depth_raw = raw_obs_dict['depth_raw']
             depth_processed = preprocess_depth_image(depth_raw, target_w, target_h, crop_shift)
             processed_data['depth'] = torch.from_numpy(depth_processed.copy()).float()
-        else:
-            # Provide a dummy tensor if the task is disabled, so the batching still works
-            processed_data['depth'] = torch.zeros(target_h, target_w)
-        # This part remains the same
-        if self.config.multitask:
+            
+            # Placeholders for other tasks
             processed_data['bev'] = torch.zeros(self.config.bev_resolution_height, self.config.bev_resolution_width, dtype=torch.long)
             processed_data['label'] = torch.zeros(20, 7)
             h, w = self.config.img_resolution
-            #processed_data['depth'] = torch.zeros(h, w)
             processed_data['semantic'] = torch.zeros(h, w, dtype=torch.long)
-        #else:
-            #raise NotImplementedError("Multitask=True is not supported by this DRL environment.")
+        else:
+            processed_data['depth'] = torch.zeros(target_h, target_w)
 
         return processed_data, degree
 
@@ -172,11 +159,7 @@ def load_datasets(train_path, val_path, logger):
         with open(val_path, 'rb') as f:
             val_dataset = pickle.load(f)
         logger.info(f"Loaded validation dataset with {len(val_dataset)} points from: {val_path}")
-        
         return train_dataset, val_dataset
-    except FileNotFoundError as e:
-        logger.error(f"FATAL: Dataset file not found: {e}. Please run in '--mode collect' first, then split the data.")
-        sys.exit(1)
     except Exception as e:
         logger.error(f"FATAL: Error loading datasets: {e}")
         sys.exit(1)
@@ -188,6 +171,7 @@ def load_datasets(train_path, val_path, logger):
 def collect_expert_data(env, logger):
     """
     Phase 1: Navigate the field using an expert controller and record observations.
+    Includes TIMESTAMPS for precise mapping later.
     """
     logger.info("="*50)
     logger.info(f"PHASE 1: Starting Expert Data Collection")
@@ -199,8 +183,13 @@ def collect_expert_data(env, logger):
 
     while True:
         obs, info = env.reset()
+        
+        # --- NEW: Add timestamp to the first observation ---
+        current_time = time.time()
+        obs['timestamp'] = current_time
         dataset = [obs.copy()]
-        last_collection_time = time.time()
+        
+        last_collection_time = current_time
         done = False
         step = 0
 
@@ -210,10 +199,19 @@ def collect_expert_data(env, logger):
             action = np.array([EXPERT_TARGET_LINEAR_VEL, EXPERT_KP_ANGULAR * angle_to_target], dtype=np.float32)
             action = np.clip(action, env.action_space.low, env.action_space.high)
 
+            # Determine collection rate based on behavior
             current_interval = collection_interval_turning if env.is_turning else collection_interval_normal
-            if time.time() - last_collection_time >= current_interval:
-                dataset.append(obs.copy())
-                last_collection_time = time.time()
+            
+            # --- Capture current time ---
+            now = time.time()
+            
+            if now - last_collection_time >= current_interval:
+                # Add timestamp to the observation before saving
+                obs_to_save = obs.copy()
+                obs_to_save['timestamp'] = now
+                
+                dataset.append(obs_to_save)
+                last_collection_time = now
 
             obs, _, terminated, truncated, info = env.step(action)
             done = terminated or truncated

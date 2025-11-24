@@ -1,5 +1,6 @@
 import os
 import sys
+import argparse
 import numpy as np
 import cv2
 import torch
@@ -17,8 +18,7 @@ except ImportError:
 
 try:
     import open3d as o3d
-    HAS_OPEN3D = True
-    print("Using Open3D for ICP (SLAM).")
+    print("Libraries loaded successfully.")
 except ImportError:
     print("Error: Open3D not found. Run: pip install open3d")
     sys.exit(1)
@@ -26,9 +26,10 @@ except ImportError:
 # ==============================================================================
 # --- CONFIGURATION ---
 # ==============================================================================
-INPUT_PKL_PATH = os.path.expanduser('~/ros2_ws/drl_datasets/imitation_learning/360_straight_depth.pkl')
+INPUT_PKL_PATH = os.path.expanduser('~/ros2_ws/drl_datasets/imitation_learning/180_straight_depth_timestamp.pkl')
 OUTPUT_PKL_PATH = os.path.expanduser('~/ros2_ws/drl_datasets/imitation_learning/real_world_processed.pkl')
 
+# Camera Intrinsics
 IMG_WIDTH, IMG_HEIGHT = 1024, 576
 FX, FY, CX, CY = 236.5, 236.5, 512.0, 288.0
 
@@ -39,6 +40,7 @@ LIDAR_TO_CAM = np.array([
     [0,  0,  0, 1]
 ], dtype=np.float32)
 
+# Map Config
 GRID_SIZE = 512       
 GRID_RES = 0.05       
 
@@ -49,7 +51,6 @@ class BayesianSemanticMap:
     def __init__(self, device='cuda'):
         self.device = device
         self.num_classes = 3
-        # FIX: Changed to float32 to match update tensors and prevent RuntimeError
         self.grid = torch.zeros((GRID_SIZE, GRID_SIZE, self.num_classes), device=device, dtype=torch.float32)
         
         self.PROB_HIT = 0.65 
@@ -58,8 +59,12 @@ class BayesianSemanticMap:
 
     def update(self, points_global, labels, pose_inv):
         if len(points_global) == 0: return
+        
+        # Convert World XYZ -> Grid UV
+        # We center the map (256, 256) at World (0,0)
         u = ((points_global[:, 0] / GRID_RES) + (GRID_SIZE / 2)).astype(int)
         v = ((points_global[:, 1] / GRID_RES) + (GRID_SIZE / 2)).astype(int)
+        
         valid = (u >= 0) & (u < GRID_SIZE) & (v >= 0) & (v < GRID_SIZE)
         u, v, lbs = u[valid], v[valid], labels[valid]
         if len(u) == 0: return
@@ -70,7 +75,6 @@ class BayesianSemanticMap:
 
         flat_indices = u_t * GRID_SIZE + v_t
         
-        # Now both self.grid and updates are float32
         updates = torch.full((len(lbl_t), self.num_classes), self.L_MISS, device=self.device)
         updates.scatter_(1, lbl_t.unsqueeze(1), self.L_HIT)
 
@@ -97,11 +101,13 @@ class BayesianSemanticMap:
         yaw = np.arctan2(current_pose_matrix[1, 0], current_pose_matrix[0, 0])
         degree = np.degrees(yaw)
         center = (VIEW_SIZE // 2, VIEW_SIZE // 2)
+        
+        # Rotate so Robot X is UP
         M = cv2.getRotationMatrix2D(center, degree + 90, 1.0)
         return cv2.warpAffine(local_crop, M, (VIEW_SIZE, VIEW_SIZE))
 
 # ==============================================================================
-# --- PROCESSOR ---
+# --- PROCESSOR CLASS ---
 # ==============================================================================
 class DatasetProcessor:
     def __init__(self):
@@ -117,7 +123,7 @@ class DatasetProcessor:
         self.obstacle_ids = [4, 17, 66, 72] 
         
         self.prev_pcd = None
-        self.icp_threshold = 0.5 
+        self.icp_threshold = 2.0 # Very permissive search
 
     def get_semantic_labels(self, img_rgb, points_lidar):
         inputs = self.processor(images=img_rgb, return_tensors="pt").to(self.device)
@@ -145,10 +151,12 @@ class DatasetProcessor:
         labels[np.isin(pixel_classes, self.obstacle_ids)] = 2
         return p_valid, labels
 
-    def get_odometry_guess(self, v, w, dt=0.1):
+    def get_odometry_guess(self, v, w, dt):
+        # Standard Differential Drive Kinematics
         dx = v * np.cos(w * dt / 2.0) * dt 
         dy = v * np.sin(w * dt / 2.0) * dt
         dtheta = w * dt
+        
         guess = np.eye(4)
         guess[0, 0] = np.cos(dtheta)
         guess[0, 1] = -np.sin(dtheta)
@@ -160,7 +168,7 @@ class DatasetProcessor:
 
     def run(self):
         if not os.path.exists(INPUT_PKL_PATH):
-            print(f"Data not found: {INPUT_PKL_PATH}")
+            print(f"Error: Data not found at {INPUT_PKL_PATH}")
             return
 
         print(f"Loading dataset...")
@@ -169,59 +177,93 @@ class DatasetProcessor:
 
         processed_dataset = []
         global_pose = np.eye(4)
+        prev_timestamp = None
         
-        print("Processing Frames...")
+        print(f"Processing {len(raw_dataset)} Frames...")
         for i, frame in enumerate(tqdm(raw_dataset)):
             img = frame['image_raw']
             lidar_raw = frame['lidar_raw']
             
-            # 1. Clean Data
+            # --- DATA CLEANING ---
             lidar_clean = lidar_raw[~np.isnan(lidar_raw).any(axis=1)]
             lidar_clean = lidar_clean[~np.isinf(lidar_clean).any(axis=1)]
             norms = np.linalg.norm(lidar_clean, axis=1)
-            valid_mask = (norms > 0.1) & (norms < 4.5) 
+            # Keep points 0.1m to 6.0m (increased range to help ICP see further)
+            valid_mask = (norms > 0.1) & (norms < 6.0) 
             lidar_clean = lidar_clean[valid_mask]
 
-            v = float(frame['state'][2])
-            w = float(frame['state'][3])
-            
-            # Calculate Odometry Guess (always needed as fallback or initialization)
-            odom_guess = self.get_odometry_guess(v, w, dt=0.1)
-            relative_trans = odom_guess # Default to Odom
+            # --- STATE & TIME ---
+            try:
+                v = float(frame['state'][2])
+                w = float(frame['state'][3])
+            except:
+                v, w = 0.0, 0.0
 
-            # FIX: Only run Open3D if we have enough points (avoid warning/crash)
+            current_timestamp = frame.get('timestamp', None)
+            if current_timestamp is None or prev_timestamp is None:
+                dt = 0.1 # Default guess
+            else:
+                dt = current_timestamp - prev_timestamp
+                if dt <= 0: dt = 0.01
+                if dt > 1.0: dt = 0.1 # Cap huge jumps
+            prev_timestamp = current_timestamp
+            
+            # --- 1. DEAD RECKONING GUESS (The "Trust" source) ---
+            odom_guess = self.get_odometry_guess(v, w, dt)
+            
+            # --- 2. ICP CORRECTION (The "Verify" source) ---
+            relative_trans = odom_guess # Default to Odom
+            
             if len(lidar_clean) > 20:
                 curr_pcd = o3d.geometry.PointCloud()
                 curr_pcd.points = o3d.utility.Vector3dVector(lidar_clean)
                 
-                # Estimate normals (needed for Point-to-Plane)
                 try:
                     curr_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.5, max_nn=30))
                     
                     if self.prev_pcd is not None:
-                        # Attempt ICP
                         try:
+                            # Run Point-to-Plane ICP
                             reg_p2p = o3d.pipelines.registration.registration_icp(
                                 curr_pcd, self.prev_pcd, self.icp_threshold, odom_guess,
                                 o3d.pipelines.registration.TransformationEstimationPointToPlane(),
                                 o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=30)
                             )
-                            # Only accept if fitness is decent
-                            if reg_p2p.fitness > 0.1:
-                                relative_trans = reg_p2p.transformation
+                            
+                            # --- THE FIX: CORRIDOR LOGIC ---
+                            # Extract translation distance from ICP result
+                            icp_trans = reg_p2p.transformation
+                            dx_icp = np.linalg.norm(icp_trans[:2, 3])
+                            dx_odom = np.linalg.norm(odom_guess[:2, 3])
+                            
+                            # Condition 1: Fitness must be high
+                            # Condition 2: If Odom says we moved (v > 0.1) but ICP says we didn't (dx < 0.05), 
+                            #              it's the corridor problem -> REJECT ICP
+                            
+                            is_moving = (abs(v) > 0.1)
+                            icp_says_stopped = (dx_icp < 0.05)
+                            
+                            if is_moving and icp_says_stopped:
+                                # REJECT ICP, force Dead Reckoning
+                                relative_trans = odom_guess
+                            elif reg_p2p.fitness > 0.2:
+                                # Accept ICP
+                                relative_trans = icp_trans
+                            else:
+                                # Low fitness, fallback to Odom
+                                relative_trans = odom_guess
+                                
                         except Exception:
-                            pass # Keep relative_trans as odom_guess
+                            pass 
                     
                     self.prev_pcd = curr_pcd
                 except Exception:
-                    # If normal estimation fails, just rely on Odometry
                     pass
             
-            # Update Global Pose
+            # --- 3. UPDATE GLOBAL POSE ---
             global_pose = global_pose @ relative_trans
 
-            # --- SEMANTICS & MAPPING ---
-            # Use global pose to update map
+            # --- 4. PAINT MAP ---
             if len(lidar_clean) > 0:
                 pts_labeled, labels = self.get_semantic_labels(img, lidar_clean)
                 if len(pts_labeled) > 0:
@@ -238,7 +280,7 @@ class DatasetProcessor:
             processed_dataset.append(new_frame)
             
             if i % 50 == 0:
-                cv2.imshow("Semantic BEV", bev_img)
+                cv2.imshow("Semantic Map Generation", bev_img)
                 cv2.waitKey(1)
 
         with open(OUTPUT_PKL_PATH, 'wb') as f:
@@ -246,6 +288,67 @@ class DatasetProcessor:
         print(f"Saved processed data to {OUTPUT_PKL_PATH}")
         cv2.destroyAllWindows()
 
+def view_results(path):
+    if not os.path.exists(path):
+        print(f"Error: File not found at {path}")
+        return
+
+    print(f"Loading dataset from {path}...")
+    with open(path, 'rb') as f:
+        dataset = pickle.load(f)
+
+    idx = 0
+    paused = False
+    print("Controls: [SPACE] Pause, [N] Next, [B] Back, [Q] Quit")
+
+    while True:
+        frame = dataset[idx]
+        img_rgb = frame['image_raw']
+        bev_map = frame['bev_semantic']
+        
+        img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+        h, w, _ = img_bgr.shape
+        bev_h, bev_w, _ = bev_map.shape
+        scale = h / bev_h
+        bev_resized = cv2.resize(bev_map, (int(bev_w * scale), h), interpolation=cv2.INTER_NEAREST)
+
+        # Overlay Info
+        cv2.putText(bev_resized, "BEV Map", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+        v = float(frame['state'][2])
+        cv2.putText(bev_resized, f"Vel: {v:.2f} m/s", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+        combined = np.hstack((img_bgr, np.zeros((h, 10, 3), dtype=np.uint8), bev_resized))
+        ts = frame.get('timestamp', 0)
+        cv2.putText(combined, f"Frame {idx} | TS: {ts:.2f}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+        cv2.imshow("Map Verification", combined)
+
+        key = cv2.waitKey(0 if paused else 30) & 0xFF
+        if key == ord('q'): break
+        elif key == ord(' '): paused = not paused
+        elif key == ord('n'): 
+            idx = min(idx + 1, len(dataset) - 1)
+            paused = True
+        elif key == ord('b'): 
+            idx = max(idx - 1, 0)
+            paused = True
+
+        if not paused:
+            idx += 1
+            if idx >= len(dataset): idx = 0
+
+    cv2.destroyAllWindows()
+
 if __name__ == "__main__":
-    proc = DatasetProcessor()
-    proc.run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--process', action='store_true', help="Run the map generation process")
+    parser.add_argument('--view', action='store_true', help="Visualize the generated output")
+    args = parser.parse_args()
+
+    if args.process:
+        proc = DatasetProcessor()
+        proc.run()
+    elif args.view:
+        view_results(OUTPUT_PKL_PATH)
+    else:
+        print("Usage: python3 hd_map_generator.py --process OR --view")
