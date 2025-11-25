@@ -8,7 +8,7 @@ import random
 from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
 
 class RealTimeSemanticMapper:
-    def __init__(self, device='cuda', resolution=0.02, map_size_px=2000):
+    def __init__(self, device='cuda', resolution=0.02, initial_map_size=512):
         """
         resolution: 0.02 = 2cm voxels (High Density)
         """
@@ -22,15 +22,18 @@ class RealTimeSemanticMapper:
         
         # Load Labels for Debugging
         self.id2label = self.model.config.id2label
-
-        # --- Map Config ---
         self.res = resolution 
-        self.map_size = map_size_px
-        self.origin_x = 0.0
-        self.origin_y = 0.0
+        # Track current size dynamically
+        self.map_h = initial_map_size
+        self.map_w = initial_map_size
+        
+        # Origin (0,0) of the grid in World Coordinates
+        # Initially center the robot (0,0 world) in the middle of the grid
+        self.origin_x = -(self.map_w * self.res) / 2.0
+        self.origin_y = -(self.map_h * self.res) / 2.0
         
         # 2D Grid [H, W, 3]
-        self.grid = torch.zeros((self.map_size, self.map_size, 3), device=self.device, dtype=torch.float32)
+        self.grid = torch.zeros((self.map_h, self.map_w, 3), device=self.device, dtype=torch.float32)
         # Higher Hit log-odds to fill map faster
         self.L_HIT = 1.2 
         self.L_MISS = -0.1
@@ -90,12 +93,54 @@ class RealTimeSemanticMapper:
         self.class_colors = np.random.randint(0, 255, (200, 3), dtype=np.uint8)
 
     def reset_map(self, start_x, start_y):
-        self.grid.zero_()
-        self.origin_x = start_x
-        self.origin_y = start_y
+        """Resets grid to initial size and centers on new start position."""
+        initial_size = 512
+        self.map_h = initial_size
+        self.map_w = initial_size
+        
+        self.grid = torch.zeros((self.map_h, self.map_w, 3), device=self.device, dtype=torch.float32)
+        
+        # Center grid on robot start
+        self.origin_x = start_x - (self.map_w * self.res) / 2.0
+        self.origin_y = start_y - (self.map_h * self.res) / 2.0
+        
         self.voxel_grid = {} 
         self.frame_count = 0
         self.cached_seg_viz = None
+
+    def _expand_map(self, min_u, max_u, min_v, max_v):
+        """Dynamically expands the grid tensor if points fall out of bounds."""
+        pad_left = 0
+        pad_right = 0
+        pad_top = 0
+        pad_bottom = 0
+        expansion_buffer = 128 # Prevent resizing every frame
+
+        # Check Horizontal
+        if min_u < 0: pad_left = abs(min_u) + expansion_buffer
+        if max_u >= self.map_w: pad_right = (max_u - self.map_w) + 1 + expansion_buffer
+            
+        # Check Vertical
+        if min_v < 0: pad_top = abs(min_v) + expansion_buffer
+        if max_v >= self.map_h: pad_bottom = (max_v - self.map_h) + 1 + expansion_buffer
+
+        if pad_left == 0 and pad_right == 0 and pad_top == 0 and pad_bottom == 0: return
+
+        new_w = self.map_w + pad_left + pad_right
+        new_h = self.map_h + pad_top + pad_bottom
+        
+        new_grid = torch.zeros((new_h, new_w, 3), device=self.device, dtype=torch.float32)
+        
+        # Copy old data into center
+        new_grid[pad_top : pad_top + self.map_h, pad_left : pad_left + self.map_w, :] = self.grid
+        
+        self.grid = new_grid
+        self.map_w = new_w
+        self.map_h = new_h
+        
+        # Adjust origin if we padded left/top
+        self.origin_x -= (pad_left * self.res)
+        self.origin_y -= (pad_top * self.res)
 
     def process_one_step(self, img_np, lidar_np, pose_x, pose_y, pose_yaw):
         self.frame_count += 1
@@ -193,7 +238,7 @@ class RealTimeSemanticMapper:
         if pts_local.shape[0] == 0: return self.cached_seg_viz
         # --- STRICT FILTERING END ---
 
-        # --- 5. Update 2D Map ---
+        # --- 5. Update Dynamic 2D Map ---
         pts_base_x = pts_local[:, 0] + self.lidar_x_offset
         pts_base_y = pts_local[:, 1]
         
@@ -201,66 +246,101 @@ class RealTimeSemanticMapper:
         x_global = pts_base_x * cos_y - pts_base_y * sin_y + pose_x
         y_global = pts_base_x * sin_y + pts_base_y * cos_y + pose_y
 
-        grid_u = ((x_global - self.origin_x) / self.res) + (self.map_size / 2)
-        grid_v = ((y_global - self.origin_y) / self.res) + (self.map_size / 2)
+        # Calculate grid indices based on current origin
+        grid_u = ((x_global - self.origin_x) / self.res).long()
+        grid_v = ((y_global - self.origin_y) / self.res).long()
         
-        in_bounds = (grid_u >= 0) & (grid_u < self.map_size) & (grid_v >= 0) & (grid_v < self.map_size)
-        gu, gv, gcls = grid_u[in_bounds].long(), grid_v[in_bounds].long(), point_classes[in_bounds]
+        # --- DYNAMIC EXPANSION CHECK ---
+        if grid_u.numel() > 0:
+            min_u, max_u = grid_u.min().item(), grid_u.max().item()
+            min_v, max_v = grid_v.min().item(), grid_v.max().item()
+            
+            if min_u < 0 or max_u >= self.map_w or min_v < 0 or max_v >= self.map_h:
+                self._expand_map(int(min_u), int(max_u), int(min_v), int(max_v))
+                # Recompute indices after expansion (origin might have changed)
+                grid_u = ((x_global - self.origin_x) / self.res).long()
+                grid_v = ((y_global - self.origin_y) / self.res).long()
 
-        flat_idx = gu * self.map_size + gv
-        one_hot = F.one_hot(gcls, num_classes=3).float()
-        updates = one_hot * self.L_HIT
-        updates[one_hot == 0] = self.L_MISS
-        self.grid.view(-1, 3).scatter_add_(0, flat_idx.unsqueeze(1).repeat(1, 3), updates)
+        # Update Grid
+        in_bounds = (grid_u >= 0) & (grid_u < self.map_w) & (grid_v >= 0) & (grid_v < self.map_h)
+        gu, gv, gcls = grid_u[in_bounds], grid_v[in_bounds], point_classes[in_bounds]
+
+        if gu.numel() > 0:
+            flat_idx = gv * self.map_w + gu
+            one_hot = F.one_hot(gcls, num_classes=3).float()
+            updates = one_hot * self.L_HIT
+            updates[one_hot == 0] = self.L_MISS
+            self.grid.view(-1, 3).scatter_add_(0, flat_idx.unsqueeze(1).repeat(1, 3), updates)
 
         # --- 6. Update 3D Voxel Grid ---
         if self.collect_3d:
-            gx = x_global.cpu().numpy()
-            gy = y_global.cpu().numpy()
+            gx, gy = x_global.cpu().numpy(), y_global.cpu().numpy()
             gz = pts_local[:, 2].cpu().numpy()
             cls = point_classes.cpu().numpy()
-
             ix = np.floor(gx / self.res).astype(int)
             iy = np.floor(gy / self.res).astype(int)
             iz = np.floor(gz / self.res).astype(int)
-            
             for i in range(len(ix)):
                 key = (ix[i], iy[i], iz[i])
-                c = cls[i] # c is guaranteed to be 1 or 2 now
-                
-                if key not in self.voxel_grid:
-                    self.voxel_grid[key] = [0, 0, 0] 
-                
+                c = cls[i]
+                if key not in self.voxel_grid: self.voxel_grid[key] = [0, 0, 0] 
                 self.voxel_grid[key][c] += 1
             
         return self.cached_seg_viz
 
-    def get_local_bev(self, pose_x, pose_y, pose_yaw, view_size=256):
-        map_probs = self.grid.argmax(dim=2).byte().cpu().numpy()
-        bev_img = np.zeros((self.map_size, self.map_size, 3), dtype=np.uint8)
-        bev_img[map_probs == 1] = [100, 100, 100]
-        bev_img[map_probs == 2] = [255, 255, 255]
+    def get_local_bev(self, pose_x, pose_y, pose_yaw, view_size=256, physical_range=4.0):
+            """
+            Extracts a local BEV patch from the dynamic global map.
+            Handles dynamic map size, origin, and flips Y-axis to match model.
+            """
+            # 1. Convert Map to Color
+            map_probs = self.grid.argmax(dim=2).byte().cpu().numpy()
+            bev_img = np.zeros((self.map_h, self.map_w, 3), dtype=np.uint8)
+            bev_img[map_probs == 1] = [100, 100, 100]
+            bev_img[map_probs == 2] = [255, 255, 255]
 
-        center_u = int(((pose_x - self.origin_x) / self.res) + (self.map_size / 2)) 
-        center_v = int(((pose_y - self.origin_y) / self.res) + (self.map_size / 2)) 
-        angle_deg = np.degrees(pose_yaw) + 90 
-        
-        M = cv2.getRotationMatrix2D((center_v, center_u), angle_deg, 1.0)
-        M[0, 2] += (view_size / 2) - center_v
-        M[1, 2] += (view_size / 2) - center_u
-        return cv2.warpAffine(bev_img, M, (view_size, view_size), borderValue=(0,0,0))
+            # 2. Scale Logic
+            pixels_needed_in_source = physical_range / self.res
+            scale = view_size / pixels_needed_in_source
 
+            # 3. Center Calculation (using current dynamic origin)
+            center_u = (pose_x - self.origin_x) / self.res
+            center_v = (pose_y - self.origin_y) / self.res
+            
+            # 4. Rotation Matrix
+            # Rotates so Robot Forward aligns with Image Up
+            angle_deg = np.degrees(pose_yaw) + 90 
+            M = cv2.getRotationMatrix2D((center_u, center_v), angle_deg, scale)
+            
+            # 5. Translation to output center
+            M[0, 2] += (view_size / 2) - center_u
+            M[1, 2] += (view_size / 2) - center_v
+            
+            # 6. Warp
+            local_bev = cv2.warpAffine(
+                bev_img, 
+                M, 
+                (view_size, view_size), 
+                flags=cv2.INTER_NEAREST, 
+                borderValue=(0,0,0)
+            )
+
+            # 7. Flip horizontally (Local Y Flip)
+            # Matches np.fliplr from transfuser_util.py to align lateral coordinates
+            local_bev = cv2.flip(local_bev, 1)
+
+            return local_bev
     def get_debug_image(self, pose_x, pose_y):
         map_indices = self.grid.argmax(dim=2).byte().cpu().numpy()
-        color_map = np.zeros((self.map_size, self.map_size, 3), dtype=np.uint8)
+        color_map = np.zeros((self.map_h, self.map_w, 3), dtype=np.uint8)
         color_map[map_indices == 1] = [100, 100, 100]
         color_map[map_indices == 2] = [0, 200, 0] 
         
-        ru = int(((pose_x - self.origin_x) / self.res) + (self.map_size / 2)) 
-        rv = int(((pose_y - self.origin_y) / self.res) + (self.map_size / 2)) 
+        ru = int((pose_x - self.origin_x) / self.res)
+        rv = int((pose_y - self.origin_y) / self.res)
         
-        if 0 <= ru < self.map_size and 0 <= rv < self.map_size:
-            cv2.circle(color_map, (rv, ru), 5, (0, 0, 255), -1) 
+        if 0 <= ru < self.map_w and 0 <= rv < self.map_h:
+            cv2.circle(color_map, (ru, rv), 5, (0, 0, 255), -1) 
         
         return cv2.rotate(color_map, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
@@ -305,7 +385,7 @@ class RealTimeSemanticMapper:
         pcd.colors = o3d.utility.Vector3dVector(np.array(final_colors, dtype=np.float32))
 
         print("Running Radius Outlier Removal...")
-        cl, ind = pcd.remove_radius_outlier(nb_points=6, radius=0.1)
+        cl, ind = pcd.remove_radius_outlier(nb_points=6, radius=0.03)
         pcd_clean = pcd.select_by_index(ind)
         
         o3d.io.write_point_cloud(full_path, pcd_clean)

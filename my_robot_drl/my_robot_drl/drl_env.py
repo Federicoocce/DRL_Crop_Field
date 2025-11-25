@@ -114,8 +114,11 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         STATE_VECTOR_SIZE = 4
         # Far clipping plane from URDF, used for observation space and depth processing
         self.camera_far_clip = 10.0
-        # Resolution 5cm/px, Map Size 50m x 50m (1000px)
-        self.mapper = RealTimeSemanticMapper(resolution=0.05, map_size_px=1000)
+        # --- MAPPER CONFIGURATION ---
+        # --- MAPPER CONFIGURATION ---
+        # 0.015625 = 1/64 meters per pixel.
+        # Initial size 512px (~8m x 8m). Expands dynamically.
+        self.mapper = RealTimeSemanticMapper(resolution=0.015625, initial_map_size=512)
         obs_space_dict = {
             'image_raw': spaces.Box(low=0, high=255, shape=(FRONT_IMG_HEIGHT, FRONT_IMG_WIDTH, 3), dtype=np.uint8),
             'depth_raw': spaces.Box(low=0.0, high=self.camera_far_clip, shape=(FRONT_IMG_HEIGHT, FRONT_IMG_WIDTH, 1), dtype=np.float32),
@@ -171,7 +174,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         # Initialize empty point cloud
         self.current_lidar_raw = np.zeros((0, 3), dtype=np.float32) 
         self.min_lidar_range = 0.14
-        self.collision_threshold = 0.16   #era 0.16 disattivato per test
+        self.collision_threshold = 0.141   #era 0.16 disattivato per test
         self.too_far_lidar_threshold = 1.8
         self.waypoints, self.visited_waypoints = [], []
         self.num_waypoints_total = 0
@@ -534,12 +537,19 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 rear_image=self.current_rear_image_raw
             )
 
-            # 3. Display Global Map
             if self.current_odom:
-                global_map_img = self.mapper.get_debug_image(rx, ry)
+                rx = self.current_odom.pose.pose.position.x
+                ry = self.current_odom.pose.pose.position.y
+                _r, _p, ryaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
+
+                bev_obs_viz = self.mapper.get_local_bev(rx, ry, ryaw, view_size=256)
+                cv2.imshow("OBS: Semantic BEV", bev_obs_viz)
+                
+                # Global map
+                global_map = self.mapper.get_debug_image(rx, ry)
                 disp_size = 600
-                global_map_small = cv2.resize(global_map_img, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
-                cv2.imshow("Global Semantic Map", global_map_small)
+                global_map_small = cv2.resize(global_map, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
+                cv2.imshow("Global Map", global_map_small)
 
             cv2.waitKey(1)
 
