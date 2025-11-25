@@ -125,7 +125,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             'lidar_raw': spaces.Box(low=-np.inf, high=np.inf, shape=(self.MAX_LIDAR_POINTS, 3), dtype=np.float32),
             'state': spaces.Box(low=-np.inf, high=np.inf, shape=(STATE_VECTOR_SIZE,), dtype=np.float32),
             'gt_waypoints': spaces.Box(low=-np.inf, high=np.inf, shape=(4, 2), dtype=np.float32),
-            'bev_semantic' : spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
+            'bev_semantic' : spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8),
+            'semantic_raw': spaces.Box(low=0, high=2, shape=(FRONT_IMG_HEIGHT, FRONT_IMG_WIDTH), dtype=np.uint8)
         }
         
         if not self.config.ignore_rear:
@@ -513,45 +514,48 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
         
     def render(self, mode='human'):
-            # 1. Update Map and Get Segmentation Image
-            if self.current_odom:
-                rx = self.current_odom.pose.pose.position.x
-                ry = self.current_odom.pose.pose.position.y
-                _r, _p, ryaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
-                
-                # Call mapper here to ensure we get the image
-                if self.current_image_raw is not None and len(self.current_lidar_raw) > 0:
-                    seg_viz = self.mapper.process_one_step(
-                        self.current_image_raw, 
-                        self.current_lidar_raw, 
-                        rx, ry, ryaw
-                    )
-                    # --- DISPLAY SEGMENTATION HERE ---
-                    if seg_viz is not None:
-                        cv2.imshow("Semantic Segmentation", seg_viz)
+                # 1. Update Map and Get Segmentation Image
+                seg_viz = None # Initialize to avoid UnboundLocalError
 
-            # 2. Display Sensor Streams
-            display_sensor_streams(
-                rgb_image=self.current_image_raw, 
-                depth_image=self.current_depth_raw,
-                rear_image=self.current_rear_image_raw
-            )
+                if self.current_odom:
+                    rx = self.current_odom.pose.pose.position.x
+                    ry = self.current_odom.pose.pose.position.y
+                    _r, _p, ryaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
+                    
+                    # Call mapper here to ensure we get the image
+                    if self.current_image_raw is not None and len(self.current_lidar_raw) > 0:
+                        # --- FIX: Unpack the tuple returned by process_one_step ---
+                        seg_viz, sem_raw = self.mapper.process_one_step(
+                            self.current_image_raw, 
+                            self.current_lidar_raw, 
+                            rx, ry, ryaw
+                        )
+                        # --- DISPLAY SEGMENTATION HERE ---
+                        if seg_viz is not None:
+                            cv2.imshow("Semantic Segmentation", seg_viz)
 
-            if self.current_odom:
-                rx = self.current_odom.pose.pose.position.x
-                ry = self.current_odom.pose.pose.position.y
-                _r, _p, ryaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
+                # 2. Display Sensor Streams (This restores the Depth Window)
+                display_sensor_streams(
+                    rgb_image=self.current_image_raw, 
+                    depth_image=self.current_depth_raw,
+                    rear_image=self.current_rear_image_raw
+                )
 
-                bev_obs_viz = self.mapper.get_local_bev(rx, ry, ryaw, view_size=256)
-                cv2.imshow("OBS: Semantic BEV", bev_obs_viz)
-                
-                # Global map
-                global_map = self.mapper.get_debug_image(rx, ry)
-                disp_size = 600
-                global_map_small = cv2.resize(global_map, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
-                cv2.imshow("Global Map", global_map_small)
+                if self.current_odom:
+                    rx = self.current_odom.pose.pose.position.x
+                    ry = self.current_odom.pose.pose.position.y
+                    _r, _p, ryaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
 
-            cv2.waitKey(1)
+                    bev_obs_viz = self.mapper.get_local_bev(rx, ry, ryaw, view_size=256)
+                    cv2.imshow("OBS: Semantic BEV", bev_obs_viz)
+                    
+                    # Global map
+                    global_map = self.mapper.get_debug_image(rx, ry)
+                    disp_size = 600
+                    global_map_small = cv2.resize(global_map, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
+                    cv2.imshow("Global Map", global_map_small)
+
+                cv2.waitKey(1)
 
     def step(self, action):
         """
@@ -625,33 +629,43 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         linear_vel = self.last_action[0]
         angular_vel = self.last_action[1]
 
+        # Initialize containers
+        seg_viz = None
+        sem_raw = np.zeros((576, 1024), dtype=np.uint8) # Default blank
+
         if self.current_odom:
             rx = self.current_odom.pose.pose.position.x
             ry = self.current_odom.pose.pose.position.y
             _r, _p, ryaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
         else:
             rx, ry, ryaw = 0.0, 0.0, 0.0
+
         # Only update if we have valid sensor data
         if self.current_image_raw is not None and len(self.current_lidar_raw) > 0:
-            self.mapper.process_one_step(
+            # --- UNPACK THE TUPLE HERE ---
+            seg_viz, sem_raw = self.mapper.process_one_step(
                 self.current_image_raw, 
                 self.current_lidar_raw, 
                 rx, ry, ryaw
             )
+
         state_obs = np.concatenate([
             np.array(distant_goal_rel, dtype=np.float32),
             np.array([linear_vel, angular_vel], dtype=np.float32)
         ])
-        # This returns a 256x256x3 image centered on robot, rotated X-up
+        
         bev_semantic_img = self.mapper.get_local_bev(rx, ry, ryaw)
+        
         obs_dict = {
             'image_raw': self.current_image_raw,
-            'depth_raw': self.current_depth_raw, # <-- ADDED DEPTH IMAGE
+            'depth_raw': self.current_depth_raw,
             'lidar_raw': self.current_lidar_raw,
             'bev_semantic': bev_semantic_img, 
+            'semantic_raw': sem_raw, # <--- ADD THIS
             'state': state_obs,
             'gt_waypoints': gt_waypoints_rel 
         }
+        
         
         if not self.config.ignore_rear and self.current_rear_image_raw is not None:
             obs_dict['image_rear_raw'] = self.current_rear_image_raw

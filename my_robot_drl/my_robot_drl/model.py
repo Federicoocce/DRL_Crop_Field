@@ -572,16 +572,26 @@ class LidarCenterNet(nn.Module):
         else:
             raise("The chosen vision backbone does not exist. The options are: transFuser, late_fusion, geometric_fusion, latentTF")
 
+        # --- MODIFIED: Conditional Decoder Initialization ---
         if config.multitask:
-            #self.seg_decoder   = SegDecoder(self.config,   self.config.perception_output_features).to(self.device)
-            self.depth_decoder = DepthDecoder(self.config, self.config.perception_output_features).to(self.device)
-
+            # Only initialize Front Semantic Decoder if enabled
+            if config.use_aux_semantic:
+                self.seg_decoder = SegDecoder(self.config, self.config.perception_output_features).to(self.device)
+            else:
+                self.seg_decoder = None
+                
+            # Only initialize Depth Decoder if enabled
+            if config.use_aux_depth:
+                self.depth_decoder = DepthDecoder(self.config, self.config.perception_output_features).to(self.device)
+            else:
+                self.depth_decoder = None
+        
+        # BEV Head (Usually initialized regardless, but loss depends on config)
         channel = config.channel
-
         self.pred_bev = nn.Sequential(
                             nn.Conv2d(channel, channel, kernel_size=(3, 3), stride=1, padding=(1, 1), bias=True),
                             nn.ReLU(inplace=True),
-                            nn.Conv2d(channel, 3, kernel_size=(1, 1), stride=1, padding=0, bias=True)
+                            nn.Conv2d(channel, 3, kernel_size=(1, 1), stride=1, padding=0, bias=True) # 3 classes
         ).to(self.device)
 
         # prediction heads
@@ -735,6 +745,7 @@ class LidarCenterNet(nn.Module):
         preds = None
         pred_bev = None
         pred_depth = None
+        pred_semantic = None    
 
         if(self.use_point_pillars == True):
             lidar_bev = self.point_pillar_net(lidar_bev, num_points)
@@ -764,41 +775,63 @@ class LidarCenterNet(nn.Module):
 
         # Now, ONLY calculate auxiliary losses if their weight is not zero.
         # This makes the code robust to disabling tasks via the config.
-        
-        # Check if BEV loss is active
-        if self.config.detailed_losses_weights[self.config.detailed_losses.index('loss_bev')] > 0:
+                # --- MODIFIED: Auxiliary Losses ---
+
+        # 2. BEV Semantic Loss
+        if self.config.multitask and self.config.use_aux_bev:
             pred_bev = self.pred_bev(features[0])
             pred_bev = F.interpolate(pred_bev, (self.config.bev_resolution_height, self.config.bev_resolution_width), mode='bilinear', align_corners=True)
-            weight = torch.from_numpy(np.array([1., 1., 3.])).to(dtype=torch.float32, device=pred_bev.device)
+            
+            # Weighted Cross Entropy (0:Unk, 1:Drive, 2:Obs) - Give Obstacles higher weight
+            weight = torch.tensor([1.0, 1.0, 5.0], dtype=torch.float32, device=pred_bev.device)
             loss_bev = F.cross_entropy(pred_bev, bev, weight=weight).mean()
-            loss.update({"loss_bev": loss_bev})
+            loss.update({"loss_bev": self.config.ls_bev * loss_bev})
 
-        # Check if any detection loss is active
-        detection_loss_weights = [
-            self.config.detailed_losses_weights[self.config.detailed_losses.index('loss_center_heatmap')],
-            self.config.detailed_losses_weights[self.config.detailed_losses.index('loss_wh')],
-            self.config.detailed_losses_weights[self.config.detailed_losses.index('loss_offset')]
-        ]
-        if any(w > 0 for w in detection_loss_weights):
-            preds = self.head([features[0]])
-            gt_labels = torch.zeros_like(label[:, :, 0])
-            gt_bboxes_ignore = label.sum(dim=-1) == 0.
-            loss_bbox = self.head.loss(preds[0], preds[1], preds[2], preds[3], preds[4], preds[5], preds[6],
-                                    [label], gt_labels=[gt_labels], gt_bboxes_ignore=[gt_bboxes_ignore], img_metas=None)
-            loss.update(loss_bbox)
-        
-        # --- END OF THE FIX ---
-
-        # This part was already correct
-        if self.config.multitask:
-            #pred_semantic = self.seg_decoder(image_features_grid)
+        # 3. Depth Loss
+        if self.config.multitask and self.config.use_aux_depth and self.depth_decoder is not None:
             pred_depth = self.depth_decoder(image_features_grid)
-            #loss_semantic = self.config.ls_seg * F.cross_entropy(pred_semantic, semantic).mean()
             loss_depth = self.config.ls_depth * F.l1_loss(pred_depth, depth).mean()
-            loss.update({
-                "loss_depth": loss_depth
-                #"loss_semantic": loss_semantic
-            })
+            loss.update({"loss_depth": loss_depth})
+
+        # 4. Front Semantic Loss
+        if self.config.multitask and self.config.use_aux_semantic and self.seg_decoder is not None:
+            pred_semantic = self.seg_decoder(image_features_grid)
+            loss_semantic = self.config.ls_seg * F.cross_entropy(pred_semantic, semantic).mean()
+            loss.update({"loss_semantic": loss_semantic})
+        # # Check if BEV loss is active
+        # if self.config.detailed_losses_weights[self.config.detailed_losses.index('loss_bev')] > 0:
+        #     pred_bev = self.pred_bev(features[0])
+        #     pred_bev = F.interpolate(pred_bev, (self.config.bev_resolution_height, self.config.bev_resolution_width), mode='bilinear', align_corners=True)
+        #     weight = torch.from_numpy(np.array([1., 1., 3.])).to(dtype=torch.float32, device=pred_bev.device)
+        #     loss_bev = F.cross_entropy(pred_bev, bev, weight=weight).mean()
+        #     loss.update({"loss_bev": loss_bev})
+
+        # # Check if any detection loss is active
+        # detection_loss_weights = [
+        #     self.config.detailed_losses_weights[self.config.detailed_losses.index('loss_center_heatmap')],
+        #     self.config.detailed_losses_weights[self.config.detailed_losses.index('loss_wh')],
+        #     self.config.detailed_losses_weights[self.config.detailed_losses.index('loss_offset')]
+        # ]
+        # if any(w > 0 for w in detection_loss_weights):
+        #     preds = self.head([features[0]])
+        #     gt_labels = torch.zeros_like(label[:, :, 0])
+        #     gt_bboxes_ignore = label.sum(dim=-1) == 0.
+        #     loss_bbox = self.head.loss(preds[0], preds[1], preds[2], preds[3], preds[4], preds[5], preds[6],
+        #                             [label], gt_labels=[gt_labels], gt_bboxes_ignore=[gt_bboxes_ignore], img_metas=None)
+        #     loss.update(loss_bbox)
+        
+        # # --- END OF THE FIX ---
+
+        # # This part was already correct
+        # if self.config.multitask:
+        #     #pred_semantic = self.seg_decoder(image_features_grid)
+        #     pred_depth = self.depth_decoder(image_features_grid)
+        #     #loss_semantic = self.config.ls_seg * F.cross_entropy(pred_semantic, semantic).mean()
+        #     loss_depth = self.config.ls_depth * F.l1_loss(pred_depth, depth).mean()
+        #     loss.update({
+        #         "loss_depth": loss_depth
+        #         #"loss_semantic": loss_semantic
+        #     })
         self.i += 1
         if ((self.config.debug == True) and (self.i % self.config.train_debug_save_freq == 0) and (save_path != None)):
             with torch.no_grad():
@@ -811,21 +844,13 @@ class LidarCenterNet(nn.Module):
                     # If detection was skipped, create an empty bbox tensor
                     bboxes = torch.zeros((0, 8)).to(self.device)
 
-                # HANDLE BEV: Check if pred_bev exists
-                if pred_bev is not None:
-                    pred_bev_viz = pred_bev
-                else:
-                    # If BEV was skipped, create dummy black image
-                    pred_bev_viz = torch.zeros((rgb.shape[0], 3, self.config.bev_resolution_height, self.config.bev_resolution_width)).to(self.device)
-
-                # HANDLE DEPTH
-                pred_depth_viz = pred_depth if self.config.multitask else None
 
                 self.visualize_model_io(save_path, self.i, self.config, rgb, lidar_bev, target_point,
                                    pred_wp, 
-                                   pred_bev_viz, 
-                                   None, 
-                                   pred_depth_viz, bboxes, self.device,
+                                   pred_bev,        # May be None
+                                   pred_semantic,   # May be None
+                                   pred_depth,      # May be None
+                                   bboxes, self.device,
                                    gt_bboxes=label, expert_waypoints=ego_waypoint, stuck_detector=0, forced_move=False,
                                    gt_depth=depth)
         return loss

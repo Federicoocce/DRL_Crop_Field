@@ -33,7 +33,7 @@ from .transfuser_util import (
 # --- CONFIGURATION PARAMETERS ---
 # ===================================================================
 IL_EPOCHS = 100 # Max epochs for the initial training phase
-IL_BATCH_SIZE = 32
+IL_BATCH_SIZE = 4
 IL_LEARNING_RATE = 1e-4
 DATA_COLLECTION_FPS = 2.0
 DATA_COLLECTION_FPS_TURNING = 10.0
@@ -55,9 +55,9 @@ BEST_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_model.pt
 BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_model.pth')
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
-EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_straight_depth_timestamp.pkl')
-TRAIN_DATASET_PATH = "/workspace/360_cs_m_s_depth.pkl"
-VAL_DATASET_PATH = "/workspace/360_cl_depth.pkl"
+EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_curved.pkl')
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary.pkl')
+VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary.pkl')
 
 
 # ===================================================================
@@ -69,72 +69,144 @@ VAL_DATASET_PATH = "/workspace/360_cl_depth.pkl"
 # ===================================================================
 # --- DATA PREPROCESSOR CLASS (CORRECTED) ---
 # ===================================================================
+def convert_bev_img_to_classes(bev_img_np):
+    """
+    Converts 3-channel BEV image to single channel class indices.
+    Mapper outputs: [0,0,0] (Unk), [100,100,100] (Drive), [255,255,255] (Obs)
+    """
+    # Take one channel since it's grayscale
+    bev_gray = bev_img_np[:, :, 0] 
+    classes = np.zeros_like(bev_gray, dtype=np.int64)
+    
+    # Thresholds based on realtime_mapper.py values
+    # Class 1 (Drivable): value 100
+    classes[(bev_gray > 50) & (bev_gray < 200)] = 1
+    # Class 2 (Obstacle): value 255
+    classes[bev_gray >= 200] = 2
+    
+    return classes
+
+def preprocess_semantic_image(image_np, target_w, target_h, crop_shift=0):
+    """
+    Transforms the raw semantic mask (H, W) using Nearest Neighbor interpolation.
+    """
+    CAMERA_FULL_FOV = 130.0 
+    SIDE_BUFFER_DEG = 20.0
+
+    source_h, source_w = image_np.shape # 2D array
+
+    effective_fov = CAMERA_FULL_FOV - 2 * SIDE_BUFFER_DEG
+    crop_w = int((effective_fov / CAMERA_FULL_FOV) * source_w)
+    target_aspect_ratio = target_w / target_h
+    crop_h = int(crop_w / target_aspect_ratio)
+
+    center_x = source_w / 2
+    center_y = source_h / 2
+    start_x_centered = center_x - (crop_w / 2)
+    start_y = int(center_y - (crop_h / 2))
+    start_x = int(start_x_centered + crop_shift)
+    
+    end_x = start_x + crop_w
+    end_y = start_y + crop_h
+    
+    panoramic_crop = image_np[start_y:end_y, start_x:end_x]
+    
+    # Crucial: INTER_NEAREST prevents creating new class values (e.g. 1.5 between 1 and 2)
+    resized_image = cv2.resize(panoramic_crop, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+
+    # Return as (H, W) - no transpose needed for 2D mask usually, 
+    # unless your model expects (1, H, W), but usually CrossEntropy expects (B, H, W) targets.
+    return resized_image
+
 class DataPreprocessor:
     def __init__(self, config):
         self.config = config
     
     def process_observation(self, raw_obs_dict):
-        degree = 0.0
-        rad = 0.0
-        if self.config.augment and random.random() > self.config.inv_augment_prob:
-            degree = (random.random() * 2. - 1.) * self.config.aug_max_rotation
-            rad = np.deg2rad(degree)
+            degree = 0.0
+            rad = 0.0
+            if self.config.augment and random.random() > self.config.inv_augment_prob:
+                degree = (random.random() * 2. - 1.) * self.config.aug_max_rotation
+                rad = np.deg2rad(degree)
 
-        # 1. Process Image
-        img_raw = raw_obs_dict['image_raw']
-        crop_shift = degree / self.config.camera_fov * img_raw.shape[1]
-        target_h, target_w = self.config.img_resolution
-        img_processed = preprocess_front_camera_image(img_raw, target_w, target_h, crop_shift)
+            # 1. Process RGB (Front)
+            img_raw = raw_obs_dict['image_raw']
+            crop_shift = degree / self.config.camera_fov * img_raw.shape[1]
+            target_h, target_w = self.config.img_resolution
+            img_processed = preprocess_front_camera_image(img_raw, target_w, target_h, crop_shift)
 
-        # 2. Process LiDAR and Waypoints
-        pc_raw = raw_obs_dict['lidar_raw']
-        gt_waypoints = raw_obs_dict['gt_waypoints']
-        local_command_point = raw_obs_dict['state'][0:2]
+            # 2. Process LiDAR and Waypoints (Augmentation)
+            pc_raw = raw_obs_dict['lidar_raw']
+            gt_waypoints = raw_obs_dict['gt_waypoints']
+            local_command_point = raw_obs_dict['state'][0:2]
 
-        # Rotation matrix
-        rotation_matrix_2d = np.array([[np.cos(rad), -np.sin(rad)],
-                                       [np.sin(rad),  np.cos(rad)]])
+            rotation_matrix_2d = np.array([[np.cos(rad), -np.sin(rad)],
+                                        [np.sin(rad),  np.cos(rad)]])
 
-        # --- Augment LiDAR ---
-        pc_rotated = pc_raw.copy()
-        pc_rotated[:, :2] = (rotation_matrix_2d @ pc_raw[:, :2].T).T
-        
-        lidar_bev_hwc = lidar_to_histogram_features(pc_rotated)
-        lidar_bev_chw = np.transpose(lidar_bev_hwc, (2, 0, 1))
-        
-        # --- Augment Ground-Truth Waypoints ---
-        gt_waypoints_rot = (rotation_matrix_2d @ gt_waypoints.T).T
-        local_command_point_rot = (rotation_matrix_2d @ local_command_point.T).T
-        
-        # 3. Assemble final dictionary
-        processed_data = {
-            'rgb': torch.from_numpy(img_processed.copy()).float(),
-            'lidar_bev': torch.from_numpy(lidar_bev_chw.copy()).float(),
-            'target_point': torch.from_numpy(local_command_point_rot.copy()).float(),
-            'ego_vel': torch.tensor([raw_obs_dict['state'][2]]).float(),
-            'ego_waypoint': torch.from_numpy(gt_waypoints_rot.copy()).float(),
-            'target_point_image': torch.from_numpy(draw_target_point(local_command_point_rot).copy()).float(),
-        }
-
-        # Add timestamp if available (useful if we process this later)
-        if 'timestamp' in raw_obs_dict:
-             processed_data['timestamp'] = torch.tensor([raw_obs_dict['timestamp']]).float()
-
-        if self.config.multitask:
-            depth_raw = raw_obs_dict['depth_raw']
-            depth_processed = preprocess_depth_image(depth_raw, target_w, target_h, crop_shift)
-            processed_data['depth'] = torch.from_numpy(depth_processed.copy()).float()
+            pc_rotated = pc_raw.copy()
+            pc_rotated[:, :2] = (rotation_matrix_2d @ pc_raw[:, :2].T).T
             
-            # Placeholders for other tasks
-            processed_data['bev'] = torch.zeros(self.config.bev_resolution_height, self.config.bev_resolution_width, dtype=torch.long)
+            lidar_bev_hwc = lidar_to_histogram_features(pc_rotated)
+            lidar_bev_chw = np.transpose(lidar_bev_hwc, (2, 0, 1))
+            
+            gt_waypoints_rot = (rotation_matrix_2d @ gt_waypoints.T).T
+            local_command_point_rot = (rotation_matrix_2d @ local_command_point.T).T
+            
+            # 3. Assemble Basic Data
+            processed_data = {
+                'rgb': torch.from_numpy(img_processed.copy()).float(),
+                'lidar_bev': torch.from_numpy(lidar_bev_chw.copy()).float(),
+                'target_point': torch.from_numpy(local_command_point_rot.copy()).float(),
+                'ego_vel': torch.tensor([raw_obs_dict['state'][2]]).float(),
+                'ego_waypoint': torch.from_numpy(gt_waypoints_rot.copy()).float(),
+                'target_point_image': torch.from_numpy(draw_target_point(local_command_point_rot).copy()).float(),
+            }
+
+            if 'timestamp' in raw_obs_dict:
+                processed_data['timestamp'] = torch.tensor([raw_obs_dict['timestamp']]).float()
+
+            # --- 4. Handle Required Arguments (Auxiliary & Placeholders) ---
+            
+            # LABEL (Required positional arg in forward): Dummy tensor for bounding boxes
+            # We create a dummy tensor of shape (20, 7) as expected by the model's loss function
             processed_data['label'] = torch.zeros(20, 7)
-            h, w = self.config.img_resolution
-            processed_data['semantic'] = torch.zeros(h, w, dtype=torch.long)
-        else:
-            processed_data['depth'] = torch.zeros(target_h, target_w)
 
-        return processed_data, degree
+            # DEPTH
+            if self.config.use_aux_depth and 'depth_raw' in raw_obs_dict:
+                depth_raw = raw_obs_dict['depth_raw']
+                depth_processed = preprocess_depth_image(depth_raw, target_w, target_h, crop_shift)
+                processed_data['depth'] = torch.from_numpy(depth_processed.copy()).float()
+            else:
+                processed_data['depth'] = torch.zeros(target_h, target_w).float()
 
+            # BEV SEMANTIC
+            if self.config.use_aux_bev and 'bev_semantic' in raw_obs_dict:
+                bev_raw = raw_obs_dict['bev_semantic']
+                h, w = bev_raw.shape[:2]
+                center = (w // 2, h // 2)
+                M = cv2.getRotationMatrix2D(center, degree, 1.0) 
+                bev_rotated = cv2.warpAffine(bev_raw, M, (w, h), flags=cv2.INTER_NEAREST)
+                
+                bev_classes = convert_bev_img_to_classes(bev_rotated)
+                
+                if h != self.config.bev_resolution_height:
+                    bev_classes = cv2.resize(bev_classes.astype(np.uint8), 
+                                        (self.config.bev_resolution_width, self.config.bev_resolution_height), 
+                                        interpolation=cv2.INTER_NEAREST)
+
+                processed_data['bev'] = torch.from_numpy(bev_classes).long()
+            else:
+                processed_data['bev'] = torch.zeros(self.config.bev_resolution_height, self.config.bev_resolution_width, dtype=torch.long)
+
+            # FRONT SEMANTIC
+            if self.config.use_aux_semantic and 'semantic_raw' in raw_obs_dict:
+                sem_raw = raw_obs_dict['semantic_raw']
+                sem_processed = preprocess_semantic_image(sem_raw, target_w, target_h, crop_shift)
+                processed_data['semantic'] = torch.from_numpy(sem_processed).long()
+            else:
+                processed_data['semantic'] = torch.zeros(target_h, target_w, dtype=torch.long)
+
+            return processed_data, degree
 # ===================================================================
 # --- DATA HANDLING FUNCTIONS ---
 # ===================================================================
@@ -323,23 +395,26 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                 if len(raw_batch) < IL_BATCH_SIZE: continue
 
                 # --- START: Augmentation Debug Visualization ---
-                # if i % 32 == 0: 
-                #     first_sample_raw = raw_batch[0]
-                #     processed_augmented, augmented_degree = preprocessor.process_observation(first_sample_raw)
-                #     if abs(augmented_degree) > 19.0:
-                #         original_augment_state = preprocessor.config.augment
-                #         preprocessor.config.augment = False
-                #         processed_original, original_degree = preprocessor.process_observation(first_sample_raw)
-                #         preprocessor.config.augment = original_augment_state
-                #         batch_original = {key: val.unsqueeze(0).to(model.device) for key, val in processed_original.items()}
-                #         batch_augmented = {key: val.unsqueeze(0).to(model.device) for key, val in processed_augmented.items()}
-                #         original_wps = batch_original['ego_waypoint'][0].cpu().numpy()
-                #         augmented_wps = batch_augmented['ego_waypoint'][0].cpu().numpy()
-                #         debug_augmentation_visualize(batch_original, batch_augmented, original_degree, augmented_degree, original_wps, augmented_wps)
+                if i % 32 == 0: 
+                    first_sample_raw = raw_batch[0]
+                    processed_augmented, augmented_degree = preprocessor.process_observation(first_sample_raw)
+                    if abs(augmented_degree) > 19.0:
+                        original_augment_state = preprocessor.config.augment
+                        preprocessor.config.augment = False
+                        processed_original, original_degree = preprocessor.process_observation(first_sample_raw)
+                        preprocessor.config.augment = original_augment_state
+                        batch_original = {key: val.unsqueeze(0).to(model.device) for key, val in processed_original.items()}
+                        batch_augmented = {key: val.unsqueeze(0).to(model.device) for key, val in processed_augmented.items()}
+                        original_wps = batch_original['ego_waypoint'][0].cpu().numpy()
+                        augmented_wps = batch_augmented['ego_waypoint'][0].cpu().numpy()
+                        debug_augmentation_visualize(batch_original, batch_augmented, original_degree, augmented_degree, original_wps, augmented_wps)
                 # --- END: Augmentation Debug Visualization ---
 
                 processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] 
                 batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
+
+                if 'timestamp' in batch:
+                    del batch['timestamp'] 
                 
                 # Pass save path for model debug visualization
                 batch['save_path'] = debug_save_dir 
@@ -385,7 +460,8 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
 
                     processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] 
                     batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
-
+                    if 'timestamp' in batch:
+                        del batch['timestamp'] 
                     # Note: We don't pass save_path here to avoid saving validation images
                     
                     losses = model(**batch)

@@ -143,150 +143,126 @@ class RealTimeSemanticMapper:
         self.origin_y -= (pad_top * self.res)
 
     def process_one_step(self, img_np, lidar_np, pose_x, pose_y, pose_yaw):
-        self.frame_count += 1
-        
-        if self.cached_seg_viz is None:
-            self.cached_seg_viz = img_np.copy()
-
-        if self.frame_count % 2 != 0:
-            return self.cached_seg_viz
-
-        if len(lidar_np) < 10: return self.cached_seg_viz
-
-        # --- 1. Prepare Data ---
-        img_small = cv2.resize(img_np, self.inference_size)
-        inputs = self.processor(images=img_small, return_tensors="pt").to(self.device)
-        inputs = {k: v.half() if torch.is_floating_point(v) else v for k, v in inputs.items()}
-        
-        lidar_t = torch.from_numpy(lidar_np).to(self.device).float()
-        
-        # Range Filter
-        dists = torch.norm(lidar_t, dim=1)
-        valid_pts = (dists > 0.15) & (dists < 3.5)
-        lidar_t = lidar_t[valid_pts]
-        if lidar_t.shape[0] == 0: return self.cached_seg_viz
-
-        # --- 2. Inference ---
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-            logits = F.interpolate(outputs.logits.float(), size=(self.img_h, self.img_w), 
-                                  mode="bilinear", align_corners=False)
-            seg_ids = logits.argmax(dim=1)[0] # [H, W]
-
-        # --- 3. DEBUG VISUALIZATION (Shows ALL classes, even Sky) ---
-        seg_cpu = seg_ids.cpu().numpy().astype(np.uint8)
-        unique_classes = np.unique(seg_cpu)
-        
-        # Colored overlay
-        color_mask = self.class_colors[seg_cpu]
-        viz_img = cv2.addWeighted(img_np, 0.6, color_mask, 0.4, 0)
-        
-        # Draw Labels
-        for cls_id in unique_classes:
-            if cls_id == 0: continue # Skip background
+            self.frame_count += 1
             
-            mask = (seg_cpu == cls_id).astype(np.uint8)
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # [Initialize cache if None ...]
+            if self.cached_seg_viz is None:
+                self.cached_seg_viz = img_np.copy()
+                # Initialize cached mask as zeros
+                self.cached_sem_mask = np.zeros((self.img_h, self.img_w), dtype=np.uint8)
+
+            # [Skip frames optimization ...] 
+            if self.frame_count % 2 != 0:
+                return self.cached_seg_viz, self.cached_sem_mask # <--- CHANGED: Return tuple
+
+            if len(lidar_np) < 10: return self.cached_seg_viz, self.cached_sem_mask
+
+            # --- 1. Prepare Data ---
+            img_small = cv2.resize(img_np, self.inference_size)
+            inputs = self.processor(images=img_small, return_tensors="pt").to(self.device)
+            inputs = {k: v.half() if torch.is_floating_point(v) else v for k, v in inputs.items()}
             
-            if contours:
-                largest_cnt = max(contours, key=cv2.contourArea)
-                if cv2.contourArea(largest_cnt) > 400: 
-                    M = cv2.moments(largest_cnt)
-                    if M["m00"] != 0:
-                        cX = int(M["m10"] / M["m00"])
-                        cY = int(M["m01"] / M["m00"])
-                        
-                        label_name = self.id2label.get(cls_id, "Unknown")
-                        text = f"{label_name} [{cls_id}]"
-                        
-                        cv2.putText(viz_img, text, (cX, cY), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
-                        cv2.putText(viz_img, text, (cX, cY), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-
-        self.cached_seg_viz = viz_img
-
-        # --- 4. Projection & Logic ---
-        sem_labels = seg_ids.clamp(0, 199)
-        lookup = torch.zeros(200, device=self.device, dtype=torch.uint8)
-        lookup[self.drivable_ids] = 1 
-        lookup[self.obstacle_ids] = 2 
-        # Everything else (Sky, Building, etc) stays 0
-        
-        class_mask = lookup[sem_labels] # [H, W]
-        
-        # Project Lidar
-        ones = torch.ones((lidar_t.shape[0], 1), device=self.device)
-        pts_hom = torch.cat([lidar_t, ones], dim=1)
-        pts_cam = (self.lidar_to_cam @ pts_hom.T).T
-        
-        u = ((self.fx * pts_cam[:, 0]) / (pts_cam[:, 2] + 1e-5)) + self.cx
-        v = ((self.fy * pts_cam[:, 1]) / (pts_cam[:, 2] + 1e-5)) + self.cy
-        valid_uv = (pts_cam[:, 2] > 0.1) & (u >= 0) & (u < self.img_w) & (v >= 0) & (v < self.img_h)
-        
-        u, v = u[valid_uv].long(), v[valid_uv].long()
-        pts_local = lidar_t[valid_uv]
-        point_classes = class_mask[v, u].long()
-
-        # --- STRICT FILTERING START ---
-        # Ignore anything that is Class 0 (Unknown/Sky/Others)
-        # We ONLY want Drive(1) or Obstacle(2)
-        valid_map_points = point_classes > 0 
-        
-        # Apply mask
-        pts_local = pts_local[valid_map_points]
-        point_classes = point_classes[valid_map_points]
-        
-        if pts_local.shape[0] == 0: return self.cached_seg_viz
-        # --- STRICT FILTERING END ---
-
-        # --- 5. Update Dynamic 2D Map ---
-        pts_base_x = pts_local[:, 0] + self.lidar_x_offset
-        pts_base_y = pts_local[:, 1]
-        
-        cos_y, sin_y = np.cos(pose_yaw), np.sin(pose_yaw)
-        x_global = pts_base_x * cos_y - pts_base_y * sin_y + pose_x
-        y_global = pts_base_x * sin_y + pts_base_y * cos_y + pose_y
-
-        # Calculate grid indices based on current origin
-        grid_u = ((x_global - self.origin_x) / self.res).long()
-        grid_v = ((y_global - self.origin_y) / self.res).long()
-        
-        # --- DYNAMIC EXPANSION CHECK ---
-        if grid_u.numel() > 0:
-            min_u, max_u = grid_u.min().item(), grid_u.max().item()
-            min_v, max_v = grid_v.min().item(), grid_v.max().item()
+            lidar_t = torch.from_numpy(lidar_np).to(self.device).float()
             
-            if min_u < 0 or max_u >= self.map_w or min_v < 0 or max_v >= self.map_h:
-                self._expand_map(int(min_u), int(max_u), int(min_v), int(max_v))
-                # Recompute indices after expansion (origin might have changed)
-                grid_u = ((x_global - self.origin_x) / self.res).long()
-                grid_v = ((y_global - self.origin_y) / self.res).long()
+            # [Range Filter ...]
+            dists = torch.norm(lidar_t, dim=1)
+            valid_pts = (dists > 0.15) & (dists < 3.5)
+            lidar_t = lidar_t[valid_pts]
+            if lidar_t.shape[0] == 0: return self.cached_seg_viz, self.cached_sem_mask
 
-        # Update Grid
-        in_bounds = (grid_u >= 0) & (grid_u < self.map_w) & (grid_v >= 0) & (grid_v < self.map_h)
-        gu, gv, gcls = grid_u[in_bounds], grid_v[in_bounds], point_classes[in_bounds]
+            # --- 2. Inference ---
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                logits = F.interpolate(outputs.logits.float(), size=(self.img_h, self.img_w), 
+                                    mode="bilinear", align_corners=False)
+                seg_ids = logits.argmax(dim=1)[0]
 
-        if gu.numel() > 0:
-            flat_idx = gv * self.map_w + gu
-            one_hot = F.one_hot(gcls, num_classes=3).float()
-            updates = one_hot * self.L_HIT
-            updates[one_hot == 0] = self.L_MISS
-            self.grid.view(-1, 3).scatter_add_(0, flat_idx.unsqueeze(1).repeat(1, 3), updates)
-
-        # --- 6. Update 3D Voxel Grid ---
-        if self.collect_3d:
-            gx, gy = x_global.cpu().numpy(), y_global.cpu().numpy()
-            gz = pts_local[:, 2].cpu().numpy()
-            cls = point_classes.cpu().numpy()
-            ix = np.floor(gx / self.res).astype(int)
-            iy = np.floor(gy / self.res).astype(int)
-            iz = np.floor(gz / self.res).astype(int)
-            for i in range(len(ix)):
-                key = (ix[i], iy[i], iz[i])
-                c = cls[i]
-                if key not in self.voxel_grid: self.voxel_grid[key] = [0, 0, 0] 
-                self.voxel_grid[key][c] += 1
+            # --- 3. Prepare Semantic Mask (NEW) ---
+            # Map raw Segformer IDs (0-150) to our Farm Classes (0:Unk, 1:Drive, 2:Obs)
+            sem_labels = seg_ids.clamp(0, 199)
+            lookup = torch.zeros(200, device=self.device, dtype=torch.uint8)
+            lookup[self.drivable_ids] = 1 
+            lookup[self.obstacle_ids] = 2 
             
-        return self.cached_seg_viz
+            # Create the dense mask (H, W)
+            class_mask = lookup[sem_labels] 
+            
+            # Cache this mask for return
+            self.cached_sem_mask = class_mask.cpu().numpy().astype(np.uint8)
+
+            # --- 4. Debug Viz (CPU) ---
+            seg_cpu = seg_ids.cpu().numpy().astype(np.uint8)
+            color_mask = self.class_colors[seg_cpu]
+            self.cached_seg_viz = cv2.addWeighted(img_np, 0.6, color_mask, 0.4, 0)
+
+            # --- 5. Projection (Lidar to Camera) ---
+            ones = torch.ones((lidar_t.shape[0], 1), device=self.device)
+            pts_hom = torch.cat([lidar_t, ones], dim=1)
+            pts_cam = (self.lidar_to_cam @ pts_hom.T).T
+            
+            u = ((self.fx * pts_cam[:, 0]) / (pts_cam[:, 2] + 1e-5)) + self.cx
+            v = ((self.fy * pts_cam[:, 1]) / (pts_cam[:, 2] + 1e-5)) + self.cy
+            valid_uv = (pts_cam[:, 2] > 0.1) & (u >= 0) & (u < self.img_w) & (v >= 0) & (v < self.img_h)
+            
+            u, v = u[valid_uv].long(), v[valid_uv].long()
+            pts_local = lidar_t[valid_uv]
+            
+            # Use the computed class_mask to get classes for lidar points
+            point_classes = class_mask[v, u].long()
+
+            valid_map_points = point_classes > 0 
+            pts_local = pts_local[valid_map_points]
+            point_classes = point_classes[valid_map_points]
+            
+            if pts_local.shape[0] == 0: return self.cached_seg_viz, self.cached_sem_mask
+
+            # --- 6. Update Dynamic 2D Map ---
+            # ... (Keep existing logic for dynamic map expansion and voxel grid) ...
+            # (This part remains identical to your previous file)
+            pts_base_x = pts_local[:, 0] + self.lidar_x_offset
+            pts_base_y = pts_local[:, 1]
+            
+            cos_y, sin_y = np.cos(pose_yaw), np.sin(pose_yaw)
+            x_global = pts_base_x * cos_y - pts_base_y * sin_y + pose_x
+            y_global = pts_base_x * sin_y + pts_base_y * cos_y + pose_y
+
+            grid_u = ((x_global - self.origin_x) / self.res).long()
+            grid_v = ((y_global - self.origin_y) / self.res).long()
+            
+            if grid_u.numel() > 0:
+                min_u, max_u = grid_u.min().item(), grid_u.max().item()
+                min_v, max_v = grid_v.min().item(), grid_v.max().item()
+                
+                if min_u < 0 or max_u >= self.map_w or min_v < 0 or max_v >= self.map_h:
+                    self._expand_map(int(min_u), int(max_u), int(min_v), int(max_v))
+                    grid_u = ((x_global - self.origin_x) / self.res).long()
+                    grid_v = ((y_global - self.origin_y) / self.res).long()
+
+            in_bounds = (grid_u >= 0) & (grid_u < self.map_w) & (grid_v >= 0) & (grid_v < self.map_h)
+            gu, gv, gcls = grid_u[in_bounds], grid_v[in_bounds], point_classes[in_bounds]
+
+            if gu.numel() > 0:
+                flat_idx = gv * self.map_w + gu
+                one_hot = F.one_hot(gcls, num_classes=3).float()
+                updates = one_hot * self.L_HIT
+                updates[one_hot == 0] = self.L_MISS
+                self.grid.view(-1, 3).scatter_add_(0, flat_idx.unsqueeze(1).repeat(1, 3), updates)
+
+            # --- 7. Update 3D Voxel Grid ---
+            if self.collect_3d:
+                gx, gy = x_global.cpu().numpy(), y_global.cpu().numpy()
+                gz = pts_local[:, 2].cpu().numpy()
+                cls = point_classes.cpu().numpy()
+                ix = np.floor(gx / self.res).astype(int)
+                iy = np.floor(gy / self.res).astype(int)
+                iz = np.floor(gz / self.res).astype(int)
+                for i in range(len(ix)):
+                    key = (ix[i], iy[i], iz[i])
+                    c = cls[i]
+                    if key not in self.voxel_grid: self.voxel_grid[key] = [0, 0, 0] 
+                    self.voxel_grid[key][c] += 1
+                
+            return self.cached_seg_viz, self.cached_sem_mask # <--- Return both
 
     def get_local_bev(self, pose_x, pose_y, pose_yaw, view_size=256, physical_range=4.0):
             """
