@@ -619,23 +619,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 global_map_small = cv2.resize(global_map, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
                 cv2.imshow("Global Map", global_map_small)
 
-            # 5. --- NEW: Local BEV Semantic Debug (Agent Input) ---
-            if self.current_odom and hasattr(self, 'mapper'):
-                # Retrieve the exact BEV the agent sees, applying the FOV mask
-                local_bev_debug = self.mapper.get_local_bev(
-                    rx, ry, ryaw, 
-                    fov_deg=self.config.lidar_fov_deg
-                )
-                
-                # Upscale it for better visibility on screen (e.g., to 512x512)
-                # Use INTER_NEAREST to keep sharp edges on pixels
-                local_bev_large = cv2.resize(local_bev_debug, (512, 512), interpolation=cv2.INTER_NEAREST)
-                
-                # Add a label
-                cv2.putText(local_bev_large, f"FOV: {self.config.lidar_fov_deg} deg", (10, 30), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-                
-                cv2.imshow("Local BEV (Agent Input)", local_bev_large)
+
 
             cv2.waitKey(1)
 
@@ -711,8 +695,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         linear_vel = self.last_action[0]
         angular_vel = self.last_action[1]
 
-        # Initialize containers
-        seg_viz = None
+        # Initialize containers for semantic segmentation
         sem_raw = np.zeros((576, 1024), dtype=np.uint8) # Default blank
 
         if self.current_odom:
@@ -725,7 +708,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         # Only update if we have valid sensor data
         if self.current_image_raw is not None and len(self.current_lidar_raw) > 0:
             # --- UNPACK THE TUPLE HERE ---
-            seg_viz, sem_raw = self.mapper.process_one_step(
+            _ , sem_raw = self.mapper.process_one_step(
                 self.current_image_raw, 
                 self.current_lidar_raw, 
                 rx, ry, ryaw
@@ -735,20 +718,17 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             np.array(distant_goal_rel, dtype=np.float32),
             np.array([linear_vel, angular_vel], dtype=np.float32)
         ])
-        
-        bev_semantic_img = self.mapper.get_local_bev(
-            rx, ry, ryaw, 
-            fov_deg=self.config.lidar_fov_deg
-        )
+
         
         obs_dict = {
             'image_raw': self.current_image_raw,
             'depth_raw': self.current_depth_raw,
             'lidar_raw': self.current_lidar_raw,
-            'bev_semantic': bev_semantic_img, 
+ 
             'semantic_raw': sem_raw, # <--- ADD THIS
             'state': state_obs,
-            'gt_waypoints': gt_waypoints_rel 
+            'gt_waypoints': gt_waypoints_rel,
+            'pose': np.array([rx, ry, ryaw], dtype=np.float32) # Essential for Post-Processing
         }
         
         

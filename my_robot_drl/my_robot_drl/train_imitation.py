@@ -14,6 +14,7 @@ from torch import optim
 import cv2
 import pickle
 import argparse
+from tqdm import tqdm
 
 # --- Main Project Imports ---
 from .drl_env import MaizeNavigationEnv
@@ -56,8 +57,8 @@ BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
 EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_straight.pkl')
-TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_sincurved_curved.pkl')
-VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_straight.pkl')
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_auxiliary_straight.pkl')
+VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_auxiliary_straight.pkl')
 
 
 # ===================================================================
@@ -178,16 +179,21 @@ class DataPreprocessor:
             else:
                 processed_data['depth'] = torch.zeros(target_h, target_w).float()
 
-            # BEV SEMANTIC
+            # A. Semantic BEV Label
+            # We look for the 'bev_semantic' key which was added during Post-Processing
             if self.config.use_aux_bev and 'bev_semantic' in raw_obs_dict:
-                bev_raw = raw_obs_dict['bev_semantic']
-                h, w = bev_raw.shape[:2]
+                bev_source_img = raw_obs_dict['bev_semantic']
+                
+                # Apply same rotation augmentation to the Label as the Input
+                h, w = bev_source_img.shape[:2]
                 center = (w // 2, h // 2)
                 M = cv2.getRotationMatrix2D(center, degree, 1.0) 
-                bev_rotated = cv2.warpAffine(bev_raw, M, (w, h), flags=cv2.INTER_NEAREST)
+                bev_rotated = cv2.warpAffine(bev_source_img, M, (w, h), flags=cv2.INTER_NEAREST)
                 
+                # Convert RGB BEV to Class Indices (0, 1, 2)
                 bev_classes = convert_bev_img_to_classes(bev_rotated)
                 
+                # Resize to model output size (e.g. 160x160)
                 if h != self.config.bev_resolution_height:
                     bev_classes = cv2.resize(bev_classes.astype(np.uint8), 
                                         (self.config.bev_resolution_width, self.config.bev_resolution_height), 
@@ -195,6 +201,7 @@ class DataPreprocessor:
 
                 processed_data['bev'] = torch.from_numpy(bev_classes).long()
             else:
+                # If missing, provide dummy label
                 processed_data['bev'] = torch.zeros(self.config.bev_resolution_height, self.config.bev_resolution_width, dtype=torch.long)
 
             # FRONT SEMANTIC
@@ -209,6 +216,36 @@ class DataPreprocessor:
 # ===================================================================
 # --- DATA HANDLING FUNCTIONS ---
 # ===================================================================
+# ===================================================================
+# --- MAP POST-PROCESSING ---
+# ===================================================================
+
+def augment_data_with_final_map(env, raw_dataset, config, logger):
+    """
+    Called AFTER the episode finishes. 
+    The robot has stopped, but the env.mapper holds the complete map of the field.
+    We iterate through the recorded trajectory and extract the "Ground Truth" BEV.
+    """
+    if not raw_dataset: return raw_dataset
+    
+    # --- ADDED LOGGING HERE ---
+    logger.info(f"Generating Ground Truth BEV Labels for {len(raw_dataset)} frames using FOV: {config.lidar_fov_deg}°...")
+    
+    for sample in tqdm(raw_dataset, desc="Extracting Labels", leave=False):
+        if 'pose' not in sample: continue
+        
+        rx, ry, ryaw = sample['pose']
+        
+        # Extract the BEV from the FULL map
+        perfect_bev = env.mapper.get_local_bev(
+            rx, ry, ryaw, 
+            fov_deg=config.lidar_fov_deg
+        )
+        
+        # Save as label
+        sample['bev_semantic'] = perfect_bev
+        
+    return raw_dataset
 
 def save_dataset(dataset, path, logger):
     """Saves the collected dataset to a file using pickle."""
@@ -239,7 +276,7 @@ def load_datasets(train_path, val_path, logger):
 # --- CORE IMITATION LEARNING PHASES ---
 # ===================================================================
 
-def collect_expert_data(env, logger):
+def collect_expert_data(env, config, logger):
     """
     Phase 1: Navigate the field using an expert controller and record observations.
     """
@@ -288,6 +325,7 @@ def collect_expert_data(env, logger):
             step += 1
 
         if info.get("termination_reason") == "all_waypoints_visited":
+            dataset = augment_data_with_final_map(env, dataset, config , logger)
             logger.info(f"SUCCESS: Expert completed the field in {step} steps.")
             logger.info(f"Final dataset size: {len(dataset)}")
             return dataset
@@ -393,7 +431,7 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                 if len(raw_batch) < IL_BATCH_SIZE: continue
 
                 # --- START: Augmentation Debug Visualization ---
-                if i % 32 == 0: 
+                if i % 4 == 0: 
                     first_sample_raw = raw_batch[0]
                     processed_augmented, augmented_degree = preprocessor.process_observation(first_sample_raw)
                     if abs(augmented_degree) > 19.0:
@@ -401,11 +439,23 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                         preprocessor.config.augment = False
                         processed_original, original_degree = preprocessor.process_observation(first_sample_raw)
                         preprocessor.config.augment = original_augment_state
+                        
                         batch_original = {key: val.unsqueeze(0).to(model.device) for key, val in processed_original.items()}
                         batch_augmented = {key: val.unsqueeze(0).to(model.device) for key, val in processed_augmented.items()}
+                        
                         original_wps = batch_original['ego_waypoint'][0].cpu().numpy()
                         augmented_wps = batch_augmented['ego_waypoint'][0].cpu().numpy()
-                        debug_augmentation_visualize(batch_original, batch_augmented, original_degree, augmented_degree, original_wps, augmented_wps)
+                        
+                        # --- MODIFIED: Extract Semantic BEV Labels (Class Indices) ---
+                        original_sem_bev = batch_original['bev'][0].cpu().numpy()
+                        augmented_sem_bev = batch_augmented['bev'][0].cpu().numpy()
+
+                        debug_augmentation_visualize(
+                            batch_original, batch_augmented, 
+                            original_degree, augmented_degree, 
+                            original_wps, augmented_wps,
+                            original_sem_bev, augmented_sem_bev # <--- Pass these new arguments
+                        )
                 # --- END: Augmentation Debug Visualization ---
 
                 processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] 
@@ -609,6 +659,9 @@ def evaluate_model(env, model, config, logger, device, global_epoch_counter):
     else:
         reason = info.get("termination_reason", "unknown")
         logger.warn(f"FAILURE. Model did not complete (Reason: {reason}).")
+    
+    # Generate the BEV labels now that we have the full map
+    evaluation_data = augment_data_with_final_map(env, evaluation_data, config, logger)
 
     return successful_run, evaluation_data, total_reward
 
@@ -715,7 +768,7 @@ def main(args=None):
     # This is the key change:
     cli_args, unknown = parser.parse_known_args()
     # ===================== END OF THE FIX =====================
-
+    config = GlobalConfig()
     rclpy.init(args=args)
 
     # --- MODE 1: Data Collection ---
@@ -725,7 +778,7 @@ def main(args=None):
             env = MaizeNavigationEnv()
             logger = env.get_logger()
             logger.info("Running in Data Collection Mode.")
-            dataset = collect_expert_data(env, logger)
+            dataset = collect_expert_data(env, config, logger)
             # NOTE: After collection, you must manually split the expert_data.pkl file
             # into train_data.pkl and val_data.pkl before running training.
             save_dataset(dataset, EXPERT_DATASET_PATH, logger)

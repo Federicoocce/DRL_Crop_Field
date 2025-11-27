@@ -264,7 +264,7 @@ def debug_visualize_batch(batch):
     cv2.waitKey(50)
 
 
-def debug_augmentation_visualize(original_batch, augmented_batch, original_degree, augmented_degree, original_wps, augmented_wps):
+def debug_augmentation_visualize(original_batch, augmented_batch, original_degree, augmented_degree, original_wps, augmented_wps, original_sem=None, augmented_sem=None):
     """
     Displays a side-by-side comparison of an original and augmented data sample.
     Draws the full 4-waypoint trajectory graphically on the BEV.
@@ -340,6 +340,21 @@ def debug_augmentation_visualize(original_batch, augmented_batch, original_degre
         cv2.putText(rgb_display, text_tgt, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         cv2.putText(rgb_display, text_rot, (10, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         return rgb_display
+    
+    def create_sem_display_image(sem_class_grid, degree):
+        # sem_class_grid is (H, W) with values 0, 1, 2
+        h, w = sem_class_grid.shape
+        viz = np.zeros((h, w, 3), dtype=np.uint8)
+        
+        # Map Class Indices to Colors
+        # 0 (Unk) -> Black
+        # 1 (Drive) -> Gray/Blue-ish
+        # 2 (Obs) -> White/Red-ish
+        viz[sem_class_grid == 1] = [100, 100, 100]
+        viz[sem_class_grid == 2] = [255, 255, 255]
+        
+        cv2.putText(viz, f"Rot: {degree:.2f}", (5, h-10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+        return viz
 
     # --- Create and show the four images ---
     
@@ -353,6 +368,12 @@ def debug_augmentation_visualize(original_batch, augmented_batch, original_degre
     augmented_bev_display = create_bev_display_image(augmented_batch, augmented_degree, augmented_wps)
     cv2.imshow("Augmented RGB", augmented_rgb_display)
     cv2.imshow("Augmented BEV (Orange Dots = Waypoints)", augmented_bev_display)
+    if original_sem is not None and augmented_sem is not None:
+        orig_sem_viz = create_sem_display_image(original_sem, original_degree)
+        aug_sem_viz = create_sem_display_image(augmented_sem, augmented_degree)
+        
+        cv2.imshow("Orig Semantic Label", orig_sem_viz)
+        cv2.imshow("Aug Semantic Label", aug_sem_viz)
 
     cv2.waitKey(50)
 # def get_bbox_label(bbox, rad=0):

@@ -265,76 +265,38 @@ class RealTimeSemanticMapper:
             return self.cached_seg_viz, self.cached_sem_mask # <--- Return both
 
     def get_local_bev(self, pose_x, pose_y, pose_yaw, fov_deg=360, view_size=256, physical_range=4.0):
-            """
-            Extracts a local BEV patch from the dynamic global map.
-            Handles dynamic map size, origin, and flips Y-axis to match model.
-            
-            Args:
-                fov_deg: The Field of View in degrees. If < 360, a wedge mask is applied.
-            """
-            # 1. Convert Map to Color
-            map_probs = self.grid.argmax(dim=2).byte().cpu().numpy()
-            bev_img = np.zeros((self.map_h, self.map_w, 3), dtype=np.uint8)
-            bev_img[map_probs == 1] = [100, 100, 100]
-            bev_img[map_probs == 2] = [255, 255, 255]
+        """
+        Extracts BEV from the CURRENT grid state.
+        Used by the Post-Processing script to generate labels.
+        """
+        # 1. Convert Grid to RGB Image
+        map_probs = self.grid.argmax(dim=2).byte().cpu().numpy()
+        bev_img = np.zeros((self.map_h, self.map_w, 3), dtype=np.uint8)
+        bev_img[map_probs == 1] = [100, 100, 100] # Drivable
+        bev_img[map_probs == 2] = [255, 255, 255] # Obstacle
 
-            # 2. Scale Logic
-            pixels_needed_in_source = physical_range / self.res
-            scale = view_size / pixels_needed_in_source
+        # 2. Warp/Rotate to Robot Frame
+        pixels_needed = physical_range / self.res
+        scale = view_size / pixels_needed
+        center_u = (pose_x - self.origin_x) / self.res
+        center_v = (pose_y - self.origin_y) / self.res
+        
+        angle_deg = np.degrees(pose_yaw) + 90 
+        M = cv2.getRotationMatrix2D((center_u, center_v), angle_deg, scale)
+        M[0, 2] += (view_size / 2) - center_u
+        M[1, 2] += (view_size / 2) - center_v
+        
+        local_bev = cv2.warpAffine(bev_img, M, (view_size, view_size), flags=cv2.INTER_NEAREST, borderValue=(0,0,0))
 
-            # 3. Center Calculation (using current dynamic origin)
-            center_u = (pose_x - self.origin_x) / self.res
-            center_v = (pose_y - self.origin_y) / self.res
-            
-            # 4. Rotation Matrix
-            # Rotates so Robot Forward aligns with Image Up
-            angle_deg = np.degrees(pose_yaw) + 90 
-            M = cv2.getRotationMatrix2D((center_u, center_v), angle_deg, scale)
-            
-            # 5. Translation to output center
-            M[0, 2] += (view_size / 2) - center_u
-            M[1, 2] += (view_size / 2) - center_v
-            
-            # 6. Warp
-            local_bev = cv2.warpAffine(
-                bev_img, 
-                M, 
-                (view_size, view_size), 
-                flags=cv2.INTER_NEAREST, 
-                borderValue=(0,0,0)
-            )
+        # 3. Apply FOV Mask (Optional, usually we want full map for GT, 
+        #    but applying FOV makes the task realistic for the network)
+        if fov_deg < 360:
+            mask = np.zeros((view_size, view_size), dtype=np.uint8)
+            cv2.ellipse(mask, (view_size//2, view_size//2), (int(view_size*1.5), int(view_size*1.5)), 
+                        270, -fov_deg/2, fov_deg/2, 255, -1)
+            local_bev = cv2.bitwise_and(local_bev, local_bev, mask=mask)
 
-            # --- NEW: Apply FOV Mask ---
-            if fov_deg < 360:
-                # Create a black mask
-                mask = np.zeros((view_size, view_size), dtype=np.uint8)
-                
-                # Robot is centered in the BEV image
-                center = (view_size // 2, view_size // 2)
-                
-                # Radius covers the corners of the square (hypotenuse)
-                radius = int(view_size * 1.5)
-                
-                # OpenCV ellipse angles: 0=Right, 90=Down, 270=Up.
-                # Since we rotated the map so Robot Forward is UP, our main axis is 270.
-                axes = (radius, radius)
-                main_angle = 270
-                
-                # Calculate start and end angles relative to the main axis
-                start_angle = -fov_deg / 2
-                end_angle = fov_deg / 2
-                
-                # Draw the white sector (1s) representing the visible area
-                cv2.ellipse(mask, center, axes, main_angle, start_angle, end_angle, 255, -1)
-                
-                # Apply mask to the BEV image
-                local_bev = cv2.bitwise_and(local_bev, local_bev, mask=mask)
-
-            # 7. Flip horizontally (Local Y Flip)
-            # Matches np.fliplr from transfuser_util.py to align lateral coordinates
-            local_bev = cv2.flip(local_bev, 1)
-
-            return local_bev
+        return cv2.flip(local_bev, 1)
     
     def get_debug_image(self, pose_x, pose_y):
         map_indices = self.grid.argmax(dim=2).byte().cpu().numpy()
