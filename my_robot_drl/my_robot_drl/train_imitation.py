@@ -42,7 +42,7 @@ EXPERT_TARGET_LINEAR_VEL = 0.2
 AGENT_KP_ANGULAR = 0.8
 AGENT_TARGET_LINEAR_VEL = 0.2
 TARGET_REWARD_THRESHOLD = 7800.0
-MAX_GT_WAYPOINT_DEVIATION_X = 1.5
+MAX_GT_WAYPOINT_DEVIATION_X = 0.60 # meters
 EARLY_STOPPING_PATIENCE = 5 # Epochs to wait for validation loss improvement
 DAGGER_RETRAIN_EPOCHS = 5   # Fixed number of epochs for DAgger retraining
 
@@ -55,9 +55,9 @@ BEST_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_model.pt
 BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_model.pth')
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
-EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_curved.pkl')
-TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary.pkl')
-VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary.pkl')
+EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_straight.pkl')
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_sincurved_curved.pkl')
+VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_straight.pkl')
 
 
 # ===================================================================
@@ -162,8 +162,7 @@ class DataPreprocessor:
                 'target_point_image': torch.from_numpy(draw_target_point(local_command_point_rot).copy()).float(),
             }
 
-            if 'timestamp' in raw_obs_dict:
-                processed_data['timestamp'] = torch.tensor([raw_obs_dict['timestamp']]).float()
+
 
             # --- 4. Handle Required Arguments (Auxiliary & Placeholders) ---
             
@@ -243,7 +242,6 @@ def load_datasets(train_path, val_path, logger):
 def collect_expert_data(env, logger):
     """
     Phase 1: Navigate the field using an expert controller and record observations.
-    Includes TIMESTAMPS for precise mapping later.
     """
     logger.info("="*50)
     logger.info(f"PHASE 1: Starting Expert Data Collection")
@@ -256,9 +254,9 @@ def collect_expert_data(env, logger):
     while True:
         obs, info = env.reset()
         
-        # --- NEW: Add timestamp to the first observation ---
+
         current_time = time.time()
-        obs['timestamp'] = current_time
+
         dataset = [obs.copy()]
         
         last_collection_time = current_time
@@ -278,9 +276,9 @@ def collect_expert_data(env, logger):
             now = time.time()
             
             if now - last_collection_time >= current_interval:
-                # Add timestamp to the observation before saving
+
                 obs_to_save = obs.copy()
-                obs_to_save['timestamp'] = now
+
                 
                 dataset.append(obs_to_save)
                 last_collection_time = now
@@ -491,7 +489,18 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             # Extract specific WP loss for decision making (default to total if not found, but it should exist)
             current_val_wp_loss = avg_val_individual.get('loss_wp', avg_val_total)
 
-            logger.info(f"  [Epoch {epoch + 1}] Train Total: {avg_train_total:.4f} | Val Total: {avg_val_total:.4f} | Val WP: {current_val_wp_loss:.4f}")
+            # Construct a detailed string for console output
+            log_str = f"[Epoch {epoch + 1}] Train Total: {avg_train_total:.4f} | Val Total: {avg_val_total:.4f} | Val WP: {current_val_wp_loss:.4f}"
+            
+            # Add specific auxiliary losses if they exist and are non-zero
+            aux_keys = ['loss_bev', 'loss_depth', 'loss_semantic', 'loss_center_heatmap']
+            for k in aux_keys:
+                if k in avg_train_individual and avg_train_individual[k] > 1e-6:
+                    log_str += f" | Tr {k.replace('loss_', '')}: {avg_train_individual[k]:.4f}"
+                if k in avg_val_individual and avg_val_individual[k] > 1e-6:
+                    log_str += f" | Val {k.replace('loss_', '')}: {avg_val_individual[k]:.4f}"
+
+            logger.info(log_str)
             
             # Construct WandB Dictionary
             wandb_log_data = {

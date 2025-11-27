@@ -19,7 +19,7 @@ from sensor_msgs.msg import Image, PointCloud2
 import cv2
 from cv_bridge import CvBridge
 from sensor_msgs_py import point_cloud2
-from .transfuser_util import  render_sensor_data, close_windows
+from .transfuser_util import  lidar_to_histogram_features, render_sensor_data, close_windows
 from .spawn_point_calculator import get_spawn_points
 # Make sure you have this library installed: pip install dubins or pip install dubins-py
 import dubins 
@@ -514,48 +514,130 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
         
     def render(self, mode='human'):
-                # 1. Update Map and Get Segmentation Image
-                seg_viz = None # Initialize to avoid UnboundLocalError
+            # 1. Update Map and Get Segmentation Image (Existing Logic)
+            seg_viz = None 
+            if self.current_odom:
+                rx = self.current_odom.pose.pose.position.x
+                ry = self.current_odom.pose.pose.position.y
+                _r, _p, ryaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
+                
+                if self.current_image_raw is not None and len(self.current_lidar_raw) > 0:
+                    seg_viz, sem_raw = self.mapper.process_one_step(
+                        self.current_image_raw, 
+                        self.current_lidar_raw, 
+                        rx, ry, ryaw
+                    )
+                    if seg_viz is not None:
+                        cv2.imshow("Semantic Segmentation", seg_viz)
 
-                if self.current_odom:
-                    rx = self.current_odom.pose.pose.position.x
-                    ry = self.current_odom.pose.pose.position.y
-                    _r, _p, ryaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
+            # 2. Display Sensor Streams (Existing Logic)
+            display_sensor_streams(
+                rgb_image=self.current_image_raw, 
+                depth_image=self.current_depth_raw,
+                rear_image=self.current_rear_image_raw
+            )
+
+            # 3. --- NEW: Transfuser Input Debug Visualization with Trajectory ---
+            if self.current_lidar_raw is not None and len(self.current_lidar_raw) > 0:
+                # A. Get BEV features (H, W, 2)
+                lidar_bev = lidar_to_histogram_features(self.current_lidar_raw)
+
+                # B. Create Display Image (BGR)
+                # Blue=Ground (Ch 0), Red=Obstacles (Ch 1)
+                h, w, _ = lidar_bev.shape
+                transfuser_display = np.zeros((h, w, 3), dtype=np.uint8)
+                transfuser_display[:, :, 0] = lidar_bev[:, :, 0] 
+                transfuser_display[:, :, 2] = lidar_bev[:, :, 1] 
+
+                # C. Collect Points to Draw (Robot -> 4 WPs -> Distant Goal)
+                points_to_draw = []
+                
+                # 1. Robot Position (0,0 in local frame)
+                points_to_draw.append({'coords': (0.0, 0.0), 'type': 'robot'})
+
+                # 2. Next 4 Waypoints
+                relative_goals = self._get_relative_local_goals()
+                for wp in relative_goals:
+                    points_to_draw.append({'coords': (wp[0], wp[1]), 'type': 'waypoint'})
+                
+                # 3. Distant Goal
+                distant_local = self._get_local_coords_from_world_point(self.distant_goal_world_coords)
+                points_to_draw.append({'coords': distant_local, 'type': 'goal'})
+
+                # D. Convert to Pixels (Logic strictly matches transfuser_util.py)
+                x_meters = 2.0      # Forward range (+/-)
+                y_max_meters = 2.0  # Side range (+/-)
+                pixels_per_meter = 64
+                feature_map_height = int(x_meters * 2 * pixels_per_meter)
+                
+                pixel_poly_list = [] # For drawing the line
+
+                for pt in points_to_draw:
+                    rx, ry = pt['coords']
                     
-                    # Call mapper here to ensure we get the image
-                    if self.current_image_raw is not None and len(self.current_lidar_raw) > 0:
-                        # --- FIX: Unpack the tuple returned by process_one_step ---
-                        seg_viz, sem_raw = self.mapper.process_one_step(
-                            self.current_image_raw, 
-                            self.current_lidar_raw, 
-                            rx, ry, ryaw
-                        )
-                        # --- DISPLAY SEGMENTATION HERE ---
-                        if seg_viz is not None:
-                            cv2.imshow("Semantic Segmentation", seg_viz)
+                    # Math from draw_target_point:
+                    # Map Y (Left/Right)
+                    col = int((-ry + y_max_meters) * pixels_per_meter)
+                    # Map X (Forward/Backward) - shift origin and flip axis
+                    row = int(feature_map_height - 1 - ((rx + x_meters) * pixels_per_meter))
+                    
+                    # Check bounds before drawing
+                    if 0 <= col < w and 0 <= row < h:
+                        point_pixel = (col, row)
+                        
+                        if pt['type'] == 'robot':
+                            pixel_poly_list.append(point_pixel)
+                        
+                        elif pt['type'] == 'waypoint':
+                            pixel_poly_list.append(point_pixel)
+                            # Draw Orange Circle for Waypoints
+                            cv2.circle(transfuser_display, point_pixel, radius=4, color=(0, 165, 255), thickness=-1)
+                        
+                        elif pt['type'] == 'goal':
+                            # Draw Purple Circle for Distant Goal
+                            cv2.circle(transfuser_display, point_pixel, radius=6, color=(255, 0, 255), thickness=-1)
+                            # Add label
+                            cv2.putText(transfuser_display, "G", (col+4, row), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 255), 1)
 
-                # 2. Display Sensor Streams (This restores the Depth Window)
-                display_sensor_streams(
-                    rgb_image=self.current_image_raw, 
-                    depth_image=self.current_depth_raw,
-                    rear_image=self.current_rear_image_raw
+                # E. Draw Trajectory Line (Yellow)
+                if len(pixel_poly_list) > 1:
+                    pts = np.array(pixel_poly_list, np.int32).reshape((-1, 1, 2))
+                    cv2.polylines(transfuser_display, [pts], isClosed=False, color=(0, 255, 255), thickness=2)
+
+                # F. Scale and Show
+                display_size = 512
+                transfuser_display_large = cv2.resize(transfuser_display, (display_size, display_size), interpolation=cv2.INTER_NEAREST)
+                cv2.imshow("Transfuser Debug (Yel=Path, Pur=Goal)", transfuser_display_large)
+
+            # 4. Global Map Visualization (Existing Logic)
+            if self.current_odom:
+                rx = self.current_odom.pose.pose.position.x
+                ry = self.current_odom.pose.pose.position.y
+                
+                global_map = self.mapper.get_debug_image(rx, ry)
+                disp_size = 600
+                global_map_small = cv2.resize(global_map, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
+                cv2.imshow("Global Map", global_map_small)
+
+            # 5. --- NEW: Local BEV Semantic Debug (Agent Input) ---
+            if self.current_odom and hasattr(self, 'mapper'):
+                # Retrieve the exact BEV the agent sees, applying the FOV mask
+                local_bev_debug = self.mapper.get_local_bev(
+                    rx, ry, ryaw, 
+                    fov_deg=self.config.lidar_fov_deg
                 )
+                
+                # Upscale it for better visibility on screen (e.g., to 512x512)
+                # Use INTER_NEAREST to keep sharp edges on pixels
+                local_bev_large = cv2.resize(local_bev_debug, (512, 512), interpolation=cv2.INTER_NEAREST)
+                
+                # Add a label
+                cv2.putText(local_bev_large, f"FOV: {self.config.lidar_fov_deg} deg", (10, 30), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+                
+                cv2.imshow("Local BEV (Agent Input)", local_bev_large)
 
-                if self.current_odom:
-                    rx = self.current_odom.pose.pose.position.x
-                    ry = self.current_odom.pose.pose.position.y
-                    _r, _p, ryaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
-
-                    bev_obs_viz = self.mapper.get_local_bev(rx, ry, ryaw, view_size=256)
-                    cv2.imshow("OBS: Semantic BEV", bev_obs_viz)
-                    
-                    # Global map
-                    global_map = self.mapper.get_debug_image(rx, ry)
-                    disp_size = 600
-                    global_map_small = cv2.resize(global_map, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
-                    cv2.imshow("Global Map", global_map_small)
-
-                cv2.waitKey(1)
+            cv2.waitKey(1)
 
     def step(self, action):
         """
@@ -654,7 +736,10 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             np.array([linear_vel, angular_vel], dtype=np.float32)
         ])
         
-        bev_semantic_img = self.mapper.get_local_bev(rx, ry, ryaw)
+        bev_semantic_img = self.mapper.get_local_bev(
+            rx, ry, ryaw, 
+            fov_deg=self.config.lidar_fov_deg
+        )
         
         obs_dict = {
             'image_raw': self.current_image_raw,
