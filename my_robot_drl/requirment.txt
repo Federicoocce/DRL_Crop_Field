@@ -4,17 +4,12 @@
 
 # --- Step 1: System Update and Prerequisite Tools ---
 echo "--> Updating system and installing prerequisite tools..."
-sudo apt-get update -y && sudo apt-get upgrade -y
-sudo apt-get install -y git python3-pip curl software-properties-common locales apt-utils -y
-
-# FIX: Proactively remove the system-installed sympy to prevent pip conflicts.
-
+sudo apt-get update -y
+sudo apt-get install -y git python3-pip curl software-properties-common locales apt-utils libgl1 -y
 
 # --- Step 2: Configure Python Environment (as Root) ---
 echo "--> Upgrading pip and installing compatible Python tools as root..."
 sudo pip3 install --upgrade pip
-# FIX: The setuptools version is no longer constrained by the old 'gym' package.
-# A more modern version can be used.
 sudo pip3 install --upgrade "setuptools>=60.0" wheel
 
 # --- Step 3: Configure System Locale for ROS 2 ---
@@ -25,49 +20,72 @@ export LANG=en_US.UTF-8
 
 # --- Step 4: Add ROS 2 Repository and Install ---
 echo "--> Adding ROS 2 repository and installing ROS 2 Humble..."
-sudo add-apt-repository universe -y
-sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
-sudo apt-get update -y
-sudo apt-get install -y ros-humble-desktop ros-dev-tools
-
+# Check if ROS is already installed to save time on re-runs
+if ! command -v ros2 &> /dev/null; then
+    sudo add-apt-repository universe -y
+    sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+    sudo apt-get update -y
+    sudo apt-get install -y ros-humble-desktop ros-dev-tools
+else
+    echo "ROS 2 appears to be installed. Skipping repo add."
+fi
 
 echo "--> Removing conflicting apt packages..."
-sudo apt-get remove -y python3-sympy
+# Added '|| true' to prevent script exit if package is already gone
+sudo apt-get remove -y python3-sympy || true
 
-# FIX: Removed 'stable-baselines3' as it is not used in the imitation learning script.
-sudo pip3 install \
+echo "--> Installing General Python Dependencies..."
+# FIX: Pin matplotlib to 3.5.1 to fix 'Axes3D' error
+# FIX: Pin numpy < 2.0.0 to fix ABI incompatibility
+sudo pip3 install --ignore-installed \
     gymnasium \
     PyYAML \
     Pillow \
     "opencv-python~=4.8.0" \
-    matplotlib \
+    "matplotlib==3.5.1" \
     lxml \
-    "numpy<2" \
+    "numpy<2.0.0" \
     git+https://github.com/rdesc/pydubins.git \
     wandb \
     timm \
     scikit-image \
-    ujson
+    ujson \
+    open3d==0.18.0 \
+    transformers==4.30.2
 
 echo "--> Installing PyTorch, MMLab, and other Python packages as root..."
-sudo pip3 install torch==1.12.1+cu113 torchvision==0.13.1+cu113 torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cu113
+# FIX: Downgraded to Torch 1.12.0 (from 1.12.1) to exactly match MMCV binaries
+# This fixes "ImportError: undefined symbol"
+sudo pip3 install torch==1.12.0+cu113 torchvision==0.13.0+cu113 torchaudio==0.12.0 --extra-index-url https://download.pytorch.org/whl/cu113
 
 export CUDA_HOME=/usr/local/cuda
+# This URL is specifically for Torch 1.12.0 and CUDA 11.3
 sudo pip3 install mmcv-full==1.7.1 -f https://download.openmmlab.com/mmcv/dist/cu113/torch1.12.0/index.html
 sudo pip3 install mmdet==2.28.2
-# Force-reinstall a compatible NumPy version. This is a safeguard.
+
+# Force-reinstall a compatible NumPy version. This is a safeguard against other packages upgrading it.
 echo "--> Forcing NumPy version to < 2.0 to ensure compatibility..."
-sudo pip3 install "numpy<2.0" --force-reinstall
+sudo pip3 install "numpy<2.0.0" --force-reinstall
 
 # Force-upgrade protobuf to a version compatible with the wandb gencode.
 echo "--> Overriding Protobuf version to fix runtime error..."
 sudo pip3 install --upgrade "protobuf>=3.20"
 
+# --- CRITICAL FIX: Link PyTorch CUDA libs to System ---
+# This fixes "ImportError: libcudart.so.11.0: cannot open shared object file"
+echo "--> Configuring system linker for PyTorch..."
+TORCH_LIB_PATH=$(python3 -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))")
+echo "Found Torch Libs at: $TORCH_LIB_PATH"
+echo "$TORCH_LIB_PATH" | sudo tee /etc/ld.so.conf.d/torch_libs.conf
+sudo ldconfig
+
 # --- Step 6: Create and Build ROS 2 Workspace ---
 echo "--> Creating and building the ROS 2 workspace..."
 mkdir -p ~/ros2_ws/src
 cd ~/ros2_ws/src
+# Remove if exists to prevent git error on re-run
+rm -rf DRL_Crop_Field
 git clone -b transfuser_auxiliary_tasks https://github.com/Federicoocce/DRL_Crop_Field.git
 
 cd ~/ros2_ws
@@ -78,10 +96,11 @@ rosdep install -i --from-path src --rosdistro humble -y
 source /opt/ros/humble/setup.bash
 colcon build
 
-
+# Exports
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/python3.10/dist-packages/torch/lib
 export LIBGL_ALWAYS_SOFTWARE=1
 export MPLBACKEND=Agg
+
 source /opt/ros/humble/setup.bash
 source /usr/share/gazebo/setup.bash
 source ~/ros2_ws/install/setup.bash
@@ -89,7 +108,7 @@ source ~/ros2_ws/install/setup.bash
 echo "--- VAST.AI SETUP COMPLETE ---"
 
 # Log in to Weights & Biases
-echo "--> Logging into Weights & Biagi..."
+echo "--> Logging into Weights & Biases..."
 wandb login 
 
 # Launch the ROS 2 application

@@ -44,7 +44,7 @@ class GlobalConfig:
     augment = True
     inv_augment_prob = 0.1 # Probablity that data augmentation is applied is 1.0 - inv_augment_prob
     aug_max_rotation = 20 # degree
-    debug = True # If true the model in and outputs will be visualized and saved into Os variable Save_Path
+    debug = False # If true the model in and outputs will be visualized and saved into Os variable Save_Path
     sync_batch_norm = False # If this is true we convert the batch norms, to synced bach norms.
     train_debug_save_freq = 200 # At which interval to save debug files to disk during training
 
@@ -130,12 +130,12 @@ class GlobalConfig:
 
     # Optimization
     lr = 1e-4 # learning rate
-    multitask = True 
+    multitask = False 
     
     # Individual toggles
-    use_aux_depth = True       # Enable Depth prediction
-    use_aux_bev = True         # Enable BEV Semantic prediction
-    use_aux_semantic = True  # Enable Front-View Semantic prediction (Disable if env doesn't provide it)
+    use_aux_depth = False # Enable Depth prediction
+    use_aux_bev = False   # Enable BEV Semantic prediction
+    use_aux_semantic = False # Enable Front-View Semantic prediction (Disable if env doesn't provide it)
 
     # Loss Weights (Lambda)
     ls_depth = 10.0
@@ -162,9 +162,9 @@ class GlobalConfig:
     # Default weights (can be overridden by the boolean flags in model.py logic)
     detailed_losses_weights = [
         1.0, # loss_wp
-        1.0, # loss_bev (will be zeroed if use_aux_bev is False)
-        1.0, # loss_depth (will be zeroed if use_aux_depth is False)
-        1.0, # loss_semantic (will be zeroed if use_aux_semantic is False)
+        0.0, # loss_bev (will be zeroed if use_aux_bev is False)
+        0.0, # loss_depth (will be zeroed if use_aux_depth is False)
+        0.0, # loss_semantic (will be zeroed if use_aux_semantic is False)
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 # Detection losses (set to 1.0 if doing bounding boxes)
     ]
 
