@@ -34,7 +34,7 @@ from .transfuser_util import (
 # --- CONFIGURATION PARAMETERS ---
 # ===================================================================
 IL_EPOCHS = 100 # Max epochs for the initial training phase
-IL_BATCH_SIZE = 32
+IL_BATCH_SIZE = 4
 IL_LEARNING_RATE = 1e-4
 DATA_COLLECTION_FPS = 2.0
 DATA_COLLECTION_FPS_TURNING = 10.0
@@ -57,8 +57,8 @@ BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
 EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_sincurved.pkl')
-TRAIN_DATASET_PATH = "/workspace/180_auxiliary_sincurved_curved_short.pkl"
-VAL_DATASET_PATH = "/workspace/180_auxiliary_straight.pkl"
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_sincurved_curved_short.pkl')
+VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_straight.pkl')
 
 
 # ===================================================================
@@ -751,6 +751,102 @@ def preprocess_depth_image(image_np, target_w, target_h, crop_shift=0):
     
     return normalized_depth # Returns (H, W)
 
+
+def validate_best_model(env, config, logger, device, num_episodes=5):
+    """
+    Loads the best saved model and runs a fixed number of episodes to report performance.
+    No training or data collection happens here.
+    """
+    logger.info("="*60)
+    logger.info(f"PHASE: VALIDATION of Best Model ({BEST_MODEL_SAVE_PATH})")
+    logger.info(f"Running {num_episodes} validation episodes...")
+    logger.info("="*60)
+
+    # 1. Initialize and Load Model
+    model = LidarCenterNet(config, device, backbone=config.backbone, use_velocity=config.use_velocity)
+    
+    if not os.path.exists(BEST_MODEL_SAVE_PATH):
+        logger.fatal(f"Best model not found at {BEST_MODEL_SAVE_PATH}. Cannot validate.")
+        return
+
+    try:
+        model.load_state_dict(torch.load(BEST_MODEL_SAVE_PATH))
+        model.to(device)
+        model.eval()
+        logger.info("Best model loaded successfully.")
+    except Exception as e:
+        logger.fatal(f"Error loading model weights: {e}")
+        return
+
+    # 2. Setup Preprocessor
+    preprocessor = DataPreprocessor(config)
+    
+    # Disable augmentation for validation
+    original_augment_setting = config.augment
+    config.augment = False
+
+    success_count = 0
+    total_rewards = []
+
+    # 3. Validation Loop
+    for ep in range(num_episodes):
+        raw_obs, info = env.reset()
+        done = False
+        episode_reward = 0.0
+        
+        logger.info(f"Starting Validation Episode {ep + 1}/{num_episodes}")
+
+        with torch.no_grad():
+            while not done:
+                # --- NEW: Check for path deviation ---
+                # MAX_GT_WAYPOINT_DEVIATION_X is defined in your constants (usually 0.60m)
+                if abs(raw_obs['gt_waypoints'][0][0]) > MAX_GT_WAYPOINT_DEVIATION_X:
+                    logger.warn(f"  -> Terminating episode: Deviated too far from path ({raw_obs['gt_waypoints'][0][0]:.2f}m)")
+                    info["termination_reason"] = "deviated_from_path"
+                    break
+                # -------------------------------------
+
+                # Preprocess
+                processed_obs, _ = preprocessor.process_observation(raw_obs)
+                batch = {key: val.unsqueeze(0).to(device) for key, val in processed_obs.items()}
+
+                # Inference
+                inference_args = {k: batch[k] for k in ['rgb', 'lidar_bev', 'target_point', 'target_point_image', 'ego_vel']}
+                pred_wp, _ = model.forward_ego(**inference_args)
+
+                # Control Logic
+                predicted_first_wp = pred_wp[0, 0].cpu().numpy()
+                angle_to_target = math.atan2(predicted_first_wp[1], predicted_first_wp[0])
+                action = np.array([AGENT_TARGET_LINEAR_VEL, AGENT_KP_ANGULAR * angle_to_target], dtype=np.float32)
+                action = np.clip(action, env.action_space.low, env.action_space.high)
+
+                # Step
+                raw_obs, reward, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
+                episode_reward += reward
+        
+        # Episode Complete
+        is_success = info.get("termination_reason") == "all_waypoints_visited"
+        if is_success:
+            success_count += 1
+        
+        total_rewards.append(episode_reward)
+        term_reason = info.get("termination_reason", "unknown")
+        logger.info(f"  -> Episode {ep + 1} Result: {'SUCCESS' if is_success else 'FAIL'} "
+                    f"(Reward: {episode_reward:.2f}, Reason: {term_reason})")
+
+    # 4. Report
+    success_rate = (success_count / num_episodes) * 100.0
+    avg_reward = np.mean(total_rewards)
+    logger.info("="*60)
+    logger.info(f"VALIDATION SUMMARY:")
+    logger.info(f"  Success Rate: {success_rate:.1f}% ({success_count}/{num_episodes})")
+    logger.info(f"  Avg Reward:   {avg_reward:.2f}")
+    logger.info("="*60)
+    
+    # Restore config
+    config.augment = original_augment_setting
+
 # ===================================================================
 # --- MAIN EXECUTION ---
 # ===================================================================
@@ -762,9 +858,8 @@ def main(args=None):
     # from the ones added by ROS 2.
     
     parser = argparse.ArgumentParser(description="Run Imitation Learning for AgriCobots")
-    parser.add_argument('--mode', type=str, default='train', choices=['train', 'collect'],
-                        help="Set the script to 'train' mode or 'collect' mode.")
-    
+    parser.add_argument('--mode', type=str, default='train', choices=['train', 'collect', 'validate'],
+                        help="Set the script to 'train', 'collect' or 'validate' mode.")
     # This is the key change:
     cli_args, unknown = parser.parse_known_args()
     # ===================== END OF THE FIX =====================
@@ -788,6 +883,20 @@ def main(args=None):
             if 'env' in locals() and env: env.close()
             rclpy.shutdown()
             print("Shutdown complete.")
+            sys.exit(0)
+
+    if cli_args.mode == 'validate':
+        try:
+            env = MaizeNavigationEnv()
+            logger = env.get_logger()
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            validate_best_model(env, config, logger, device)
+        except Exception as e:
+            print(f"Error during validation: {e}")
+        finally:
+            if 'env' in locals() and env: env.close()
+            rclpy.shutdown()
+            print("Validation complete.")
             sys.exit(0)
 
     # --- MODE 2: Training ---

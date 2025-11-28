@@ -182,7 +182,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.target_waypoint_index, self.previous_waypoint_index = None, None
         self.last_distance_to_target, self.REWARD_FACTOR_DISTANCE = 0.0, 15.0
         self.episode_done, self.last_action = False, np.array([0.0, 0.0], dtype=np.float32)
-        self.waypoint_reach_threshold = 0.3
+        self.waypoint_reach_threshold = 0.35
         self.turning_radius, self.turn_wp_step_distance = 0.6, 0.3
         self.original_target_after_turn_idx = None
         self.local_goal_waypoints = []
@@ -646,6 +646,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         # This is crucial for getting the latest odom, scan, image, and point cloud data.
         rclpy.spin_once(self, timeout_sec=0.1) 
 
+        self._dynamic_waypoint_lookahead()
         # 3. Calculate Reward and Get New Observation
         # Based on the new state after moving, calculate the reward.
         reward = self._calculate_reward() 
@@ -800,7 +801,84 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             return min(candidate_indices)
             
         return None # Return None if no unvisited waypoints are left at all
+    
+    def _dynamic_waypoint_lookahead(self):
+        """
+        Checks if the robot is closer to a subsequent waypoint (index +/- 2) than the 
+        current target. If so, it skips the intermediate waypoints and updates the target.
+        This prevents 'locking' onto a waypoint the robot has already passed or drifted by.
+        """
+        if self.target_waypoint_index is None or self.current_odom is None:
+            return
 
+        robot_pos = self.current_odom.pose.pose.position
+        
+        # Calculate distance to currently locked target
+        current_wp = self.waypoints[self.target_waypoint_index]
+        current_dist_sq = (current_wp['x'] - robot_pos.x)**2 + (current_wp['y'] - robot_pos.y)**2
+        
+        current_lane = current_wp.get('original_lane_index')
+        
+        # Define search window: +/- 2 indices. 
+        # This allows for incremental or decremental path flows.
+        candidates = [-1, 1, -2, 2]
+        
+        best_shortcut_idx = None
+        # We start with the current distance; we only switch if we find something strictly closer
+        best_shortcut_dist_sq = current_dist_sq 
+
+        for offset in candidates:
+            check_idx = self.target_waypoint_index + offset
+            
+            # 1. Bounds check
+            if 0 <= check_idx < len(self.waypoints):
+                cand_wp = self.waypoints[check_idx]
+                
+                # 2. Visited check: Never jump back to a waypoint we've already marked visited
+                if self.visited_waypoints[check_idx]:
+                    continue
+                
+                # 3. Lane check: CRITICAL per requirements.
+                # Only shortcut if the candidate is in the SAME lane.
+                # This prevents jumping to a parallel lane if the index diff is small but spatial diff is large.
+                cand_lane = cand_wp.get('original_lane_index')
+                if cand_lane != current_lane:
+                    continue
+
+                # 4. Distance check
+                cand_dist_sq = (cand_wp['x'] - robot_pos.x)**2 + (cand_wp['y'] - robot_pos.y)**2
+                
+                # Logic: If candidate is closer than current target
+                # AND is within a reasonable absolute radius (e.g. 3.0m) to prevent 
+                # weird geometry jumps (like loop-backs).
+                if cand_dist_sq < best_shortcut_dist_sq and cand_dist_sq < (3.0**2):
+                    best_shortcut_idx = check_idx
+                    best_shortcut_dist_sq = cand_dist_sq
+
+        # If we found a better target
+        if best_shortcut_idx is not None:
+            # Determine direction of skip (forward or backward in array)
+            step_dir = 1 if best_shortcut_idx > self.target_waypoint_index else -1
+            
+            skipped_count = 0
+            # Mark the OLD target and any intermediate waypoints as visited
+            # We range from current to new (exclusive of new)
+            for i in range(self.target_waypoint_index, best_shortcut_idx, step_dir):
+                if not self.visited_waypoints[i]:
+                    self.visited_waypoints[i] = True
+                    self.num_waypoints_visited_current_episode += 1
+                    skipped_count += 1
+            
+            self.get_logger().info(f"Dynamic Update: Skipped {skipped_count} WPs. Jumped #{self.target_waypoint_index} -> #{best_shortcut_idx} (Dist: {math.sqrt(best_shortcut_dist_sq):.2f}m)")
+
+            # Update state
+            self.previous_waypoint_index = self.target_waypoint_index # Track logic needs previous
+            self.target_waypoint_index = best_shortcut_idx
+            self.last_distance_to_target = math.sqrt(best_shortcut_dist_sq)
+            
+            # Immediately refresh local goals for the observation
+            self._update_local_goals()
+            
     def _calculate_reward(self):
         REWARD_WAYPOINT_REACHED, REWARD_ALL_WAYPOINTS_VISITED_BONUS, TIME_PENALTY_PER_STEP = 25.0, 200.0, -0.1
         REWARD_FACTOR_FORWARD_VELOCITY = 1.0

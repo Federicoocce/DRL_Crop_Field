@@ -39,7 +39,7 @@ class GlobalConfig:
 
     bev_resolution_width  = 160 # Width resoultion the BEV loss is upsampled to. Double check if width and height are swapped if you want to make them non symmetric.
     bev_resolution_height = 160 # Height resoultion the BEV loss is upsampled to. Double check if width and height are swapped if you want to make them non symmetric.
-    use_target_point_image = False
+    use_target_point_image = True
     gru_concat_target_point = True
     augment = True
     inv_augment_prob = 0.1 # Probablity that data augmentation is applied is 1.0 - inv_augment_prob
