@@ -26,7 +26,8 @@ from .config import GlobalConfig
 from .transfuser_util import (
     lidar_to_histogram_features,
     draw_target_point,
-    debug_augmentation_visualize
+    debug_augmentation_visualize,
+    draw_distant_goal_on_bev
     
 )
 
@@ -181,28 +182,53 @@ class DataPreprocessor:
 
             # A. Semantic BEV Label
             # We look for the 'bev_semantic' key which was added during Post-Processing
-            if self.config.use_aux_bev and 'bev_semantic' in raw_obs_dict:
-                bev_source_img = raw_obs_dict['bev_semantic']
-                
-                # Apply same rotation augmentation to the Label as the Input
-                h, w = bev_source_img.shape[:2]
-                center = (w // 2, h // 2)
-                M = cv2.getRotationMatrix2D(center, degree, 1.0) 
-                bev_rotated = cv2.warpAffine(bev_source_img, M, (w, h), flags=cv2.INTER_NEAREST)
-                
-                # Convert RGB BEV to Class Indices (0, 1, 2)
-                bev_classes = convert_bev_img_to_classes(bev_rotated)
-                
-                # Resize to model output size (e.g. 160x160)
-                if h != self.config.bev_resolution_height:
+            if self.config.use_aux_bev:
+                # 1. Base BEV (Drivable/Obstacle)
+                if 'bev_semantic' in raw_obs_dict:
+                    bev_source_img = raw_obs_dict['bev_semantic']
+                    h, w = bev_source_img.shape[:2]
+                    center = (w // 2, h // 2)
+                    M = cv2.getRotationMatrix2D(center, degree, 1.0) 
+                    bev_rotated = cv2.warpAffine(bev_source_img, M, (w, h), flags=cv2.INTER_NEAREST)
+                    bev_classes = convert_bev_img_to_classes(bev_rotated)
+                else:
+                    bev_classes = np.zeros((self.config.bev_resolution_height, self.config.bev_resolution_width), dtype=np.int64)
+
+                # 2. Resize
+                if bev_classes.shape[0] != self.config.bev_resolution_height:
                     bev_classes = cv2.resize(bev_classes.astype(np.uint8), 
                                         (self.config.bev_resolution_width, self.config.bev_resolution_height), 
-                                        interpolation=cv2.INTER_NEAREST)
+                                        interpolation=cv2.INTER_NEAREST).astype(np.int64)
+
+                # 3. Add Distant Goal (Class 3)
+                if 'state' in raw_obs_dict:
+                        # 'state' contains [goal_x, goal_y, ...] relative to robot
+                        dist_goal_rel = raw_obs_dict['state'][0:2] 
+                        
+                        # Apply augmentation rotation
+                        dist_goal_aug = (rotation_matrix_2d @ dist_goal_rel.T).T
+                        
+                        # --- CRITICAL FIX: Calculate PPM for the RESIZED map ---
+                        # The map covers bev_x_meters (4.0m) in bev_resolution_height (160px)
+                        # PPM = 160 / 4.0 = 40.0 pixels per meter
+                        target_ppm = self.config.bev_resolution_height / self.config.bev_x_meters
+                        
+                        # Ensure map is writable uint8 for drawing
+                        bev_classes_uint8 = bev_classes.astype(np.uint8)
+                        
+                        bev_classes_uint8 = draw_distant_goal_on_bev(
+                            bev_classes_uint8, 
+                            dist_goal_aug, 
+                            crop=self.config.bev_resolution_height, # 160
+                            pixels_per_meter=target_ppm,            # 40.0
+                            x_meters_range=self.config.bev_x_meters / 2.0, # 2.0m
+                            y_meters_range=self.config.bev_y_meters / 2.0  # 2.0m
+                        )
+                        
+                        bev_classes = bev_classes_uint8.astype(np.int64)
 
                 processed_data['bev'] = torch.from_numpy(bev_classes).long()
-            else:
-                # If missing, provide dummy label
-                processed_data['bev'] = torch.zeros(self.config.bev_resolution_height, self.config.bev_resolution_width, dtype=torch.long)
+
 
             # FRONT SEMANTIC
             if self.config.use_aux_semantic and 'semantic_raw' in raw_obs_dict:

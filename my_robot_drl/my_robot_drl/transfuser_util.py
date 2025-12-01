@@ -150,65 +150,104 @@ def lidar_to_histogram_features(point_cloud_np, crop=256):
     
     return output
 
-def draw_target_point(target_point_world, crop=256):
+# --- SHARED HELPER FUNCTION ---
+def _project_and_clip_to_bev(local_point, crop=256, pixels_per_meter=64, x_meters_range=2.0, y_meters_range=2.0):
     """
-    Draws the target point on a BEV canvas that has the EXACT same dimensions
-    and scale as the LiDAR BEV histogram.
-    This ensures that the target point image can be correctly overlaid on the LiDAR BEV.
+    Projects a local coordinate (x_forward, y_left) to pixel coordinates.
+    If the point is outside the BEV box, it clips it to the edge while maintaining direction.
     """
-    # ==================== START OF THE FIX ====================
-    # These parameters MUST be identical to those in lidar_to_histogram_features
-    x_meters = 2.0      # Forward/backward range
-    # ===================== END OF THE FIX =====================
-    y_max_meters = 2.0  # Side range (+/-)
-    pixels_per_meter = 64
+    rx, ry = local_point
 
-    # Create the base canvas, matching the final output size of the LiDAR BEV
-    image = np.zeros((crop, crop), dtype=np.uint8)
+    # 1. Calculate map dimensions based on range
+    feature_map_height = int(x_meters_range * 2 * pixels_per_meter)
+    feature_map_width = int(y_meters_range * 2 * pixels_per_meter)
 
-    # Unpack the world coordinates (ROS standard frame: X is forward, Y is left)
-    robot_x_forward, robot_y_left = target_point_world
-    
-    # --- Coordinate to Pixel Mapping ---
-    # This logic mirrors the binning and orientation of lidar_to_histogram_features.
-    
-    # ==================== START OF THE FIX ====================
-    # 1. Calculate the feature map size based on the new centered range
-    feature_map_height = int(x_meters * 2 * pixels_per_meter)      # Bins along the X (forward/backward) axis
-    # ===================== END OF THE FIX =====================
-    feature_map_width = int(y_max_meters * 2 * pixels_per_meter)  # Bins along the Y (left/right) axis
-
-    # 2. Map robot's Y-coordinate (left/right) to a pixel column in the feature map
-    # The range is [-y_max_meters, y_max_meters].
-    # We map this to [0, feature_map_width].
-    pixel_col_feature = int((-robot_y_left + y_max_meters) * pixels_per_meter)
-    
-    # ==================== START OF THE FIX ====================
-    # 3. Map robot's X-coordinate (forward/backward) to a pixel row in the feature map
-    # The range is [-x_meters, x_meters]. We shift this to [0, 2*x_meters] to calculate
-    # the pixel row, and then flip it because the origin is at the bottom.
-    shifted_x = robot_x_forward + x_meters
-    pixel_row_feature = int(feature_map_height - 1 - (shifted_x * pixels_per_meter))
-    # ===================== END OF THE FIX =====================
-    
-    # 4. Calculate the final padded pixel coordinates on the `crop x crop` canvas
-    # The feature map is centered within the larger canvas.
+    # 2. Calculate center offsets (assuming square crop)
     start_h = (crop - feature_map_height) // 2
     start_w = (crop - feature_map_width) // 2
-    
-    final_pixel_row = start_h + pixel_row_feature
-    final_pixel_col = start_w + pixel_col_feature
-    
-    # Create the point tuple (column, row) for OpenCV
-    point_pixel = (final_pixel_col, final_pixel_row)
 
-    # Draw the circle, ensuring it's within the image bounds
-    if 0 <= final_pixel_row < crop and 0 <= final_pixel_col < crop:
-        cv2.circle(image, point_pixel, radius=5, color=255, thickness=-1)
+    # 3. Calculate Raw Pixel Coordinates (Unclamped)
+    # Map Y (Left/Right) -> Col. Positive Y is Left, which maps to Column 0.
+    raw_col = start_w + int((-ry + y_meters_range) * pixels_per_meter)
     
-    # Reshape for PyTorch (C, H, W)
+    # Map X (Forward/Back) -> Row. Positive X is Forward, which maps to Row 0.
+    raw_row = start_h + int(feature_map_height - 1 - ((rx + x_meters_range) * pixels_per_meter))
+
+    # 4. Clipping Logic
+    center_x = crop / 2.0
+    center_y = crop / 2.0
+    
+    vec_x = raw_col - center_x
+    vec_y = raw_row - center_y
+    
+    # Margin to keep the drawn shape fully inside the image
+    margin = 5 
+    half_size = (crop / 2.0) - margin
+    
+    final_col = raw_col
+    final_row = raw_row
+    is_out_of_bounds = False
+
+    # Check if vector magnitude exceeds box half-size
+    if abs(vec_x) > half_size or abs(vec_y) > half_size:
+        is_out_of_bounds = True
+        scale = float('inf')
+        
+        if vec_x != 0:
+            scale = min(scale, abs(half_size / vec_x))
+        if vec_y != 0:
+            scale = min(scale, abs(half_size / vec_y))
+            
+        final_col = center_x + vec_x * scale
+        final_row = center_y + vec_y * scale
+
+    return int(final_col), int(final_row), is_out_of_bounds
+
+
+# --- UPDATED DRAW TARGET POINT (For Network Input) ---
+def draw_target_point(target_point_world, crop=256):
+    """
+    Draws the immediate target point on the input tensor.
+    """
+    image = np.zeros((crop, crop), dtype=np.uint8)
+
+    col, row, is_clipped = _project_and_clip_to_bev(
+        target_point_world, crop=crop, pixels_per_meter=64, x_meters_range=2.0, y_meters_range=2.0
+    )
+
+    radius = 5 if not is_clipped else 4
+    if 0 <= col < crop and 0 <= row < crop:
+        cv2.circle(image, (col, row), radius=radius, color=255, thickness=-1)
+    
     image = image.reshape(1, crop, crop)
     return image.astype(np.float32) / 255.0
+
+
+# --- UPDATED DISTANT GOAL DRAWING (For Semantic Label) ---
+def draw_distant_goal_on_bev(bev_map, goal_local, crop=256, pixels_per_meter=64, x_meters_range=2.0, y_meters_range=2.0):
+    """
+    Draws the Distant Goal (Class 3) on the semantic BEV label.
+    Uses exact same projection/clipping logic as draw_target_point.
+    """
+    if goal_local is None:
+        return bev_map
+
+    col, row, is_clipped = _project_and_clip_to_bev(
+        goal_local, crop=crop, pixels_per_meter=pixels_per_meter, 
+        x_meters_range=x_meters_range, y_meters_range=y_meters_range
+    )
+
+    # Visual Style for Label: Square Box
+    box_size = 6 if not is_clipped else 4
+    
+    top_left = (col - box_size, row - box_size)
+    bottom_right = (col + box_size, row + box_size)
+    
+    # Draw Class ID 3 (Goal)
+    # Note: This modifies the map in-place
+    cv2.rectangle(bev_map, top_left, bottom_right, color=(3), thickness=-1)
+    
+    return bev_map
 
 def debug_visualize_batch(batch):
     """
@@ -342,16 +381,18 @@ def debug_augmentation_visualize(original_batch, augmented_batch, original_degre
         return rgb_display
     
     def create_sem_display_image(sem_class_grid, degree):
-        # sem_class_grid is (H, W) with values 0, 1, 2
         h, w = sem_class_grid.shape
         viz = np.zeros((h, w, 3), dtype=np.uint8)
         
-        # Map Class Indices to Colors
-        # 0 (Unk) -> Black
-        # 1 (Drive) -> Gray/Blue-ish
-        # 2 (Obs) -> White/Red-ish
+        # Color Mapping
+        # 0 (Unk)   -> Black
+        # 1 (Drive) -> Gray
+        # 2 (Obs)   -> White
+        # 3 (Goal)  -> Magenta (Fixes the black square issue)
+        
         viz[sem_class_grid == 1] = [100, 100, 100]
         viz[sem_class_grid == 2] = [255, 255, 255]
+        viz[sem_class_grid == 3] = [255, 0, 255] # BGR: Magenta
         
         cv2.putText(viz, f"Rot: {degree:.2f}", (5, h-10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
         return viz
@@ -368,6 +409,7 @@ def debug_augmentation_visualize(original_batch, augmented_batch, original_degre
     augmented_bev_display = create_bev_display_image(augmented_batch, augmented_degree, augmented_wps)
     cv2.imshow("Augmented RGB", augmented_rgb_display)
     cv2.imshow("Augmented BEV (Orange Dots = Waypoints)", augmented_bev_display)
+    # --- Display Logic ---
     if original_sem is not None and augmented_sem is not None:
         orig_sem_viz = create_sem_display_image(original_sem, original_degree)
         aug_sem_viz = create_sem_display_image(augmented_sem, augmented_degree)

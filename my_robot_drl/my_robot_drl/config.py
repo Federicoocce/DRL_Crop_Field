@@ -23,7 +23,7 @@ class GlobalConfig:
     img_width = 320 # important this should be consistent with scale, e.g. scale = 1, img_width 320, scale=2, image_width 640
     lidar_resolution_width  = 256 # Width of the LiDAR grid that the point cloud is voxelized into.
     lidar_resolution_height = 256 # Height of the LiDAR grid that the point cloud is voxelized into.
-    pixels_per_meter = 8.0 # How many pixels make up 1 meter. 1 / pixels_per_meter = size of pixel in meters
+    pixels_per_meter = 64.0 # How many pixels make up 1 meter. 1 / pixels_per_meter = size of pixel in meters
     lidar_pos = [1.3,0.0,2.5] # x, y, z mounting position of the LiDAR
     lidar_rot = [0.0, 0.0, -90.0] # Roll Pitch Yaw of LiDAR in degree
     ignore_rear = True
@@ -77,16 +77,14 @@ class GlobalConfig:
     #Waypoint GRU
     gru_hidden_size = 64
 
-    num_class = 7
+    num_class = 4  
     classes = {
-        0: [0, 0, 0],  # unlabeled
-        1: [0, 0, 255],  # vehicle
-        2: [128, 64, 128],  # road
-        3: [255, 0, 0],  # red light
-        4: [0, 255, 0],  # pedestrian
-        5: [157, 234, 50],  # road line
-        6: [255, 255, 255],  # sidewalk
+        0: [0, 0, 0],       # Unlabeled (Black)
+        1: [100, 100, 100], # Drivable (Gray)
+        2: [255, 255, 255], # Obstacle (White)
+        3: [255, 0, 255],   # Distant Goal (Magenta) <--- NEW
     }
+    
     #Color format BGR
     classes_list = [
         [0, 0, 0],  # unlabeled
@@ -130,12 +128,12 @@ class GlobalConfig:
 
     # Optimization
     lr = 1e-4 # learning rate
-    multitask = False 
+    multitask = True
     
     # Individual toggles
-    use_aux_depth = False # Enable Depth prediction
-    use_aux_bev = False   # Enable BEV Semantic prediction
-    use_aux_semantic = False # Enable Front-View Semantic prediction (Disable if env doesn't provide it)
+    use_aux_depth = True # Enable Depth prediction
+    use_aux_bev = True   # Enable BEV Semantic prediction
+    use_aux_semantic = True # Enable Front-View Semantic prediction (Disable if env doesn't provide it)
 
     # Loss Weights (Lambda)
     ls_depth = 10.0
@@ -162,9 +160,9 @@ class GlobalConfig:
     # Default weights (can be overridden by the boolean flags in model.py logic)
     detailed_losses_weights = [
         1.0, # loss_wp
-        0.0, # loss_bev (will be zeroed if use_aux_bev is False)
-        0.0, # loss_depth (will be zeroed if use_aux_depth is False)
-        0.0, # loss_semantic (will be zeroed if use_aux_semantic is False)
+        1.0, # loss_bev (will be zeroed if use_aux_bev is False)
+        1.0, # loss_depth (will be zeroed if use_aux_depth is False)
+        1.0, # loss_semantic (will be zeroed if use_aux_semantic is False)
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 # Detection losses (set to 1.0 if doing bounding boxes)
     ]
 

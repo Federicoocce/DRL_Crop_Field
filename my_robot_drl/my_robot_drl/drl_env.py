@@ -619,6 +619,28 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 global_map_small = cv2.resize(global_map, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
                 cv2.imshow("Global Map", global_map_small)
 
+                    # We can simulate what the preprocessor does to verify the goal plotting
+            if self.current_odom and hasattr(self, 'mapper'):
+                # Get the Distant Goal relative to robot
+                dist_goal_rel = self._get_local_coords_from_world_point(self.distant_goal_world_coords)
+                
+                # Create a dummy blank BEV for viz
+                viz_bev_goal = np.zeros((256, 256, 3), dtype=np.uint8)
+                
+                # Use the util function (imported from .transfuser_util)
+                # We pass a single channel mask, then colorize it
+                mask = np.zeros((256, 256), dtype=np.uint8)
+                
+                # Import locally if needed or ensure it's imported at top
+                from .transfuser_util import draw_distant_goal_on_bev 
+                
+                draw_distant_goal_on_bev(mask, dist_goal_rel, crop=256, pixels_per_meter=64)
+                
+                # Colorize Class 3 (Goal) as Magenta for debug
+                viz_bev_goal[mask == 3] = [255, 0, 255]
+                
+                cv2.imshow("Distant Goal Debug", viz_bev_goal)
+
 
 
             cv2.waitKey(1)
@@ -878,7 +900,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
             
             # Immediately refresh local goals for the observation
             self._update_local_goals()
-            
+
     def _calculate_reward(self):
         REWARD_WAYPOINT_REACHED, REWARD_ALL_WAYPOINTS_VISITED_BONUS, TIME_PENALTY_PER_STEP = 25.0, 200.0, -0.1
         REWARD_FACTOR_FORWARD_VELOCITY = 1.0

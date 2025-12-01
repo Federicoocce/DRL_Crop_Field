@@ -588,10 +588,11 @@ class LidarCenterNet(nn.Module):
         
         # BEV Head (Usually initialized regardless, but loss depends on config)
         channel = config.channel
+        # --- MODIFIED: Output 4 classes instead of 3 ---
         self.pred_bev = nn.Sequential(
                             nn.Conv2d(channel, channel, kernel_size=(3, 3), stride=1, padding=(1, 1), bias=True),
                             nn.ReLU(inplace=True),
-                            nn.Conv2d(channel, 3, kernel_size=(1, 1), stride=1, padding=0, bias=True) # 3 classes
+                            nn.Conv2d(channel, 4, kernel_size=(1, 1), stride=1, padding=0, bias=True) # 4 classes: Unk, Drive, Obs, Goal
         ).to(self.device)
 
         # prediction heads
@@ -777,13 +778,16 @@ class LidarCenterNet(nn.Module):
         # This makes the code robust to disabling tasks via the config.
                 # --- MODIFIED: Auxiliary Losses ---
 
-        # 2. BEV Semantic Loss
+         # 2. BEV Semantic Loss
         if self.config.multitask and self.config.use_aux_bev:
             pred_bev = self.pred_bev(features[0])
             pred_bev = F.interpolate(pred_bev, (self.config.bev_resolution_height, self.config.bev_resolution_width), mode='bilinear', align_corners=True)
             
-            # Weighted Cross Entropy (0:Unk, 1:Drive, 2:Obs) - Give Obstacles higher weight
-            weight = torch.tensor([1.0, 1.0, 5.0], dtype=torch.float32, device=pred_bev.device)
+            # --- MODIFIED: Added weight for the 4th class (Goal) ---
+            # Weights: [Unk, Drive, Obs, Goal]
+            # We give Goal a high weight because it is a very small object (sparse).
+            weight = torch.tensor([1.0, 1.0, 5.0, 5.0], dtype=torch.float32, device=pred_bev.device)
+            
             loss_bev = F.cross_entropy(pred_bev, bev, weight=weight).mean()
             loss.update({"loss_bev": self.config.ls_bev * loss_bev})
 
