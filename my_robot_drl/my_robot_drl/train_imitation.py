@@ -228,6 +228,9 @@ class DataPreprocessor:
                         bev_classes = bev_classes_uint8.astype(np.int64)
 
                 processed_data['bev'] = torch.from_numpy(bev_classes).long()
+            else:
+                # Placeholder BEV (Required to prevent TypeError)
+                processed_data['bev'] = torch.zeros(self.config.bev_resolution_height, self.config.bev_resolution_width, dtype=torch.long)
 
 
             # FRONT SEMANTIC
