@@ -182,7 +182,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         self.target_waypoint_index, self.previous_waypoint_index = None, None
         self.last_distance_to_target, self.REWARD_FACTOR_DISTANCE = 0.0, 15.0
         self.episode_done, self.last_action = False, np.array([0.0, 0.0], dtype=np.float32)
-        self.waypoint_reach_threshold = 0.35
+        self.waypoint_reach_threshold = 0.30
         self.turning_radius, self.turn_wp_step_distance = 0.6, 0.3
         self.original_target_after_turn_idx = None
         self.local_goal_waypoints = []
@@ -841,9 +841,9 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         
         current_lane = current_wp.get('original_lane_index')
         
-        # Define search window: +/- 2 indices. 
+        # Define search window: +/- 3 indices. 
         # This allows for incremental or decremental path flows.
-        candidates = [-1, 1, -2, 2]
+        candidates = [-1, 1, -2, 2,-3, 3]
         
         best_shortcut_idx = None
         # We start with the current distance; we only switch if we find something strictly closer

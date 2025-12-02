@@ -44,7 +44,7 @@ EXPERT_TARGET_LINEAR_VEL = 0.2
 AGENT_KP_ANGULAR = 0.8
 AGENT_TARGET_LINEAR_VEL = 0.2
 TARGET_REWARD_THRESHOLD = 7800.0
-MAX_GT_WAYPOINT_DEVIATION_X = 0.60 # meters
+MAX_GT_WAYPOINT_DEVIATION_X = 0.75 # meters
 EARLY_STOPPING_PATIENCE = 5 # Epochs to wait for validation loss improvement
 DAGGER_RETRAIN_EPOCHS = 5   # Fixed number of epochs for DAgger retraining
 
@@ -57,8 +57,8 @@ BEST_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_model.pt
 BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_model.pth')
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
-EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_sincurved.pkl')
-TRAIN_DATASET_PATH = "/workspace/180_auxiliary_sincurved_curved_short.pkl"
+EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_mixed.pkl')
+TRAIN_DATASET_PATH = "/workspace/180_auxiliary_sin_cs_mixed_ss.pkl"
 VAL_DATASET_PATH = "/workspace/180_auxiliary_straight.pkl"
 
 
