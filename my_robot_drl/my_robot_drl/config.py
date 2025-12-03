@@ -128,12 +128,12 @@ class GlobalConfig:
 
     # Optimization
     lr = 1e-4 # learning rate
-    multitask = False
+    multitask = True
     
     # Individual toggles
-    use_aux_depth = False # Enable Depth prediction
-    use_aux_bev = False   # Enable BEV Semantic prediction
-    use_aux_semantic = False # Enable Front-View Semantic prediction (Disable if env doesn't provide it)
+    use_aux_depth = True # Enable Depth prediction
+    use_aux_bev = True   # Enable BEV Semantic prediction
+    use_aux_semantic = True # Enable Front-View Semantic prediction (Disable if env doesn't provide it)
 
     # Loss Weights (Lambda)
     ls_depth = 10.0
@@ -160,9 +160,9 @@ class GlobalConfig:
     # Default weights (can be overridden by the boolean flags in model.py logic)
     detailed_losses_weights = [
         1.0, # loss_wp
-        0.0, # loss_bev (will be zeroed if use_aux_bev is False)
-        0.0, # loss_depth (will be zeroed if use_aux_depth is False)
-        0.0, # loss_semantic (will be zeroed if use_aux_semantic is False)
+        1.0, # loss_bev (will be zeroed if use_aux_bev is False)
+        1.0, # loss_depth (will be zeroed if use_aux_depth is False)
+        1.0, # loss_semantic (will be zeroed if use_aux_semantic is False)
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 # Detection losses (set to 1.0 if doing bounding boxes)
     ]
 
