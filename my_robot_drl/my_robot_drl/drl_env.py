@@ -514,136 +514,130 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
         
     def render(self, mode='human'):
-            # 1. Update Map and Get Segmentation Image (Existing Logic)
-            seg_viz = None 
-            if self.current_odom:
-                rx = self.current_odom.pose.pose.position.x
-                ry = self.current_odom.pose.pose.position.y
-                _r, _p, ryaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
-                
-                if self.current_image_raw is not None and len(self.current_lidar_raw) > 0:
-                    seg_viz, sem_raw = self.mapper.process_one_step(
-                        self.current_image_raw, 
-                        self.current_lidar_raw, 
-                        rx, ry, ryaw
-                    )
-                    if seg_viz is not None:
-                        cv2.imshow("Semantic Segmentation", seg_viz)
+                # 1. Update Map and Get Segmentation Data
+                seg_viz_overlay = None 
+                sem_raw_mask = None
 
-            # 2. Display Sensor Streams (Existing Logic)
-            display_sensor_streams(
-                rgb_image=self.current_image_raw, 
-                depth_image=self.current_depth_raw,
-                rear_image=self.current_rear_image_raw
-            )
-
-            # 3. --- NEW: Transfuser Input Debug Visualization with Trajectory ---
-            if self.current_lidar_raw is not None and len(self.current_lidar_raw) > 0:
-                # A. Get BEV features (H, W, 2)
-                lidar_bev = lidar_to_histogram_features(self.current_lidar_raw)
-
-                # B. Create Display Image (BGR)
-                # Blue=Ground (Ch 0), Red=Obstacles (Ch 1)
-                h, w, _ = lidar_bev.shape
-                transfuser_display = np.zeros((h, w, 3), dtype=np.uint8)
-                transfuser_display[:, :, 0] = lidar_bev[:, :, 0] 
-                transfuser_display[:, :, 2] = lidar_bev[:, :, 1] 
-
-                # C. Collect Points to Draw (Robot -> 4 WPs -> Distant Goal)
-                points_to_draw = []
-                
-                # 1. Robot Position (0,0 in local frame)
-                points_to_draw.append({'coords': (0.0, 0.0), 'type': 'robot'})
-
-                # 2. Next 4 Waypoints
-                relative_goals = self._get_relative_local_goals()
-                for wp in relative_goals:
-                    points_to_draw.append({'coords': (wp[0], wp[1]), 'type': 'waypoint'})
-                
-                # 3. Distant Goal
-                distant_local = self._get_local_coords_from_world_point(self.distant_goal_world_coords)
-                points_to_draw.append({'coords': distant_local, 'type': 'goal'})
-
-                # D. Convert to Pixels (Logic strictly matches transfuser_util.py)
-                x_meters = 2.0      # Forward range (+/-)
-                y_max_meters = 2.0  # Side range (+/-)
-                pixels_per_meter = 64
-                feature_map_height = int(x_meters * 2 * pixels_per_meter)
-                
-                pixel_poly_list = [] # For drawing the line
-
-                for pt in points_to_draw:
-                    rx, ry = pt['coords']
+                if self.current_odom:
+                    rx = self.current_odom.pose.pose.position.x
+                    ry = self.current_odom.pose.pose.position.y
+                    _r, _p, ryaw = self.euler_from_quaternion(self.current_odom.pose.pose.orientation)
                     
-                    # Math from draw_target_point:
-                    # Map Y (Left/Right)
-                    col = int((-ry + y_max_meters) * pixels_per_meter)
-                    # Map X (Forward/Backward) - shift origin and flip axis
-                    row = int(feature_map_height - 1 - ((rx + x_meters) * pixels_per_meter))
+                    # Ensure we have sensor data
+                    if self.current_image_raw is not None and len(self.current_lidar_raw) > 0:
+                        # Unpack both:
+                        # seg_viz_overlay: The raw RGB overlay from Segformer (Not Processed)
+                        # sem_raw_mask: The 0/1/2 Class ID mask (Processed)
+                        seg_viz_overlay, sem_raw_mask = self.mapper.process_one_step(
+                            self.current_image_raw, 
+                            self.current_lidar_raw, 
+                            rx, ry, ryaw
+                        )
+
+                # --- COMBINED VISUALIZATION: Raw vs Processed (Green Obstacles) ---
+                if seg_viz_overlay is not None and sem_raw_mask is not None:
+                    # A. Create the Processed "Thesis Style" Image
+                    # Initialize black image (Class 0 / Unknown)
+                    thesis_viz = np.zeros((sem_raw_mask.shape[0], sem_raw_mask.shape[1], 3), dtype=np.uint8)
                     
-                    # Check bounds before drawing
-                    if 0 <= col < w and 0 <= row < h:
-                        point_pixel = (col, row)
+                    # Apply Colors:
+                    # Class 1 (Drivable) -> Gray [100, 100, 100]
+                    # Class 2 (Obstacle) -> Green [0, 255, 0] (BGR format for OpenCV)
+                    thesis_viz[sem_raw_mask == 1] = [100, 100, 100]
+                    thesis_viz[sem_raw_mask == 2] = [0, 255, 0] 
+
+                    # B. Resize both images to make the window smaller
+                    # Target width per image (e.g., 400px)
+                    display_w = 400
+                    aspect_ratio = seg_viz_overlay.shape[0] / seg_viz_overlay.shape[1]
+                    display_h = int(display_w * aspect_ratio)
+                    dim = (display_w, display_h)
+
+                    raw_small = cv2.resize(seg_viz_overlay, dim, interpolation=cv2.INTER_AREA)
+                    proc_small = cv2.resize(thesis_viz, dim, interpolation=cv2.INTER_NEAREST)
+
+                    # C. Add Labels
+                    cv2.putText(raw_small, "Raw Output", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                    cv2.putText(proc_small, "Processed (Green=Obs)", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+                    # D. Stack them Horizontally
+                    combined_viz = np.hstack((raw_small, proc_small))
+                    
+                    # Display in one window
+                    cv2.imshow("Semantic Segmentation Comparison", combined_viz)
+
+                # 2. Display Sensor Streams (Raw RGB/Depth)
+                display_sensor_streams(
+                    rgb_image=self.current_image_raw, 
+                    depth_image=self.current_depth_raw,
+                    rear_image=self.current_rear_image_raw
+                )
+
+                # 3. Transfuser Input Debug Visualization (BEV Trajectory)
+                if self.current_lidar_raw is not None and len(self.current_lidar_raw) > 0:
+                    # A. Get BEV features
+                    lidar_bev = lidar_to_histogram_features(self.current_lidar_raw)
+
+                    # B. Create Display Image
+                    h, w, _ = lidar_bev.shape
+                    transfuser_display = np.zeros((h, w, 3), dtype=np.uint8)
+                    transfuser_display[:, :, 0] = lidar_bev[:, :, 0] # Blue (Ground)
+                    transfuser_display[:, :, 2] = lidar_bev[:, :, 1] # Red (Obstacles)
+
+                    # C. Draw Trajectory Logic (Same as before)
+                    points_to_draw = []
+                    points_to_draw.append({'coords': (0.0, 0.0), 'type': 'robot'})
+
+                    relative_goals = self._get_relative_local_goals()
+                    for wp in relative_goals:
+                        points_to_draw.append({'coords': (wp[0], wp[1]), 'type': 'waypoint'})
+                    
+                    distant_local = self._get_local_coords_from_world_point(self.distant_goal_world_coords)
+                    points_to_draw.append({'coords': distant_local, 'type': 'goal'})
+
+                    # Pixel conversion params (Must match transfuser_util)
+                    x_meters = 2.0
+                    y_max_meters = 2.0
+                    pixels_per_meter = 64
+                    feature_map_height = int(x_meters * 2 * pixels_per_meter)
+                    
+                    pixel_poly_list = []
+
+                    for pt in points_to_draw:
+                        rx, ry = pt['coords']
+                        col = int((-ry + y_max_meters) * pixels_per_meter)
+                        row = int(feature_map_height - 1 - ((rx + x_meters) * pixels_per_meter))
                         
-                        if pt['type'] == 'robot':
-                            pixel_poly_list.append(point_pixel)
-                        
-                        elif pt['type'] == 'waypoint':
-                            pixel_poly_list.append(point_pixel)
-                            # Draw Orange Circle for Waypoints
-                            cv2.circle(transfuser_display, point_pixel, radius=4, color=(0, 165, 255), thickness=-1)
-                        
-                        elif pt['type'] == 'goal':
-                            # Draw Purple Circle for Distant Goal
-                            cv2.circle(transfuser_display, point_pixel, radius=6, color=(255, 0, 255), thickness=-1)
-                            # Add label
-                            cv2.putText(transfuser_display, "G", (col+4, row), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 255), 1)
+                        if 0 <= col < w and 0 <= row < h:
+                            point_pixel = (col, row)
+                            if pt['type'] == 'robot':
+                                pixel_poly_list.append(point_pixel)
+                            elif pt['type'] == 'waypoint':
+                                pixel_poly_list.append(point_pixel)
+                                cv2.circle(transfuser_display, point_pixel, radius=4, color=(0, 165, 255), thickness=-1)
+                            elif pt['type'] == 'goal':
+                                cv2.circle(transfuser_display, point_pixel, radius=6, color=(255, 0, 255), thickness=-1)
+                                cv2.putText(transfuser_display, "G", (col+4, row), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 255), 1)
 
-                # E. Draw Trajectory Line (Yellow)
-                if len(pixel_poly_list) > 1:
-                    pts = np.array(pixel_poly_list, np.int32).reshape((-1, 1, 2))
-                    cv2.polylines(transfuser_display, [pts], isClosed=False, color=(0, 255, 255), thickness=2)
+                    if len(pixel_poly_list) > 1:
+                        pts = np.array(pixel_poly_list, np.int32).reshape((-1, 1, 2))
+                        cv2.polylines(transfuser_display, [pts], isClosed=False, color=(0, 255, 255), thickness=2)
 
-                # F. Scale and Show
-                display_size = 512
-                transfuser_display_large = cv2.resize(transfuser_display, (display_size, display_size), interpolation=cv2.INTER_NEAREST)
-                cv2.imshow("Transfuser Debug (Yel=Path, Pur=Goal)", transfuser_display_large)
+                    display_size = 512
+                    transfuser_display_large = cv2.resize(transfuser_display, (display_size, display_size), interpolation=cv2.INTER_NEAREST)
+                    cv2.imshow("Transfuser Debug (Yel=Path, Pur=Goal)", transfuser_display_large)
 
-            # 4. Global Map Visualization (Existing Logic)
-            if self.current_odom:
-                rx = self.current_odom.pose.pose.position.x
-                ry = self.current_odom.pose.pose.position.y
-                
-                global_map = self.mapper.get_debug_image(rx, ry)
-                disp_size = 600
-                global_map_small = cv2.resize(global_map, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
-                cv2.imshow("Global Map", global_map_small)
+                # 4. Global Map Visualization
+                if self.current_odom:
+                    rx = self.current_odom.pose.pose.position.x
+                    ry = self.current_odom.pose.pose.position.y
+                    
+                    global_map = self.mapper.get_debug_image(rx, ry)
+                    disp_size = 600
+                    global_map_small = cv2.resize(global_map, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
+                    cv2.imshow("Global Map", global_map_small)
 
-                    # We can simulate what the preprocessor does to verify the goal plotting
-            if self.current_odom and hasattr(self, 'mapper'):
-                # Get the Distant Goal relative to robot
-                dist_goal_rel = self._get_local_coords_from_world_point(self.distant_goal_world_coords)
-                
-                # Create a dummy blank BEV for viz
-                viz_bev_goal = np.zeros((256, 256, 3), dtype=np.uint8)
-                
-                # Use the util function (imported from .transfuser_util)
-                # We pass a single channel mask, then colorize it
-                mask = np.zeros((256, 256), dtype=np.uint8)
-                
-                # Import locally if needed or ensure it's imported at top
-                from .transfuser_util import draw_distant_goal_on_bev 
-                
-                draw_distant_goal_on_bev(mask, dist_goal_rel, crop=256, pixels_per_meter=64)
-                
-                # Colorize Class 3 (Goal) as Magenta for debug
-                viz_bev_goal[mask == 3] = [255, 0, 255]
-                
-                cv2.imshow("Distant Goal Debug", viz_bev_goal)
-
-
-
-            cv2.waitKey(1)
+                cv2.waitKey(1)
 
     def step(self, action):
         """
