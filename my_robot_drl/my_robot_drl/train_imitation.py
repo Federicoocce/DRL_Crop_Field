@@ -35,7 +35,7 @@ from .transfuser_util import (
 # --- CONFIGURATION PARAMETERS ---
 # ===================================================================
 IL_EPOCHS = 100 # Max epochs for the initial training phase
-IL_BATCH_SIZE = 32
+IL_BATCH_SIZE = 4
 IL_LEARNING_RATE = 1e-4
 DATA_COLLECTION_FPS = 2.0
 DATA_COLLECTION_FPS_TURNING = 10.0
@@ -55,11 +55,12 @@ DATASET_SAVE_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_datasets', 'imitation_
 FINAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_final_model.pth')
 BEST_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_model.pth')
 BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_model.pth')
+BEST_UNCERTAINTY_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_uncertainty_model.pth')
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
 EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_mixed.pkl')
-TRAIN_DATASET_PATH = "/workspace/180_auxiliary_sin_cs_mixed_ss.pkl"
-VAL_DATASET_PATH = "/workspace/180_auxiliary_straight.pkl"
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_sin_cs_mixed_ss.pkl')
+VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_straight.pkl')
 
 
 # ===================================================================
@@ -304,6 +305,78 @@ def load_datasets(train_path, val_path, logger):
 # ===================================================================
 # --- CORE IMITATION LEARNING PHASES ---
 # ===================================================================
+def test_generalization_mc_dropout(model, val_dataset, config, device, num_samples=20, limit_batches=5):
+    """
+    Offline test for model robustness using Monte Carlo Dropout.
+    Runs the validation set multiple times with dropout enabled to measure
+    prediction variance (uncertainty).
+    
+    Args:
+        model: The trained PyTorch model.
+        val_dataset: The validation dataset list.
+        config: GlobalConfig object.
+        device: Torch device.
+        num_samples: How many forward passes to run per input (N).
+        limit_batches: Limit to a few batches to save time during training.
+        
+    Returns:
+        avg_uncertainty: The mean standard deviation of waypoint predictions (meters).
+    """
+    preprocessor = DataPreprocessor(config)
+    model.train() # ENABLE DROPOUT (Crucial for MC Dropout)
+    
+    total_uncertainty = 0.0
+    num_tested = 0
+    
+    # Randomly sample a few batches from validation to speed up testing
+    # We want to test on unseen data, but keep it fast.
+    subset_indices = random.sample(range(0, len(val_dataset), IL_BATCH_SIZE), 
+                                   min(limit_batches, len(val_dataset) // IL_BATCH_SIZE))
+    
+    with torch.no_grad():
+        for i in subset_indices:
+            raw_batch = val_dataset[i:i + IL_BATCH_SIZE]
+            if len(raw_batch) < 1: continue
+
+            # Preprocess
+            processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] 
+            batch = {key: torch.stack([s[key] for s in processed_list]).to(device) for key in processed_list[0].keys()}
+            
+            # Prepare inputs for forward_ego
+            inference_args = {
+                'rgb': batch['rgb'],
+                'lidar_bev': batch['lidar_bev'],
+                'target_point': batch['target_point'],
+                'target_point_image': batch['target_point_image'],
+                'ego_vel': batch['ego_vel']
+            }
+            
+            # Run N forward passes
+            predictions = []
+            for _ in range(num_samples):
+                # We use forward_ego to get just the waypoints
+                pred_wp, _ = model.forward_ego(**inference_args)
+                predictions.append(pred_wp) # Shape: (B, 4, 2)
+            
+            # Stack predictions: (N, B, 4, 2)
+            predictions = torch.stack(predictions)
+            
+            # Calculate Standard Deviation across the N samples
+            # This represents Epistemic Uncertainty (Model's lack of confidence)
+            # Shape: (B, 4, 2)
+            std_dev = torch.std(predictions, dim=0)
+            
+            # Average deviation across all waypoints and batch items
+            batch_avg_uncertainty = torch.mean(std_dev).item()
+            
+            total_uncertainty += batch_avg_uncertainty
+            num_tested += 1
+            
+    # Reset model to eval mode if it was passed in that state (good practice)
+    model.eval()
+    
+    avg_uncertainty = total_uncertainty / max(1, num_tested)
+    return avg_uncertainty
 
 def collect_expert_data(env, config, logger):
     """
@@ -436,7 +509,9 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             logger.info(f"  - {name}: {weight}")
 
     # Track best WP loss specifically for saving models
+    # Trackers
     best_val_wp_loss = float('inf')
+    best_mc_uncertainty = float('inf') # For uncertainty-based saving
     patience_counter = 0
     
     debug_save_dir = os.path.join(MODEL_SAVE_DIR, 'debug_viz')
@@ -562,16 +637,25 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             avg_val_total = epoch_val_total_loss / num_val_batches if num_val_batches > 0 else 0
             avg_val_individual = {k: v / num_val_batches for k, v in epoch_val_individual_losses.items() if num_val_batches > 0}
 
-            # Prepare Logging Data
+            # ==========================================
+            # --- LOGGING & SAVING ---
+            # ==========================================
             current_global_epoch = global_epoch_counter + epoch + 1
             
-            # Extract specific WP loss for decision making (default to total if not found, but it should exist)
+            # 1. Extract specific WP loss (Decision Metric)
             current_val_wp_loss = avg_val_individual.get('loss_wp', avg_val_total)
 
-            # Construct a detailed string for console output
-            log_str = f"[Epoch {epoch + 1}] Train Total: {avg_train_total:.4f} | Val Total: {avg_val_total:.4f} | Val WP: {current_val_wp_loss:.4f}"
+            # 2. Run MC Dropout Test (Generalization Metric)
+            # Limit samples/batches to keep training fast
+            current_uncertainty = test_generalization_mc_dropout(
+                model, val_dataset, config, model.device, num_samples=10, limit_batches=5
+            )
+
+            # 3. Construct Console Log String
+            # Base info
+            log_str = f"[Epoch {epoch + 1}] Train Total: {avg_train_total:.4f} | Val Total: {avg_val_total:.4f} | Val WP: {current_val_wp_loss:.4f} | MC Unc: {current_uncertainty:.4f}"
             
-            # Add specific auxiliary losses if they exist and are non-zero
+            # --- RESTORED LOGIC: Add specific auxiliary losses ---
             aux_keys = ['loss_bev', 'loss_depth', 'loss_semantic', 'loss_center_heatmap']
             for k in aux_keys:
                 if k in avg_train_individual and avg_train_individual[k] > 1e-6:
@@ -581,41 +665,47 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
 
             logger.info(log_str)
             
-            # Construct WandB Dictionary
+            # 4. Construct WandB Dictionary
             wandb_log_data = {
                 "loss_train/total_weighted": avg_train_total,
                 "loss_val/total_weighted": avg_val_total,
+                "loss_val/wp_loss_specific": current_val_wp_loss, # Explicit decision metric
+                "generalization/mc_uncertainty": current_uncertainty
             }
-            # Add individual train losses
+            # Add individual train losses (Restored)
             for k, v in avg_train_individual.items():
                 wandb_log_data[f"loss_train/{k}"] = v
-            # Add individual val losses
+            # Add individual val losses (Restored)
             for k, v in avg_val_individual.items():
                 wandb_log_data[f"loss_val/{k}"] = v
                 
             wandb.log(wandb_log_data, step=current_global_epoch)
 
             # ==========================================
-            # --- SAVING LOGIC (BASED ON WP LOSS) ---
+            # --- DUAL SAVING LOGIC ---
             # ==========================================
-            if use_early_stopping:
-                # Check improvement based ONLY on Waypoint Loss
-                if current_val_wp_loss < best_val_wp_loss:
-                    best_val_wp_loss = current_val_wp_loss
-                    patience_counter = 0
-                    
-                    logger.info(f"    New best WP loss: {best_val_wp_loss:.6f}. Saving model...")
-                    os.makedirs(os.path.dirname(BEST_VAL_MODEL_SAVE_PATH), exist_ok=True)
-                    try:
-                        torch.save(model.state_dict(), BEST_VAL_MODEL_SAVE_PATH)
-                    except Exception as e:
-                        logger.error(f"    Could not save best validation model. Error: {e}")
-                else:
-                    patience_counter += 1
+            
+            # Save A: Best WP Loss (Standard Accuracy)
+            if current_val_wp_loss < best_val_wp_loss:
+                best_val_wp_loss = current_val_wp_loss
+                patience_counter = 0 # Reset patience only on WP improvement (Primary goal)
+                logger.info(f"    >>> New Best WP Loss: {best_val_wp_loss:.6f}. Saving to {os.path.basename(BEST_VAL_MODEL_SAVE_PATH)}")
+                torch.save(model.state_dict(), BEST_VAL_MODEL_SAVE_PATH)
+            else:
+                patience_counter += 1
+
+            # Save B: Best Uncertainty (Best Generalization/Robustness)
+            # Note: We do NOT reset patience here. We treat this as a secondary objective to snapshot.
+            if current_uncertainty < best_mc_uncertainty:
+                best_mc_uncertainty = current_uncertainty
+                logger.info(f"    >>> New Best Uncertainty: {best_mc_uncertainty:.6f}. Saving to {os.path.basename(BEST_UNCERTAINTY_MODEL_SAVE_PATH)}")
+                torch.save(model.state_dict(), BEST_UNCERTAINTY_MODEL_SAVE_PATH)
+
+            # Early Stopping
+            if use_early_stopping and patience_counter >= EARLY_STOPPING_PATIENCE:
+                logger.info(f"Early stopping triggered after {patience_counter} epochs without WP loss improvement.")
+                break
                 
-                if patience_counter >= EARLY_STOPPING_PATIENCE:
-                    logger.info(f"Early stopping triggered after {patience_counter} epochs without WP loss improvement.")
-                    break
     finally:
         rclpy.spin_until_future_complete(env_node, unpause_client.call_async(Empty.Request()))
 
@@ -783,98 +873,86 @@ def preprocess_depth_image(image_np, target_w, target_h, crop_shift=0):
 
 def validate_best_model(env, config, logger, device, num_episodes=5):
     """
-    Loads the best saved model and runs a fixed number of episodes to report performance.
-    No training or data collection happens here.
+    Loads BOTH the Best WP model and the Best Uncertainty model and benchmarks them.
     """
     logger.info("="*60)
-    logger.info(f"PHASE: VALIDATION of Best Model ({BEST_MODEL_SAVE_PATH})")
-    logger.info(f"Running {num_episodes} validation episodes...")
+    logger.info(f"PHASE: COMPARATIVE VALIDATION")
     logger.info("="*60)
 
-    # 1. Initialize and Load Model
+    # List of models to evaluate
+    models_to_eval = [
+        ("Best WP Loss Model", BEST_VAL_MODEL_SAVE_PATH),
+        ("Best Uncertainty Model", BEST_UNCERTAINTY_MODEL_SAVE_PATH)
+    ]
+
     model = LidarCenterNet(config, device, backbone=config.backbone, use_velocity=config.use_velocity)
-    
-    if not os.path.exists(BEST_MODEL_SAVE_PATH):
-        logger.fatal(f"Best model not found at {BEST_MODEL_SAVE_PATH}. Cannot validate.")
-        return
-
-    try:
-        model.load_state_dict(torch.load(BEST_MODEL_SAVE_PATH))
-        model.to(device)
-        model.eval()
-        logger.info("Best model loaded successfully.")
-    except Exception as e:
-        logger.fatal(f"Error loading model weights: {e}")
-        return
-
-    # 2. Setup Preprocessor
     preprocessor = DataPreprocessor(config)
     
     # Disable augmentation for validation
     original_augment_setting = config.augment
     config.augment = False
 
-    success_count = 0
-    total_rewards = []
-
-    # 3. Validation Loop
-    for ep in range(num_episodes):
-        raw_obs, info = env.reset()
-        done = False
-        episode_reward = 0.0
+    for model_name, model_path in models_to_eval:
+        logger.info(f"\n--- Evaluating: {model_name} ---")
         
-        logger.info(f"Starting Validation Episode {ep + 1}/{num_episodes}")
+        if not os.path.exists(model_path):
+            logger.warn(f"Model file not found: {model_path}. Skipping.")
+            continue
 
-        with torch.no_grad():
-            while not done:
-                # --- NEW: Check for path deviation ---
-                # MAX_GT_WAYPOINT_DEVIATION_X is defined in your constants (usually 0.60m)
-                if abs(raw_obs['gt_waypoints'][0][0]) > MAX_GT_WAYPOINT_DEVIATION_X:
-                    logger.warn(f"  -> Terminating episode: Deviated too far from path ({raw_obs['gt_waypoints'][0][0]:.2f}m)")
-                    info["termination_reason"] = "deviated_from_path"
-                    break
-                # -------------------------------------
+        try:
+            model.load_state_dict(torch.load(model_path))
+            model.to(device)
+            model.eval()
+        except Exception as e:
+            logger.error(f"Error loading {model_name}: {e}")
+            continue
 
-                # Preprocess
-                processed_obs, _ = preprocessor.process_observation(raw_obs)
-                batch = {key: val.unsqueeze(0).to(device) for key, val in processed_obs.items()}
+        success_count = 0
+        total_rewards = []
 
-                # Inference
-                inference_args = {k: batch[k] for k in ['rgb', 'lidar_bev', 'target_point', 'target_point_image', 'ego_vel']}
-                pred_wp, _ = model.forward_ego(**inference_args)
+        for ep in range(num_episodes):
+            raw_obs, info = env.reset()
+            done = False
+            episode_reward = 0.0
+            
+            # logger.info(f"  Episode {ep + 1}/{num_episodes}...")
 
-                # Control Logic
-                predicted_first_wp = pred_wp[0, 0].cpu().numpy()
-                angle_to_target = math.atan2(predicted_first_wp[1], predicted_first_wp[0])
-                action = np.array([AGENT_TARGET_LINEAR_VEL, AGENT_KP_ANGULAR * angle_to_target], dtype=np.float32)
-                action = np.clip(action, env.action_space.low, env.action_space.high)
+            with torch.no_grad():
+                while not done:
+                    if abs(raw_obs['gt_waypoints'][0][0]) > MAX_GT_WAYPOINT_DEVIATION_X:
+                        info["termination_reason"] = "deviated_from_path"
+                        break
 
-                # Step
-                raw_obs, reward, terminated, truncated, info = env.step(action)
-                done = terminated or truncated
-                episode_reward += reward
-        
-        # Episode Complete
-        is_success = info.get("termination_reason") == "all_waypoints_visited"
-        if is_success:
-            success_count += 1
-        
-        total_rewards.append(episode_reward)
-        term_reason = info.get("termination_reason", "unknown")
-        logger.info(f"  -> Episode {ep + 1} Result: {'SUCCESS' if is_success else 'FAIL'} "
-                    f"(Reward: {episode_reward:.2f}, Reason: {term_reason})")
+                    processed_obs, _ = preprocessor.process_observation(raw_obs)
+                    batch = {key: val.unsqueeze(0).to(device) for key, val in processed_obs.items()}
 
-    # 4. Report
-    success_rate = (success_count / num_episodes) * 100.0
-    avg_reward = np.mean(total_rewards)
-    logger.info("="*60)
-    logger.info(f"VALIDATION SUMMARY:")
-    logger.info(f"  Success Rate: {success_rate:.1f}% ({success_count}/{num_episodes})")
-    logger.info(f"  Avg Reward:   {avg_reward:.2f}")
-    logger.info("="*60)
-    
+                    inference_args = {k: batch[k] for k in ['rgb', 'lidar_bev', 'target_point', 'target_point_image', 'ego_vel']}
+                    pred_wp, _ = model.forward_ego(**inference_args)
+
+                    predicted_first_wp = pred_wp[0, 0].cpu().numpy()
+                    angle_to_target = math.atan2(predicted_first_wp[1], predicted_first_wp[0])
+                    action = np.array([AGENT_TARGET_LINEAR_VEL, AGENT_KP_ANGULAR * angle_to_target], dtype=np.float32)
+                    action = np.clip(action, env.action_space.low, env.action_space.high)
+
+                    raw_obs, reward, terminated, truncated, info = env.step(action)
+                    done = terminated or truncated
+                    episode_reward += reward
+            
+            is_success = info.get("termination_reason") == "all_waypoints_visited"
+            if is_success: success_count += 1
+            total_rewards.append(episode_reward)
+            # logger.info(f"    Result: {'SUCCESS' if is_success else 'FAIL'} (Rew: {episode_reward:.1f})")
+
+        # Report Stats for this model
+        success_rate = (success_count / num_episodes) * 100.0
+        avg_rew = np.mean(total_rewards)
+        logger.info(f"RESULTS for {model_name}:")
+        logger.info(f"  Success Rate: {success_rate:.1f}%")
+        logger.info(f"  Avg Reward:   {avg_rew:.2f}")
+
     # Restore config
     config.augment = original_augment_setting
+    logger.info("="*60)
 
 # ===================================================================
 # --- MAIN EXECUTION ---
@@ -998,6 +1076,39 @@ def main(args=None):
         logger.info(f"STARTING IMITATION LEARNING ATTEMPT #{run_count}")
         logger.info(f"Current Best Avg Reward: {best_average_reward_so_far:.2f} | Target Reward: {TARGET_REWARD_THRESHOLD}")
         logger.info("#"*60 + "\n")
+        # ==============================================================================
+        # --- BENCHMARK: BEST UNCERTAINTY MODEL (Pure Evaluation, No Data Collection) ---
+        # ==============================================================================
+        if os.path.exists(BEST_UNCERTAINTY_MODEL_SAVE_PATH):
+            logger.info("\n>>> Benchmarking 'Best Uncertainty Model' (5 Episodes - No Data Collection)...")
+            try:
+                # Load weights
+                model.load_state_dict(torch.load(BEST_UNCERTAINTY_MODEL_SAVE_PATH))
+                model.to(device)
+                
+                unc_rewards = []
+                unc_successes = 0
+                
+                for i in range(NUMBER_OF_EVAL_RUNS):
+                    logger.info(f"    Uncertainty Eval Run {i+1}/{NUMBER_OF_EVAL_RUNS}...")
+                    # Run evaluation, ignore the returned dataset (2nd arg)
+                    succ, _, rew = evaluate_model(env, model, config, logger, device, global_epoch_counter)
+                    unc_rewards.append(rew)
+                    if succ: unc_successes += 1
+                
+                unc_avg_rew = np.mean(unc_rewards)
+                unc_succ_rate = (unc_successes / NUMBER_OF_EVAL_RUNS) * 100.0
+                
+                logger.info(f"    [Uncertainty Model Results] Success: {unc_succ_rate:.1f}% | Avg Reward: {unc_avg_rew:.2f}")
+                wandb.log({
+                    "benchmark/uncertainty_success_rate": unc_succ_rate,
+                    "benchmark/uncertainty_avg_reward": unc_avg_rew
+                }, step=global_epoch_counter)
+                
+            except Exception as e:
+                logger.error(f"Failed to benchmark Uncertainty Model: {e}")
+        else:
+            logger.warn("Best Uncertainty Model not found. Skipping benchmark.")
 
         # --- START OF THE FIX ---
         # Perform multiple evaluation runs and collect statistics
