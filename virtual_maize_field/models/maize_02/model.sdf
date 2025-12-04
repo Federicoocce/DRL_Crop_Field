@@ -29,6 +29,8 @@
         <max_contacts>10</max_contacts>
         <surface>
           <contact>
+            <!-- Disable all physical collisions for this plant -->
+            <collide_bitmask>0x00</collide_bitmask>
             <ode/>
           </contact>
           <bounce/>

@@ -303,80 +303,114 @@ def load_datasets(train_path, val_path, logger):
         sys.exit(1)
 
 # ===================================================================
-# --- CORE IMITATION LEARNING PHASES ---
+# --- NEW: STRATIFIED SUBSET CREATION ---
 # ===================================================================
-def test_generalization_mc_dropout(model, val_dataset, config, device, num_samples=20, limit_batches=5):
+def create_representative_subset(dataset, num_samples=64):
     """
-    Offline test for model robustness using Monte Carlo Dropout.
-    Runs the validation set multiple times with dropout enabled to measure
-    prediction variance (uncertainty).
+    Scans the dataset to create a fixed subset that balances
+    difficult turns and easy straights.
+    """
+    print("Scanning validation dataset to create representative subset...")
+    indices_with_curvature = []
     
-    Args:
-        model: The trained PyTorch model.
-        val_dataset: The validation dataset list.
-        config: GlobalConfig object.
-        device: Torch device.
-        num_samples: How many forward passes to run per input (N).
-        limit_batches: Limit to a few batches to save time during training.
-        
-    Returns:
-        avg_uncertainty: The mean standard deviation of waypoint predictions (meters).
+    for i, sample in enumerate(dataset):
+        # Calculate 'curvature' based on the angle of the last waypoint
+        wps = sample['gt_waypoints'] # Shape (4, 2) usually
+        last_wp = wps[-1]
+        # Angle relative to robot (0,0)
+        angle_rad = abs(math.atan2(last_wp[1], last_wp[0]))
+        indices_with_curvature.append((i, angle_rad))
+    
+    # Sort by curvature: [Straightest .... Curviest]
+    indices_with_curvature.sort(key=lambda x: x[1])
+    
+    # Select 50% Easy (Straights) and 50% Hard (Turns)
+    half_k = num_samples // 2
+    
+    # Take from start of list (Low angle)
+    easy_indices = [x[0] for x in indices_with_curvature[:half_k]]
+    
+    # Take from end of list (High angle)
+    hard_indices = [x[0] for x in indices_with_curvature[-half_k:]]
+    
+    # Combine and shuffle so they appear mixed in batches
+    final_indices = easy_indices + hard_indices
+    random.shuffle(final_indices)
+    
+    print(f"Created subset: {len(easy_indices)} Straights + {len(hard_indices)} Turns.")
+    return final_indices
+
+# ===================================================================
+# --- UPDATED GENERALIZATION TEST ---
+# ===================================================================
+def test_generalization_mc_dropout(model, val_dataset, config, device, num_samples=10, fixed_indices=None):
+    """
+    Runs MC Dropout on a specific list of indices (samples), not batches.
     """
     preprocessor = DataPreprocessor(config)
-    model.train() # ENABLE DROPOUT (Crucial for MC Dropout)
+    model.train() # ENABLE DROPOUT
     
     total_uncertainty = 0.0
     num_tested = 0
     
-    # Randomly sample a few batches from validation to speed up testing
-    # We want to test on unseen data, but keep it fast.
-    subset_indices = random.sample(range(0, len(val_dataset), IL_BATCH_SIZE), 
-                                   min(limit_batches, len(val_dataset) // IL_BATCH_SIZE))
+    # If no indices provided, fallback to random (not recommended for stability)
+    if fixed_indices is None:
+        fixed_indices = random.sample(range(len(val_dataset)), min(64, len(val_dataset)))
+
+    # Process in chunks to respect batch size logic (though here we build custom batches)
+    # We iterate through our list of specific INDICES
+    
+    current_batch_indices = []
+    
+    # Helper to process a collected batch
+    def process_mini_batch(indices):
+        raw_samples = [val_dataset[idx] for idx in indices]
+        processed_list = [preprocessor.process_observation(s)[0] for s in raw_samples]
+        
+        # Stack
+        batch = {key: torch.stack([s[key] for s in processed_list]).to(device) for key in processed_list[0].keys()}
+        
+        inference_args = {
+            'rgb': batch['rgb'], 'lidar_bev': batch['lidar_bev'],
+            'target_point': batch['target_point'], 'target_point_image': batch['target_point_image'],
+            'ego_vel': batch['ego_vel']
+        }
+        
+        predictions = []
+        for _ in range(num_samples):
+            pred_wp, _ = model.forward_ego(**inference_args)
+            predictions.append(pred_wp)
+            
+        predictions = torch.stack(predictions) # (N, B, 4, 2)
+        std_dev = torch.std(predictions, dim=0) # (B, 4, 2)
+        
+        return torch.sum(std_dev).item(), std_dev.numel()
+
+    # Loop through fixed indices and batch them up
+    batch_uncertainty_sum = 0
+    batch_count_sum = 0
     
     with torch.no_grad():
-        for i in subset_indices:
-            raw_batch = val_dataset[i:i + IL_BATCH_SIZE]
-            if len(raw_batch) < 1: continue
+        for idx in fixed_indices:
+            current_batch_indices.append(idx)
+            
+            # If batch is full, process it
+            if len(current_batch_indices) >= IL_BATCH_SIZE:
+                unc, count = process_mini_batch(current_batch_indices)
+                batch_uncertainty_sum += unc
+                batch_count_sum += count
+                current_batch_indices = []
+        
+        # Process remaining
+        if len(current_batch_indices) > 0:
+            unc, count = process_mini_batch(current_batch_indices)
+            batch_uncertainty_sum += unc
+            batch_count_sum += count
 
-            # Preprocess
-            processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] 
-            batch = {key: torch.stack([s[key] for s in processed_list]).to(device) for key in processed_list[0].keys()}
-            
-            # Prepare inputs for forward_ego
-            inference_args = {
-                'rgb': batch['rgb'],
-                'lidar_bev': batch['lidar_bev'],
-                'target_point': batch['target_point'],
-                'target_point_image': batch['target_point_image'],
-                'ego_vel': batch['ego_vel']
-            }
-            
-            # Run N forward passes
-            predictions = []
-            for _ in range(num_samples):
-                # We use forward_ego to get just the waypoints
-                pred_wp, _ = model.forward_ego(**inference_args)
-                predictions.append(pred_wp) # Shape: (B, 4, 2)
-            
-            # Stack predictions: (N, B, 4, 2)
-            predictions = torch.stack(predictions)
-            
-            # Calculate Standard Deviation across the N samples
-            # This represents Epistemic Uncertainty (Model's lack of confidence)
-            # Shape: (B, 4, 2)
-            std_dev = torch.std(predictions, dim=0)
-            
-            # Average deviation across all waypoints and batch items
-            batch_avg_uncertainty = torch.mean(std_dev).item()
-            
-            total_uncertainty += batch_avg_uncertainty
-            num_tested += 1
-            
-    # Reset model to eval mode if it was passed in that state (good practice)
     model.eval()
     
-    avg_uncertainty = total_uncertainty / max(1, num_tested)
-    return avg_uncertainty
+    if batch_count_sum == 0: return 0.0
+    return batch_uncertainty_sum / batch_count_sum
 
 def collect_expert_data(env, config, logger):
     """
@@ -516,6 +550,11 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
     
     debug_save_dir = os.path.join(MODEL_SAVE_DIR, 'debug_viz')
     os.makedirs(debug_save_dir, exist_ok=True)
+    # We create a subset of ~64 samples (or less if dataset is small)
+    # This guarantees we test on Hard Turns and Easy Straights every epoch.
+    subset_size = min(64, len(val_dataset))
+    mc_test_indices = create_representative_subset(val_dataset, num_samples=subset_size)
+    logger.info(f"Fixed MC Dropout Subset Size: {len(mc_test_indices)} (Stratified)")
 
     try:
         for epoch in range(max_epochs):
@@ -640,16 +679,18 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             # ==========================================
             # --- LOGGING & SAVING ---
             # ==========================================
+
             current_global_epoch = global_epoch_counter + epoch + 1
-            
-            # 1. Extract specific WP loss (Decision Metric)
             current_val_wp_loss = avg_val_individual.get('loss_wp', avg_val_total)
 
-            # 2. Run MC Dropout Test (Generalization Metric)
-            # Limit samples/batches to keep training fast
+            # --- RUN MC DROPOUT TEST ---
+            # Now passing the STRATIFIED list of indices
             current_uncertainty = test_generalization_mc_dropout(
-                model, val_dataset, config, model.device, num_samples=10, limit_batches=5
+                model, val_dataset, config, model.device, 
+                num_samples=10, 
+                fixed_indices=mc_test_indices # <--- Key Change
             )
+
 
             # 3. Construct Console Log String
             # Base info
@@ -685,26 +726,36 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             # --- DUAL SAVING LOGIC ---
             # ==========================================
             
-            # Save A: Best WP Loss (Standard Accuracy)
+            # 4. Dual Saving & Combined Patience Logic
+            improved_this_epoch = False
+
+            # Check A: Best WP Loss (Standard Accuracy)
             if current_val_wp_loss < best_val_wp_loss:
                 best_val_wp_loss = current_val_wp_loss
-                patience_counter = 0 # Reset patience only on WP improvement (Primary goal)
                 logger.info(f"    >>> New Best WP Loss: {best_val_wp_loss:.6f}. Saving to {os.path.basename(BEST_VAL_MODEL_SAVE_PATH)}")
                 torch.save(model.state_dict(), BEST_VAL_MODEL_SAVE_PATH)
-            else:
-                patience_counter += 1
+                improved_this_epoch = True
 
-            # Save B: Best Uncertainty (Best Generalization/Robustness)
-            # Note: We do NOT reset patience here. We treat this as a secondary objective to snapshot.
+            # Check B: Best Uncertainty (Robustness)
             if current_uncertainty < best_mc_uncertainty:
                 best_mc_uncertainty = current_uncertainty
                 logger.info(f"    >>> New Best Uncertainty: {best_mc_uncertainty:.6f}. Saving to {os.path.basename(BEST_UNCERTAINTY_MODEL_SAVE_PATH)}")
                 torch.save(model.state_dict(), BEST_UNCERTAINTY_MODEL_SAVE_PATH)
+                improved_this_epoch = True
 
-            # Early Stopping
-            if use_early_stopping and patience_counter >= EARLY_STOPPING_PATIENCE:
-                logger.info(f"Early stopping triggered after {patience_counter} epochs without WP loss improvement.")
-                break
+            # Early Stopping Check
+            if use_early_stopping:
+                if improved_this_epoch:
+                    if patience_counter > 0:
+                        logger.info(f"    Improvement detected. Resetting patience from {patience_counter} to 0.")
+                    patience_counter = 0
+                else:
+                    patience_counter += 1
+                    logger.info(f"    No improvement in WP Loss OR Uncertainty. Patience: {patience_counter}/{EARLY_STOPPING_PATIENCE}")
+
+                if patience_counter >= EARLY_STOPPING_PATIENCE:
+                    logger.info(f"Early stopping triggered. Both metrics plateaued for {EARLY_STOPPING_PATIENCE} epochs.")
+                    break
                 
     finally:
         rclpy.spin_until_future_complete(env_node, unpause_client.call_async(Empty.Request()))
