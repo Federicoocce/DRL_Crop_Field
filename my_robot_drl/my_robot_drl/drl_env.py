@@ -923,8 +923,8 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 self.visited_waypoints[wp_reached_idx] = True
                 self.num_waypoints_visited_current_episode += 1
                 current_reward += REWARD_WAYPOINT_REACHED
-                self.get_logger().info(f"REWARD_FN: Reached waypoint #{wp_reached_idx}.  Visited: {self.num_waypoints_visited_current_episode}/{self.num_waypoints_total}")
-                self.get_logger().info(f"  - Waypont lane index: {wp_just_reached.get('original_lane_index', 'N/A')}")
+                #self.get_logger().info(f"REWARD_FN: Reached waypoint #{wp_reached_idx}.  Visited: {self.num_waypoints_visited_current_episode}/{self.num_waypoints_total}")
+                #self.get_logger().info(f"  - Waypont lane index: {wp_just_reached.get('original_lane_index', 'N/A')}")
      
                 
                 # --- Update Planning Goals (Local and Distant) ---
@@ -933,7 +933,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 # *** NEW COUNTER-BASED DISTANT GOAL LOGIC ***
                 if is_boundary_wp:
                     self.boundary_crossing_counter += 1
-                    self.get_logger().info(f"Boundary crossed. Counter is now: {self.boundary_crossing_counter}")
+                    #self.get_logger().info(f"Boundary crossed. Counter is now: {self.boundary_crossing_counter}")
                     
                     # If this is the FIRST boundary after a turn was initiated (counter was reset to 0),
                     # it means we are at the START of the new lane.
@@ -943,7 +943,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                             new_distant_goal = self._find_end_of_lane(current_lane_idx)
                             if new_distant_goal:
                                 self.distant_goal_world_coords = new_distant_goal
-                                self.get_logger().info(f"COUNTER=1: At start of lane {current_lane_idx}. New distant goal is END of this lane. {self.distant_goal_world_coords} with index {self.target_waypoint_index}")
+                                #self.get_logger().info(f"COUNTER=1: At start of lane {current_lane_idx}. New distant goal is END of this lane. {self.distant_goal_world_coords} with index {self.target_waypoint_index}")
                 
                 # --- Update Target Waypoint for Agent ---
                 if self.num_waypoints_visited_current_episode >= self.num_waypoints_total:

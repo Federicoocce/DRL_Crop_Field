@@ -15,6 +15,7 @@ import cv2
 import pickle
 import argparse
 from tqdm import tqdm
+import joblib
 
 # --- Main Project Imports ---
 from .drl_env import MaizeNavigationEnv
@@ -37,7 +38,7 @@ from .transfuser_util import (
 IL_EPOCHS = 100 # Max epochs for the initial training phase
 IL_BATCH_SIZE = 32
 IL_LEARNING_RATE = 1e-4
-DATA_COLLECTION_FPS = 2.0
+DATA_COLLECTION_FPS = 1.0
 DATA_COLLECTION_FPS_TURNING = 10.0
 EXPERT_KP_ANGULAR = 1.0
 EXPERT_TARGET_LINEAR_VEL = 0.2
@@ -58,9 +59,9 @@ BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_
 BEST_UNCERTAINTY_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_uncertainty_model.pth')
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
-EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_mixed.pkl')
-TRAIN_DATASET_PATH = "/workspace/180_auxiliary_sin_cs_mixed_ss.pkl"
-VAL_DATASET_PATH = "/workspace/180_auxiliary_straight.pkl"
+EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_mixed_long.pkl')
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_sin_cs_mixed_ss_ml.pkl')
+VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_straight.pkl')
 
 
 # ===================================================================
@@ -168,10 +169,7 @@ class DataPreprocessor:
 
 
             # --- 4. Handle Required Arguments (Auxiliary & Placeholders) ---
-            
-            # LABEL (Required positional arg in forward): Dummy tensor for bounding boxes
-            # We create a dummy tensor of shape (20, 7) as expected by the model's loss function
-            processed_data['label'] = torch.zeros(20, 7)
+
 
             # DEPTH
             if self.config.use_aux_depth and 'depth_raw' in raw_obs_dict:
@@ -288,16 +286,34 @@ def save_dataset(dataset, path, logger):
         logger.error(f"Error saving dataset to {path}: {e}")
 
 def load_datasets(train_path, val_path, logger):
-    """Loads the training and validation datasets from files."""
+    """Loads the training and validation datasets from files using Joblib."""
     try:
-        with open(train_path, 'rb') as f:
-            train_dataset = pickle.load(f)
-        logger.info(f"Loaded training dataset with {len(train_dataset)} points from: {train_path}")
+        # Check if files exist
+        if not os.path.exists(train_path):
+            logger.error(f"Training dataset not found at: {train_path}")
+            sys.exit(1)
+            
+        logger.info(f"Loading training dataset from: {train_path}")
+        # Joblib load takes the filename string directly
+        train_dataset = joblib.load(train_path)
+        logger.info(f"Loaded training dataset with {len(train_dataset)} points.")
 
-        with open(val_path, 'rb') as f:
-            val_dataset = pickle.load(f)
-        logger.info(f"Loaded validation dataset with {len(val_dataset)} points from: {val_path}")
+        if not os.path.exists(val_path):
+            logger.error(f"Validation dataset not found at: {val_path}")
+            sys.exit(1)
+
+        logger.info(f"Loading validation dataset from: {val_path}")
+        # Try joblib first (fastest), fallback to pickle if it's an old file
+        try:
+            val_dataset = joblib.load(val_path)
+        except:
+            logger.warn("Joblib load failed for validation set, trying standard pickle...")
+            with open(val_path, 'rb') as f:
+                val_dataset = pickle.load(f)
+
+        logger.info(f"Loaded validation dataset with {len(val_dataset)} points.")
         return train_dataset, val_dataset
+
     except Exception as e:
         logger.error(f"FATAL: Error loading datasets: {e}")
         sys.exit(1)
@@ -412,6 +428,47 @@ def test_generalization_mc_dropout(model, val_dataset, config, device, num_sampl
     if batch_count_sum == 0: return 0.0
     return batch_uncertainty_sum / batch_count_sum
 
+def _should_sample_at_high_frequency(env):
+    """
+    Determines if data collection should be high frequency based on 
+    proximity to curves, lane boundaries, or active turning states.
+    Mimics logic from path_based_collector.py.
+    """
+    # Configuration for look-ahead/behind
+    LOOK_AHEAD_WAYPOINTS = 4
+    POST_TURN_WAYPOINTS = 3
+
+    # 1. Basic check: If the environment explicitly says we are turning
+    if env.is_turning:
+        return True
+
+    # 2. Waypoint-based look-ahead/look-behind
+    if env.target_waypoint_index is None or not env.waypoints:
+        return False
+
+    current_idx = env.target_waypoint_index
+    total_wps = len(env.waypoints)
+
+    # A. Look Ahead: Are we approaching a boundary (end of row) or a turn point?
+    # We check the next N waypoints.
+    end_search_idx = min(current_idx + LOOK_AHEAD_WAYPOINTS, total_wps)
+    for i in range(current_idx, end_search_idx):
+        wp = env.waypoints[i]
+        # 'is_lane_boundary' marks the end of a straight row (start of turn sequence)
+        # 'is_turn_assist_wp' marks the Dubins path generated during the turn
+        if wp.get('is_lane_boundary', False) or wp.get('is_turn_assist_wp', False):
+            return True
+
+    # B. Look Behind: Did we just finish a turn?
+    # We check the previous N waypoints to capture the realignment phase.
+    start_search_idx = max(0, current_idx - POST_TURN_WAYPOINTS)
+    for i in range(current_idx, start_search_idx, -1):
+        wp = env.waypoints[i]
+        if wp.get('is_lane_boundary', False) or wp.get('is_turn_assist_wp', False):
+            return True
+
+    return False
+
 def collect_expert_data(env, config, logger):
     """
     Phase 1: Navigate the field using an expert controller and record observations.
@@ -442,8 +499,8 @@ def collect_expert_data(env, config, logger):
             action = np.array([EXPERT_TARGET_LINEAR_VEL, EXPERT_KP_ANGULAR * angle_to_target], dtype=np.float32)
             action = np.clip(action, env.action_space.low, env.action_space.high)
 
-            # Determine collection rate based on behavior
-            current_interval = collection_interval_turning if env.is_turning else collection_interval_normal
+            use_high_freq = _should_sample_at_high_frequency(env)
+            current_interval = collection_interval_turning if use_high_freq else collection_interval_normal
             
             # --- Capture current time ---
             now = time.time()
@@ -455,6 +512,7 @@ def collect_expert_data(env, config, logger):
                 
                 dataset.append(obs_to_save)
                 last_collection_time = now
+                if use_high_freq: logger.info("Collecting at High Frequency (Curve/Boundary detected)")
 
             obs, _, terminated, truncated, info = env.step(action)
             done = terminated or truncated

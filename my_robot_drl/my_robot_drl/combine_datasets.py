@@ -1,83 +1,88 @@
 import os
 import pickle
 import sys
+import gc
+import joblib  # <--- NEW IMPORT
 
-# Define the directory where the datasets are stored
+# Define the directory
 HOME_DIR = os.path.expanduser('~')
 DATASET_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_datasets', 'imitation_learning')
 
-# Define the names of the input and output files
-EXPERT_DATA_1_NAME = '180_auxiliary_sin_cs_mixed.pkl'
-EXPERT_DATA_2_NAME = '180_auxiliary_sincurved_short.pkl'
-VAL_DATA_NAME = '180_auxiliary_straight.pkl' # We'll check for this file but won't modify it
-TRAIN_DATA_OUTPUT_NAME = '180_auxiliary_sin_cs_mixed_ss.pkl'
+EXPERT_DATA_1_NAME = '180_auxiliary_sin_cs_mixed_ss.pkl'
+EXPERT_DATA_2_NAME = '180_auxiliary_mixed_long.pkl'
+TRAIN_DATA_OUTPUT_NAME = '180_auxiliary_sin_cs_mixed_ss_ml.pkl'
+
+def get_size_mb(obj):
+    """Recursively estimates size of objects (approximate)"""
+    size = sys.getsizeof(obj)
+    if isinstance(obj, dict):
+        size += sum([get_size_mb(v) for v in obj.values()])
+    elif isinstance(obj, list):
+        size += sum([get_size_mb(x) for x in obj])
+    return size
 
 def combine_and_prepare_datasets():
-    """
-    Loads two expert datasets, combines them into a single training dataset,
-    and saves the result. It assumes a separate validation set already exists.
-    """
     print("="*60)
-    print("--- Starting Dataset Combination Script ---")
-    print(f"Searching for datasets in: {DATASET_DIR}")
+    print("--- Starting Dataset Combination (Joblib Mode) ---")
+    print(f"Dataset Dir: {DATASET_DIR}")
     print("="*60)
 
-    # Construct full paths
     expert_path_1 = os.path.join(DATASET_DIR, EXPERT_DATA_1_NAME)
     expert_path_2 = os.path.join(DATASET_DIR, EXPERT_DATA_2_NAME)
-    val_path = os.path.join(DATASET_DIR, VAL_DATA_NAME)
     train_output_path = os.path.join(DATASET_DIR, TRAIN_DATA_OUTPUT_NAME)
 
-    # --- Load Datasets with Error Handling ---
-    datasets_to_load = {
-        'expert_1': expert_path_1,
-        'expert_2': expert_path_2,
-        'validation': val_path
-    }
-    loaded_data = {}
-
-    for name, path in datasets_to_load.items():
-        try:
-            print(f"Loading '{os.path.basename(path)}'...")
-            with open(path, 'rb') as f:
-                loaded_data[name] = pickle.load(f)
-            print(f"  -> Success. Found {len(loaded_data[name])} data points.")
-        except FileNotFoundError:
-            print(f"FATAL ERROR: Dataset file not found at '{path}'")
-            print("Please ensure all required dataset files exist before running.")
-            sys.exit(1)
-        except Exception as e:
-            print(f"FATAL ERROR: An error occurred while loading '{path}': {e}")
-            sys.exit(1)
-
-    # --- Combine the Training Datasets ---
-    print("\nCombining training datasets...")
-    expert_dataset_1 = loaded_data['expert_1']
-    expert_dataset_2 = loaded_data['expert_2']
-
-    combined_train_dataset = expert_dataset_1 + expert_dataset_2
-
-    print(f"Size of '{EXPERT_DATA_1_NAME}': {len(expert_dataset_1)}")
-    print(f"Size of '{EXPERT_DATA_2_NAME}': {len(expert_dataset_2)}")
-    print(f"  -> Total size of new training dataset: {len(combined_train_dataset)}")
-
-    # --- Save the New Combined Training Dataset ---
-    print(f"\nSaving combined training data to '{TRAIN_DATA_OUTPUT_NAME}'...")
+    # --- 1. Load First Dataset ---
+    combined_data = []
     try:
-        with open(train_output_path, 'wb') as f:
-            pickle.dump(combined_train_dataset, f)
-        print(f"  -> Successfully saved.")
+        print(f"Loading '{EXPERT_DATA_1_NAME}'...")
+        # We assume input files are still standard pickle. 
+        # If they fail, change this to joblib.load(expert_path_1)
+        with open(expert_path_1, 'rb') as f:
+            combined_data = pickle.load(f)
+        
+        print(f"  -> Success. Loaded {len(combined_data)} points.")
     except Exception as e:
-        print(f"FATAL ERROR: Could not save the new training dataset: {e}")
+        print(f"FATAL ERROR loading first file: {e}")
         sys.exit(1)
 
-    print("\n--- Summary ---")
-    print(f"Training Set ('{TRAIN_DATA_OUTPUT_NAME}'): {len(combined_train_dataset)} points (Combined)")
-    print(f"Validation Set ('{VAL_DATA_NAME}'): {len(loaded_data['validation'])} points (Unchanged)")
-    print("="*60)
-    print("Process complete. You can now run the training launch file.")
-    print("="*60)
+    # --- 2. Load Second Dataset and Append ---
+    try:
+        print(f"Loading '{EXPERT_DATA_2_NAME}'...")
+        with open(expert_path_2, 'rb') as f:
+            temp_data = pickle.load(f)
+            print(f"  -> Success. Loaded {len(temp_data)} points.")
+            
+            print("Merging datasets...")
+            combined_data.extend(temp_data)
+            
+            print("Freeing temp memory...")
+            del temp_data
+            gc.collect()
 
+    except Exception as e:
+        print(f"FATAL ERROR loading second file: {e}")
+        sys.exit(1)
+
+    total_len = len(combined_data)
+    print(f"  -> Total size: {total_len} points")
+
+    # --- 3. Save with Joblib ---
+    print(f"\nSaving to '{TRAIN_DATA_OUTPUT_NAME}' using Joblib...")
+    
+    try:
+        # Joblib handles large numpy arrays much better than pickle.
+        # compress=3 offers a good balance of speed and size.
+        joblib.dump(combined_data, train_output_path, compress=3)
+        
+        print(f"  -> Successfully saved.")
+        del combined_data
+        gc.collect()
+        
+    except Exception as e:
+        print(f"FATAL ERROR: Could not save dataset: {e}")
+        sys.exit(1)
+
+    print("\n--- Process Complete ---")
 
 if __name__ == '__main__':
     combine_and_prepare_datasets()
