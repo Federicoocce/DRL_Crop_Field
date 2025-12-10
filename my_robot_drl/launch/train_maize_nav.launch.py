@@ -1,3 +1,5 @@
+# train_maize_nav.launch.py (UPDATED)
+
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -29,11 +31,18 @@ def generate_launch_description():
         description="Primary mode: 'train' (SAC), 'eval' (SAC), or 'il' (Imitation Learning)"
     )
 
-    # --- NEW: Declare Launch Argument specifically for Imitation Learning Mode ---
+    # --- Declare Launch Argument specifically for Imitation Learning Mode ---
     il_mode_arg = DeclareLaunchArgument(
         'il_mode',
         default_value='train',
         description="Mode for the imitation learning script: 'train' or 'collect'"
+    )
+
+    # --- NEW: Declare Launch Argument for DAgger disable ---
+    no_dagger_arg = DeclareLaunchArgument(
+        'no_dagger',
+        default_value='False',
+        description='If True, disables DAgger data aggregation and retraining loops.'
     )
 
     # --- 1. Generate the World ---
@@ -80,14 +89,18 @@ def generate_launch_description():
     )
 
     # MODIFIED Node for the IMITATION LEARNING script
-    # It now accepts the 'il_mode' launch argument and passes it to the script.
+    # It now accepts the 'no_dagger' argument via PythonExpression
     train_imitation_node = Node(
         package='my_robot_drl',
         executable='train_imitation',
         name='drl_trainer_il',
         output='screen',
         parameters=[{'use_sim_time': True}],
-        arguments=['--mode', LaunchConfiguration('il_mode')], # This line passes the argument
+        arguments=[
+            '--mode', LaunchConfiguration('il_mode'),
+            # Conditionally pass the flag. If False, passes an empty string (handled by parse_known_args)
+            PythonExpression(["'--no-dagger' if '", LaunchConfiguration('no_dagger'), "'.lower() == 'true' else ''"])
+        ],
         condition=IfCondition(
             PythonExpression(["'", LaunchConfiguration('mode'), "' == 'il'"])
         )
@@ -97,7 +110,8 @@ def generate_launch_description():
     return LaunchDescription([
         headless_arg,
         mode_arg,
-        il_mode_arg, # Add the new argument to the launch description
+        il_mode_arg,
+        no_dagger_arg, # Don't forget to include the new argument here!
 
         generate_world_cmd,
 

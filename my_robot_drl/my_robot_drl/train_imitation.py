@@ -22,6 +22,10 @@ from .drl_env import MaizeNavigationEnv
 from .model import LidarCenterNet
 from .config import GlobalConfig
 
+from torch.utils.data import Dataset, DataLoader
+from lru import LRU 
+from torch.utils.data import IterableDataset
+import gc
 # --- Utility Imports (Corrected) ---
 # --- Utility Imports (Remove the incorrect 'align' import) ---
 from .transfuser_util import (
@@ -38,7 +42,7 @@ from .transfuser_util import (
 IL_EPOCHS = 100 # Max epochs for the initial training phase
 IL_BATCH_SIZE = 32
 IL_LEARNING_RATE = 1e-4
-DATA_COLLECTION_FPS = 1.0
+DATA_COLLECTION_FPS = 2.0
 DATA_COLLECTION_FPS_TURNING = 10.0
 EXPERT_KP_ANGULAR = 1.0
 EXPERT_TARGET_LINEAR_VEL = 0.2
@@ -59,8 +63,8 @@ BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_
 BEST_UNCERTAINTY_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_uncertainty_model.pth')
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
-EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_mixed_long.pkl')
-TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_sin_cs_mixed_ss_ml.pkl')
+EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_straight.pkl')
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_combined.pkl')
 VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_straight.pkl')
 
 
@@ -93,11 +97,16 @@ def convert_bev_img_to_classes(bev_img_np):
 def preprocess_semantic_image(image_np, target_w, target_h, crop_shift=0):
     """
     Transforms the raw semantic mask (H, W) using Nearest Neighbor interpolation.
+    CRITICAL FIX: Clamps values to ensure no label exceeds the model's class count.
     """
     CAMERA_FULL_FOV = 130.0 
     SIDE_BUFFER_DEG = 20.0
 
-    source_h, source_w = image_np.shape # 2D array
+    # Ensure 2D shape (H, W)
+    if image_np.ndim == 3:
+        image_np = image_np[:, :, 0]
+
+    source_h, source_w = image_np.shape
 
     effective_fov = CAMERA_FULL_FOV - 2 * SIDE_BUFFER_DEG
     crop_w = int((effective_fov / CAMERA_FULL_FOV) * source_w)
@@ -115,13 +124,134 @@ def preprocess_semantic_image(image_np, target_w, target_h, crop_shift=0):
     
     panoramic_crop = image_np[start_y:end_y, start_x:end_x]
     
-    # Crucial: INTER_NEAREST prevents creating new class values (e.g. 1.5 between 1 and 2)
+    # Crucial: INTER_NEAREST prevents creating new class values
     resized_image = cv2.resize(panoramic_crop, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
 
-    # Return as (H, W) - no transpose needed for 2D mask usually, 
-    # unless your model expects (1, H, W), but usually CrossEntropy expects (B, H, W) targets.
-    return resized_image
+    # --- SAFETY FIX ---
+    # Convert to standard integer labels
+    safe_image = resized_image.astype(np.int64)
+    
+    # Map '255' (Void/Sky) or any outlier to class 0 (Background)
+    # Assuming you have roughly 3-5 classes. 
+    # This line forces anything >= 5 to become 0. Adjust '5' if you have more classes.
+    safe_image[safe_image >= 4] = 0
+    
+    return safe_image
+class ShardedIterableDataset(IterableDataset):
+    def __init__(self, directory, shuffle_files=True):
+        self.directory = directory
+        self.files = sorted([os.path.join(directory, f) for f in os.listdir(directory) if f.endswith('.pkl')])
+        self.shuffle_files = shuffle_files
 
+    def __iter__(self):
+        # 1. Shuffle the order of files (Chunks)
+        worker_info = torch.utils.data.get_worker_info()
+        
+        # If running with multiple workers, split files among them
+        if worker_info is not None:
+            # Split files per worker to avoid duplicates
+            per_worker = int(math.ceil(len(self.files) / float(worker_info.num_workers)))
+            worker_id = worker_info.id
+            iter_start = worker_id * per_worker
+            iter_end = min(iter_start + per_worker, len(self.files))
+            my_files = self.files[iter_start:iter_end]
+        else:
+            my_files = self.files
+
+        if self.shuffle_files:
+            random.shuffle(my_files)
+
+        # 2. Iterate through files
+        for f_path in my_files:
+            try:
+                # Load ONE chunk into RAM
+                data = joblib.load(f_path)
+                
+                # Shuffle the data INSIDE the chunk
+                if self.shuffle_files:
+                    random.shuffle(data)
+                
+                # Yield items one by one
+                for item in data:
+                    yield item
+                    
+                # Explicit cleanup
+                del data
+                gc.collect()
+                
+            except Exception as e:
+                print(f"Error loading chunk {f_path}: {e}")
+                continue
+    
+    def __len__(self):
+        # Approximate length (sum of file sizes is hard to know without loading)
+        # We assume 1000 per chunk as defined in combine_datasets
+        return len(self.files) * 1000
+class ShardedDataset(Dataset):
+    def __init__(self, directory, cache_size=5):
+        """
+        Args:
+            directory: Path to folder containing chunk_xxxxx.pkl files
+            cache_size: How many chunks to keep in RAM at once
+        """
+        self.directory = directory
+        self.files = sorted([os.path.join(directory, f) for f in os.listdir(directory) if f.endswith('.pkl')])
+        
+        # Build an index to know which global index is in which file
+        self.index_map = [] # [(start_idx, end_idx, filename), ...]
+        self.total_len = 0
+        
+        print(f"Indexing {len(self.files)} dataset chunks...")
+        for f_path in self.files:
+            # We load just the length if possible, or assume based on filename/metadata
+            # Since joblib doesn't support lazy length, we assume standard sizes or 
+            # ideally, we would save a metadata.json. 
+            # For robustness here, we load quickly to check len or trust the combiner.
+            # OPTIMIZATION: Just load the whole thing once at init or rely on standard size.
+            # Here we will do the safe slow way: load and check.
+            data = joblib.load(f_path)
+            count = len(data)
+            self.index_map.append((self.total_len, self.total_len + count, f_path))
+            self.total_len += count
+            del data
+            
+        self.cache = {} # Simple dict cache if lru-dict not available
+        self.cache_keys = []
+        self.cache_size = cache_size
+
+    def __len__(self):
+        return self.total_len
+
+    def __getitem__(self, idx):
+        # 1. Find which chunk contains this index
+        target_file = None
+        local_idx = 0
+        
+        for start, end, f_path in self.index_map:
+            if start <= idx < end:
+                target_file = f_path
+                local_idx = idx - start
+                break
+        
+        if target_file is None:
+            raise IndexError(f"Index {idx} out of range")
+
+        # 2. Load chunk from cache or disk
+        if target_file not in self.cache:
+            # RAM Management: Evict oldest if full
+            while len(self.cache) >= self.cache_size:
+                oldest = self.cache_keys.pop(0)
+                del self.cache[oldest]
+                
+                # --- FORCE MEMORY CLEANUP ---
+                gc.collect() 
+                # ----------------------------
+
+            self.cache[target_file] = joblib.load(target_file)
+            self.cache_keys.append(target_file)
+
+        # 3. Return sample
+        return self.cache[target_file][local_idx]
 class DataPreprocessor:
     def __init__(self, config):
         self.config = config
@@ -285,61 +415,106 @@ def save_dataset(dataset, path, logger):
     except Exception as e:
         logger.error(f"Error saving dataset to {path}: {e}")
 
-def load_datasets(train_path, val_path, logger):
-    """Loads the training and validation datasets from files using Joblib."""
-    try:
-        # Check if files exist
-        if not os.path.exists(train_path):
-            logger.error(f"Training dataset not found at: {train_path}")
-            sys.exit(1)
+def analyze_dataset_balance(dataset, logger, dataset_name="Dataset"):
+    """
+    Calculates and logs the percentage of frames tagged as 'is_curve' (High Freq)
+    vs normal frames (Low Freq).
+    """
+    if not dataset:
+        logger.warn(f"Balance Check: {dataset_name} is empty.")
+        return
+
+    total_frames = len(dataset)
+    curve_frames = 0
+    
+    # Iterate and check the flag
+    for sample in dataset:
+        # Default to False if key missing (backward compatibility)
+        if sample.get('is_curve', False):
+            curve_frames += 1
             
-        logger.info(f"Loading training dataset from: {train_path}")
-        # Joblib load takes the filename string directly
+    straight_frames = total_frames - curve_frames
+    curve_pct = (curve_frames / total_frames) * 100.0
+    straight_pct = (straight_frames / total_frames) * 100.0
+    
+    logger.info("-" * 60)
+    logger.info(f"DATASET BALANCE REPORT: {dataset_name}")
+    logger.info(f"  Total Frames: {total_frames}")
+    logger.info(f"  Curves (High Freq):   {curve_frames} ({curve_pct:.2f}%)")
+    logger.info(f"  Straights (Low Freq): {straight_frames} ({straight_pct:.2f}%)")
+    logger.info("-" * 60)
+
+
+def load_datasets(train_path, val_path, logger):
+    train_dir = os.path.join(os.path.dirname(train_path), 'sharded_dataset')
+    
+    # 1. Load Training Data as ITERABLE (Stream)
+    if os.path.exists(train_dir):
+        logger.info(f"Loading Sharded Training Data (Iterable) from: {train_dir}")
+        # Note: shuffle_files=True replaces DataLoader shuffle=True
+        train_dataset = ShardedIterableDataset(train_dir, shuffle_files=True) 
+    else:
+        logger.warn("Sharded directory not found. Legacy load...")
         train_dataset = joblib.load(train_path)
-        logger.info(f"Loaded training dataset with {len(train_dataset)} points.")
 
-        if not os.path.exists(val_path):
-            logger.error(f"Validation dataset not found at: {val_path}")
-            sys.exit(1)
+    # 2. Load Validation Data as MAP (Random Access for MC Dropout)
+    # We assume validation set is small enough for standard load or Map-style
+    if os.path.exists(val_path):
+        val_dataset = joblib.load(val_path) # Load fully into RAM for speed/safety
+    else:
+        val_dataset = [] 
 
-        logger.info(f"Loading validation dataset from: {val_path}")
-        # Try joblib first (fastest), fallback to pickle if it's an old file
-        try:
-            val_dataset = joblib.load(val_path)
-        except:
-            logger.warn("Joblib load failed for validation set, trying standard pickle...")
-            with open(val_path, 'rb') as f:
-                val_dataset = pickle.load(f)
-
-        logger.info(f"Loaded validation dataset with {len(val_dataset)} points.")
-        return train_dataset, val_dataset
-
-    except Exception as e:
-        logger.error(f"FATAL: Error loading datasets: {e}")
-        sys.exit(1)
-
+    return train_dataset, val_dataset
 # ===================================================================
 # --- NEW: STRATIFIED SUBSET CREATION ---
 # ===================================================================
 def create_representative_subset(dataset, num_samples=64):
     """
-    Scans the dataset to create a fixed subset that balances
-    difficult turns and easy straights.
+    Scans a SUBSET of the dataset to create a fixed batch that balances
+    difficult turns and easy straights. 
+    OPTIMIZED: Limits scan to prevent RAM crashes on ShardedDatasets.
     """
-    print("Scanning validation dataset to create representative subset...")
+    print("Scanning validation dataset subset to find hard/easy samples...")
     indices_with_curvature = []
     
-    for i, sample in enumerate(dataset):
-        # Calculate 'curvature' based on the angle of the last waypoint
-        wps = sample['gt_waypoints'] # Shape (4, 2) usually
-        last_wp = wps[-1]
-        # Angle relative to robot (0,0)
-        angle_rad = abs(math.atan2(last_wp[1], last_wp[0]))
-        indices_with_curvature.append((i, angle_rad))
+    total_len = len(dataset)
+    
+    # --- OPTIMIZATION START ---
+    # Don't scan 100,000 samples. Scan a max of 2,000.
+    # This prevents loading every single file from disk.
+    scan_limit = 500
+    
+    if total_len > scan_limit:
+        # Pick a random starting point
+        start_idx = random.randint(0, total_len - scan_limit)
+        end_idx = start_idx + scan_limit
+    else:
+        start_idx = 0
+        end_idx = total_len
+        
+    print(f"  > Scanning indices {start_idx} to {end_idx} (Limit: {scan_limit})...")
+    # --- OPTIMIZATION END ---
+
+    for i in range(start_idx, end_idx):
+        try:
+            sample = dataset[i]
+            
+            # Calculate 'curvature' based on the angle of the last waypoint
+            wps = sample['gt_waypoints'] 
+            last_wp = wps[-1]
+            angle_rad = abs(math.atan2(last_wp[1], last_wp[0]))
+            indices_with_curvature.append((i, angle_rad))
+        except Exception as e:
+            continue
     
     # Sort by curvature: [Straightest .... Curviest]
     indices_with_curvature.sort(key=lambda x: x[1])
     
+    # Ensure we have enough samples
+    if len(indices_with_curvature) < num_samples:
+        print(f"Warning: Only found {len(indices_with_curvature)} valid samples. Using all.")
+        return [x[0] for x in indices_with_curvature]
+
     # Select 50% Easy (Straights) and 50% Hard (Turns)
     half_k = num_samples // 2
     
@@ -349,7 +524,7 @@ def create_representative_subset(dataset, num_samples=64):
     # Take from end of list (High angle)
     hard_indices = [x[0] for x in indices_with_curvature[-half_k:]]
     
-    # Combine and shuffle so they appear mixed in batches
+    # Combine and shuffle
     final_indices = easy_indices + hard_indices
     random.shuffle(final_indices)
     
@@ -472,6 +647,7 @@ def _should_sample_at_high_frequency(env):
 def collect_expert_data(env, config, logger):
     """
     Phase 1: Navigate the field using an expert controller and record observations.
+    Flags data with 'is_curve' based on sampling frequency.
     """
     logger.info("="*50)
     logger.info(f"PHASE 1: Starting Expert Data Collection")
@@ -483,10 +659,11 @@ def collect_expert_data(env, config, logger):
 
     while True:
         obs, info = env.reset()
-        
-
         current_time = time.time()
 
+        # Mark the initial observation based on initial state
+        initial_is_curve = _should_sample_at_high_frequency(env)
+        obs['is_curve'] = initial_is_curve
         dataset = [obs.copy()]
         
         last_collection_time = current_time
@@ -499,6 +676,7 @@ def collect_expert_data(env, config, logger):
             action = np.array([EXPERT_TARGET_LINEAR_VEL, EXPERT_KP_ANGULAR * angle_to_target], dtype=np.float32)
             action = np.clip(action, env.action_space.low, env.action_space.high)
 
+            # Determine frequency mode
             use_high_freq = _should_sample_at_high_frequency(env)
             current_interval = collection_interval_turning if use_high_freq else collection_interval_normal
             
@@ -506,13 +684,18 @@ def collect_expert_data(env, config, logger):
             now = time.time()
             
             if now - last_collection_time >= current_interval:
-
                 obs_to_save = obs.copy()
-
+                
+                # --- NEW: Flag the data point ---
+                # We use the frequency decision as the label for "is_curve"
+                obs_to_save['is_curve'] = use_high_freq
                 
                 dataset.append(obs_to_save)
                 last_collection_time = now
-                if use_high_freq: logger.info("Collecting at High Frequency (Curve/Boundary detected)")
+                if use_high_freq: 
+                    # Optional: Comment out to reduce log spam
+                    # logger.info("Collecting at High Frequency (Curve/Boundary detected)")
+                    pass
 
             obs, _, terminated, truncated, info = env.step(action)
             done = terminated or truncated
@@ -521,7 +704,10 @@ def collect_expert_data(env, config, logger):
         if info.get("termination_reason") == "all_waypoints_visited":
             dataset = augment_data_with_final_map(env, dataset, config , logger)
             logger.info(f"SUCCESS: Expert completed the field in {step} steps.")
-            logger.info(f"Final dataset size: {len(dataset)}")
+            
+            # --- NEW: Analyze the collected dataset immediately ---
+            analyze_dataset_balance(dataset, logger, "Expert Collection Run")
+            
             return dataset
         else:
             reason = info.get("termination_reason", "unknown")
@@ -581,6 +767,13 @@ def debug_visualize_batch(batch):
     # Update windows and allow for a small delay
     cv2.waitKey(50)
 
+def identity_collate(batch):
+    """
+    A custom collate function that returns the batch exactly as it is (a list of dicts).
+    This prevents PyTorch from automatically converting NumPy arrays to Tensors,
+    which fixes the 'cv2.resize' error.
+    """
+    return batch
 
 def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pause_client, unpause_client, env_node, run_count, global_epoch_counter, max_epochs, use_early_stopping=False):
     """
@@ -613,6 +806,20 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
     subset_size = min(64, len(val_dataset))
     mc_test_indices = create_representative_subset(val_dataset, num_samples=subset_size)
     logger.info(f"Fixed MC Dropout Subset Size: {len(mc_test_indices)} (Stratified)")
+        # num_workers=2 allows loading files in background while GPU processes
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, 
+        batch_size=IL_BATCH_SIZE, 
+        shuffle=False, 
+        # INCREASE WORKERS: Allows loading multiple chunks in parallel
+        num_workers=4,  
+        collate_fn=identity_collate,
+        # PREFETCH: Prepare next batches while GPU works on current one
+        prefetch_factor=4, 
+        # PERSISTENT: Keep workers alive between epochs (saves startup time)
+        persistent_workers=True, 
+        pin_memory=True
+    )
 
     try:
         for epoch in range(max_epochs):
@@ -620,48 +827,47 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             # --- TRAINING PASS ---
             # ==========================================
             model.train()
-            random.shuffle(train_dataset)
+  
             
             # accumulators for logging average epoch losses
             epoch_train_total_loss = 0.0
             epoch_train_individual_losses = {k: 0.0 for k in loss_weights.keys() if loss_weights[k] > 0}
             num_train_batches = 0
 
-            for i in range(0, len(train_dataset), IL_BATCH_SIZE):
-                raw_batch = train_dataset[i:i + IL_BATCH_SIZE]
-                if len(raw_batch) < IL_BATCH_SIZE: continue
+            for raw_batch_list in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
+
 
                 # --- START: Augmentation Debug Visualization ---
-                if i % 4 == 0: 
-                    first_sample_raw = raw_batch[0]
-                    processed_augmented, augmented_degree = preprocessor.process_observation(first_sample_raw)
-                    if abs(augmented_degree) > 19.0:
-                        original_augment_state = preprocessor.config.augment
-                        preprocessor.config.augment = False
-                        processed_original, original_degree = preprocessor.process_observation(first_sample_raw)
-                        preprocessor.config.augment = original_augment_state
+                # if i % 4 == 0: 
+                #     first_sample_raw = raw_batch[0]
+                #     processed_augmented, augmented_degree = preprocessor.process_observation(first_sample_raw)
+                #     if abs(augmented_degree) > 19.0:
+                #         original_augment_state = preprocessor.config.augment
+                #         preprocessor.config.augment = False
+                #         processed_original, original_degree = preprocessor.process_observation(first_sample_raw)
+                #         preprocessor.config.augment = original_augment_state
                         
-                        batch_original = {key: val.unsqueeze(0).to(model.device) for key, val in processed_original.items()}
-                        batch_augmented = {key: val.unsqueeze(0).to(model.device) for key, val in processed_augmented.items()}
+                #         batch_original = {key: val.unsqueeze(0).to(model.device) for key, val in processed_original.items()}
+                #         batch_augmented = {key: val.unsqueeze(0).to(model.device) for key, val in processed_augmented.items()}
                         
-                        original_wps = batch_original['ego_waypoint'][0].cpu().numpy()
-                        augmented_wps = batch_augmented['ego_waypoint'][0].cpu().numpy()
+                #         original_wps = batch_original['ego_waypoint'][0].cpu().numpy()
+                #         augmented_wps = batch_augmented['ego_waypoint'][0].cpu().numpy()
                         
-                        # --- MODIFIED: Extract Semantic BEV Labels (Class Indices) ---
-                        original_sem_bev = batch_original['bev'][0].cpu().numpy()
-                        augmented_sem_bev = batch_augmented['bev'][0].cpu().numpy()
+                #         # --- MODIFIED: Extract Semantic BEV Labels (Class Indices) ---
+                #         original_sem_bev = batch_original['bev'][0].cpu().numpy()
+                #         augmented_sem_bev = batch_augmented['bev'][0].cpu().numpy()
 
-                        debug_augmentation_visualize(
-                            batch_original, batch_augmented, 
-                            original_degree, augmented_degree, 
-                            original_wps, augmented_wps,
-                            original_sem_bev, augmented_sem_bev # <--- Pass these new arguments
-                        )
+                #         debug_augmentation_visualize(
+                #             batch_original, batch_augmented, 
+                #             original_degree, augmented_degree, 
+                #             original_wps, augmented_wps,
+                #             original_sem_bev, augmented_sem_bev # <--- Pass these new arguments
+                #         )
                 # --- END: Augmentation Debug Visualization ---
 
-                processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] 
+                processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch_list] 
                 batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
-
+                
                 if 'timestamp' in batch:
                     del batch['timestamp'] 
                 
@@ -703,15 +909,20 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             num_val_batches = 0
             
             with torch.no_grad():
-                for i in range(0, len(val_dataset), IL_BATCH_SIZE):
-                    raw_batch = val_dataset[i:i + IL_BATCH_SIZE]
-                    if len(raw_batch) < IL_BATCH_SIZE: continue
+                # Ensure we can slice the dataset (in case it's a generator or joblib object)
+                val_data_list = list(val_dataset)
+                
+                for i in range(0, len(val_data_list), IL_BATCH_SIZE):
+                    raw_batch = val_data_list[i:i + IL_BATCH_SIZE]
+                    
+                    # FIX: Removed the length check that was dropping the last partial batch
+                    if not raw_batch: continue
 
                     processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] 
                     batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
+                    
                     if 'timestamp' in batch:
                         del batch['timestamp'] 
-                    # Note: We don't pass save_path here to avoid saving validation images
                     
                     losses = model(**batch)
 
@@ -735,26 +946,22 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             avg_val_individual = {k: v / num_val_batches for k, v in epoch_val_individual_losses.items() if num_val_batches > 0}
 
             # ==========================================
-            # --- LOGGING & SAVING ---
+            # --- LOGGING & SAVING (MODIFIED) ---
             # ==========================================
 
             current_global_epoch = global_epoch_counter + epoch + 1
             current_val_wp_loss = avg_val_individual.get('loss_wp', avg_val_total)
 
             # --- RUN MC DROPOUT TEST ---
-            # Now passing the STRATIFIED list of indices
             current_uncertainty = test_generalization_mc_dropout(
                 model, val_dataset, config, model.device, 
                 num_samples=10, 
-                fixed_indices=mc_test_indices # <--- Key Change
+                fixed_indices=mc_test_indices
             )
 
-
             # 3. Construct Console Log String
-            # Base info
             log_str = f"[Epoch {epoch + 1}] Train Total: {avg_train_total:.4f} | Val Total: {avg_val_total:.4f} | Val WP: {current_val_wp_loss:.4f} | MC Unc: {current_uncertainty:.4f}"
             
-            # --- RESTORED LOGIC: Add specific auxiliary losses ---
             aux_keys = ['loss_bev', 'loss_depth', 'loss_semantic', 'loss_center_heatmap']
             for k in aux_keys:
                 if k in avg_train_individual and avg_train_individual[k] > 1e-6:
@@ -764,19 +971,21 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
 
             logger.info(log_str)
             
-            # 4. Construct WandB Dictionary
+            # 4. Construct WandB Dictionary (Explicit float casting applied)
             wandb_log_data = {
-                "loss_train/total_weighted": avg_train_total,
-                "loss_val/total_weighted": avg_val_total,
-                "loss_val/wp_loss_specific": current_val_wp_loss, # Explicit decision metric
-                "generalization/mc_uncertainty": current_uncertainty
+                "loss_train/total_weighted": float(avg_train_total),
+                "loss_val/total_weighted": float(avg_val_total),
+                "loss_val/wp_loss_specific": float(current_val_wp_loss),
+                "generalization/mc_uncertainty": float(current_uncertainty)
             }
-            # Add individual train losses (Restored)
+            
+            # Add individual train losses
             for k, v in avg_train_individual.items():
-                wandb_log_data[f"loss_train/{k}"] = v
-            # Add individual val losses (Restored)
+                wandb_log_data[f"loss_train/{k}"] = float(v)
+            
+            # Add individual val losses
             for k, v in avg_val_individual.items():
-                wandb_log_data[f"loss_val/{k}"] = v
+                wandb_log_data[f"loss_val/{k}"] = float(v)
                 
             wandb.log(wandb_log_data, step=current_global_epoch)
 
@@ -868,11 +1077,16 @@ def evaluate_model(env, model, config, logger, device, global_epoch_counter):
             done = terminated or truncated
             total_reward += reward
 
-            # --- START OF THE FIX ---
-            # Only append data if enough time has passed, based on whether the robot is turning
-            current_interval = collection_interval_turning if env.is_turning else collection_interval_normal
+            # Only append data if enough time has passed
+            is_turning_now = env.is_turning # Or use _should_sample_at_high_frequency(env) if accessible
+            current_interval = collection_interval_turning if is_turning_now else collection_interval_normal
+            
             if time.time() - last_collection_time >= current_interval:
-                evaluation_data.append(raw_obs.copy())
+                # Add the flag to aggregated data as well
+                obs_to_save = raw_obs.copy()
+                obs_to_save['is_curve'] = is_turning_now
+                
+                evaluation_data.append(obs_to_save)
                 last_collection_time = time.time()
             # --- END OF THE FIX ---
 
@@ -1076,6 +1290,8 @@ def main(args=None):
     parser = argparse.ArgumentParser(description="Run Imitation Learning for AgriCobots")
     parser.add_argument('--mode', type=str, default='train', choices=['train', 'collect', 'validate'],
                         help="Set the script to 'train', 'collect' or 'validate' mode.")
+    parser.add_argument('--no-dagger', action='store_true', 
+                    help="If set, disables the DAgger loop. The script will train once, evaluate, and exit.")
     # This is the key change:
     cli_args, unknown = parser.parse_known_args()
     # ===================== END OF THE FIX =====================
@@ -1118,6 +1334,7 @@ def main(args=None):
     # --- MODE 2: Training ---
     # ... (the rest of your main function remains exactly the same)
     wandb.init(project="agricobots", name="il_transfuser_full_model_final")
+    
     
     try:
         env = MaizeNavigationEnv()
@@ -1267,7 +1484,14 @@ def main(args=None):
         if success_rate >= 100.0 and best_average_reward_so_far >= TARGET_REWARD_THRESHOLD:
             logger.info("Success criteria met! Ending DAgger loop.")
             break
-
+        # ==============================================================================
+        # --- NEW LOGIC: CHECK FOR DAGGER DISABLE FLAG ---
+        # ==============================================================================
+        if cli_args.no_dagger:
+            logger.info("Argument '--no-dagger' was provided.")
+            logger.info("Skipping data aggregation and retraining. Exiting loop.")
+            break
+        # ==============================================================================
         # Aggregate the data from all failed runs for retraining
         if all_new_data:
             logger.warn(f"Aggregating {len(all_new_data)} new data points from {NUMBER_OF_EVAL_RUNS - successful_runs_count} failed runs.")

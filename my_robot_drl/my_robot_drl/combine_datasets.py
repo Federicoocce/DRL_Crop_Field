@@ -2,87 +2,72 @@ import os
 import pickle
 import sys
 import gc
-import joblib  # <--- NEW IMPORT
+import joblib
+import numpy as np
 
-# Define the directory
 HOME_DIR = os.path.expanduser('~')
 DATASET_DIR = os.path.join(HOME_DIR, 'ros2_ws', 'drl_datasets', 'imitation_learning')
+OUTPUT_DIR = os.path.join(DATASET_DIR, 'sharded_dataset')
+CHUNK_SIZE = 1000  # Number of samples per file
 
-EXPERT_DATA_1_NAME = '180_auxiliary_sin_cs_mixed_ss.pkl'
-EXPERT_DATA_2_NAME = '180_auxiliary_mixed_long.pkl'
-TRAIN_DATA_OUTPUT_NAME = '180_auxiliary_sin_cs_mixed_ss_ml.pkl'
-
-def get_size_mb(obj):
-    """Recursively estimates size of objects (approximate)"""
-    size = sys.getsizeof(obj)
-    if isinstance(obj, dict):
-        size += sum([get_size_mb(v) for v in obj.values()])
-    elif isinstance(obj, list):
-        size += sum([get_size_mb(x) for x in obj])
-    return size
-
-def combine_and_prepare_datasets():
+def combine_and_shard_datasets():
     print("="*60)
-    print("--- Starting Dataset Combination (Joblib Mode) ---")
-    print(f"Dataset Dir: {DATASET_DIR}")
-    print("="*60)
-
-    expert_path_1 = os.path.join(DATASET_DIR, EXPERT_DATA_1_NAME)
-    expert_path_2 = os.path.join(DATASET_DIR, EXPERT_DATA_2_NAME)
-    train_output_path = os.path.join(DATASET_DIR, TRAIN_DATA_OUTPUT_NAME)
-
-    # --- 1. Load First Dataset ---
-    combined_data = []
-    try:
-        print(f"Loading '{EXPERT_DATA_1_NAME}'...")
-        # We assume input files are still standard pickle. 
-        # If they fail, change this to joblib.load(expert_path_1)
-        with open(expert_path_1, 'rb') as f:
-            combined_data = pickle.load(f)
-        
-        print(f"  -> Success. Loaded {len(combined_data)} points.")
-    except Exception as e:
-        print(f"FATAL ERROR loading first file: {e}")
-        sys.exit(1)
-
-    # --- 2. Load Second Dataset and Append ---
-    try:
-        print(f"Loading '{EXPERT_DATA_2_NAME}'...")
-        with open(expert_path_2, 'rb') as f:
-            temp_data = pickle.load(f)
-            print(f"  -> Success. Loaded {len(temp_data)} points.")
-            
-            print("Merging datasets...")
-            combined_data.extend(temp_data)
-            
-            print("Freeing temp memory...")
-            del temp_data
-            gc.collect()
-
-    except Exception as e:
-        print(f"FATAL ERROR loading second file: {e}")
-        sys.exit(1)
-
-    total_len = len(combined_data)
-    print(f"  -> Total size: {total_len} points")
-
-    # --- 3. Save with Joblib ---
-    print(f"\nSaving to '{TRAIN_DATA_OUTPUT_NAME}' using Joblib...")
+    print("--- Starting Dataset Chunking ---")
+    
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     
     try:
-        # Joblib handles large numpy arrays much better than pickle.
-        # compress=3 offers a good balance of speed and size.
-        joblib.dump(combined_data, train_output_path, compress=3)
-        
-        print(f"  -> Successfully saved.")
-        del combined_data
-        gc.collect()
-        
-    except Exception as e:
-        print(f"FATAL ERROR: Could not save dataset: {e}")
+        all_files = sorted([f for f in os.listdir(DATASET_DIR) if f.endswith('.pkl') and 'sharded' not in f])
+    except FileNotFoundError:
+        print(f"Error: Directory {DATASET_DIR} does not exist.")
         sys.exit(1)
 
-    print("\n--- Process Complete ---")
+    if not all_files:
+        print("No .pkl datasets found.")
+        sys.exit(0)
+
+    print(f"Found {len(all_files)} files. Merging and splitting into chunks of {CHUNK_SIZE}...")
+
+    buffer = []
+    chunk_index = 0
+    total_samples = 0
+
+    for i, filename in enumerate(all_files):
+        file_path = os.path.join(DATASET_DIR, filename)
+        try:
+            with open(file_path, 'rb') as f:
+                data = pickle.load(f)
+                buffer.extend(data)
+                
+            # While we have enough data to make full chunks
+            while len(buffer) >= CHUNK_SIZE:
+                chunk_data = buffer[:CHUNK_SIZE]
+                buffer = buffer[CHUNK_SIZE:]
+                
+                output_name = os.path.join(OUTPUT_DIR, f"chunk_{chunk_index:05d}.pkl")
+                joblib.dump(chunk_data, output_name, compress=0)
+                print(f"  -> Saved {output_name} ({len(chunk_data)} samples)")
+                
+                chunk_index += 1
+                total_samples += len(chunk_data)
+
+        except Exception as e:
+            print(f"WARNING: Failed to load {filename}: {e}")
+            continue
+        
+        # Force garbage collection
+        gc.collect()
+
+    # Save remaining data
+    if buffer:
+        output_name = os.path.join(OUTPUT_DIR, f"chunk_{chunk_index:05d}.pkl")
+        joblib.dump(buffer, output_name, compress=0)
+        print(f"  -> Saved {output_name} ({len(buffer)} samples)")
+        total_samples += len(buffer)
+
+    print("="*60)
+    print(f"Done. Total samples: {total_samples}")
+    print(f"Saved to: {OUTPUT_DIR}")
 
 if __name__ == '__main__':
-    combine_and_prepare_datasets()
+    combine_and_shard_datasets()
