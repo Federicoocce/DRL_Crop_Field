@@ -50,7 +50,7 @@ AGENT_KP_ANGULAR = 0.8
 AGENT_TARGET_LINEAR_VEL = 0.2
 TARGET_REWARD_THRESHOLD = 7800.0
 MAX_GT_WAYPOINT_DEVIATION_X = 0.75 # meters
-EARLY_STOPPING_PATIENCE = 5 # Epochs to wait for validation loss improvement
+EARLY_STOPPING_PATIENCE = 8 # Epochs to wait for validation loss improvement
 DAGGER_RETRAIN_EPOCHS = 5   # Fixed number of epochs for DAgger retraining
 
 HOME_DIR = os.path.expanduser('~')
@@ -63,9 +63,9 @@ BEST_VAL_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_val_
 BEST_UNCERTAINTY_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_uncertainty_model.pth')
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
-EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_straight.pkl')
-TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_combined.pkl')
-VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_straight.pkl')
+EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_auxiliary_sss.pkl')
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_auxiliary_combined.pkl')
+VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_auxiliary_straight.pkl')
 
 
 # ===================================================================
@@ -812,10 +812,10 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
         batch_size=IL_BATCH_SIZE, 
         shuffle=False, 
         # INCREASE WORKERS: Allows loading multiple chunks in parallel
-        num_workers=4,  
+        num_workers=2,  
         collate_fn=identity_collate,
         # PREFETCH: Prepare next batches while GPU works on current one
-        prefetch_factor=4, 
+        prefetch_factor=2, 
         # PERSISTENT: Keep workers alive between epochs (saves startup time)
         persistent_workers=True, 
         pin_memory=True
@@ -837,11 +837,15 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             for raw_batch_list in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
 
 
-                # --- START: Augmentation Debug Visualization ---
-                # if i % 4 == 0: 
+                # # We use 'num_train_batches' as 'i' since it increments every loop
+                # if num_train_batches % 100 == 0: 
+                #     # Alias the list to match your snippet variable name
+                #     raw_batch = raw_batch_list 
+                    
                 #     first_sample_raw = raw_batch[0]
                 #     processed_augmented, augmented_degree = preprocessor.process_observation(first_sample_raw)
-                #     if abs(augmented_degree) > 19.0:
+                    
+                #     if abs(augmented_degree) > 10.0: # Threshold
                 #         original_augment_state = preprocessor.config.augment
                 #         preprocessor.config.augment = False
                 #         processed_original, original_degree = preprocessor.process_observation(first_sample_raw)
@@ -861,9 +865,9 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                 #             batch_original, batch_augmented, 
                 #             original_degree, augmented_degree, 
                 #             original_wps, augmented_wps,
-                #             original_sem_bev, augmented_sem_bev # <--- Pass these new arguments
+                #             original_sem_bev, augmented_sem_bev
                 #         )
-                # --- END: Augmentation Debug Visualization ---
+                # # --- END: Augmentation Debug Visualization --
 
                 processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch_list] 
                 batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
@@ -1029,6 +1033,7 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
 
     return global_epoch_counter + epoch + 1
 
+
 def evaluate_model(env, model, config, logger, device, global_epoch_counter):
     """
     Phase 3: Test the trained model and collect data from the run with controlled frequency.
@@ -1088,7 +1093,7 @@ def evaluate_model(env, model, config, logger, device, global_epoch_counter):
                 
                 evaluation_data.append(obs_to_save)
                 last_collection_time = time.time()
-            # --- END OF THE FIX ---
+
 
     model.train()
 

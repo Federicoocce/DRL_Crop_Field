@@ -430,165 +430,269 @@ class LidarCenterNet(nn.Module):
         return image
 
 
-    def draw_waypoints(self, label, waypoints, image, color = (255, 255, 255)):
-        waypoints = waypoints.detach().cpu().numpy()
-        label = label.detach().cpu().numpy()
+    def draw_waypoints(self, label, waypoints, image, color=(255, 255, 255)):
+            """
+            Draws waypoints on the image.
+            Assumes waypoints are in Ego-Frame (Meters): [x_forward, y_left].
+            Matches projection logic of transfuser_util.py and draw_target_point.
+            """
+            # Handle Tensor vs Numpy
+            if isinstance(waypoints, torch.Tensor):
+                waypoints = waypoints.detach().cpu().numpy()
+            
+            # Config dimensions
+            crop_size = image.shape[0]
+            half_crop = crop_size / 2.0
+            ppm = self.config.pixels_per_meter
 
-        for bbox, points in zip(label, waypoints):
-            x, y, w, h, yaw, speed, brake =  bbox
-            c, s = np.cos(yaw), np.sin(yaw)
-            # use y x because coordinate is changed
-            r1_to_world = np.array([[c, -s, x], [s, c, y], [0, 0, 1]])
+            # Iterate over batch (usually batch size is 1 for visualization)
+            for i in range(len(waypoints)):
+                # Points: (Seq_Len, 2)
+                points_m = waypoints[i] 
+                
+                pixel_coords = []
+                
+                for point in points_m:
+                    x_m, y_m = point[0], point[1]
+                    
+                    # Projection Logic:
+                    # X (Forward) -> Row (Up/Negative)
+                    # Y (Left)    -> Col (Left/Negative relative to center)
+                    # Formula: Center - (Coordinate * PPM)
+                    
+                    col = int(half_crop - (y_m * ppm))
+                    row = int(half_crop - (x_m * ppm))
+                    
+                    pixel_coords.append([col, row])
+                
+                pixel_coords = np.array(pixel_coords, dtype=np.int32)
 
-            # convert to image space
-            # need to negate y componet as we do for lidar points
-            # we directly construct points in the image coordiante
-            # for lidar, forward +x, right +y
-            #            x
-            #            +
-            #            |
-            #            |
-            #            |---------+y
-            #
-            # for image, ---------> x
-            #            |
-            #            |
-            #            +
-            #            y
+                # 1. Draw Lines (Trajectory Path)
+                if len(pixel_coords) > 1:
+                    # Reshape for polylines: (-1, 1, 2)
+                    pts = pixel_coords.reshape((-1, 1, 2))
+                    cv2.polylines(image, [pts], isClosed=False, color=color, thickness=2)
 
-            points[:, 0] *= -1
-            points = points * self.config.pixels_per_meter
-            points = points[:, [1, 0]]
-            points = np.concatenate((points, np.ones_like(points[:, :1])), axis=-1)
-
-            points = r1_to_world @ points.T
-            points = points.T
-
-            points_to_draw = []
-            for point in points[:, :2]:
-                points_to_draw.append(point.copy())
-                point = point.astype(np.int32)
-                cv2.circle(image, tuple(point), radius=3, color=color, thickness=3)
-        return image
+                # 2. Draw Points (Dots)
+                for p in pixel_coords:
+                    # Bounds check
+                    if 0 <= p[0] < crop_size and 0 <= p[1] < crop_size:
+                        cv2.circle(image, tuple(p), radius=4, color=color, thickness=-1)
+                        
+            return image
 
 
-    def draw_target_point(self, target_point, image, color = (255, 255, 255)):
-        target_point = target_point.copy()
+    def draw_target_point(self, target_point, image, color=(0, 255, 0)):
+            """
+            Draws the target point on the image using the correct BEV projection logic.
+            Matches transfuser_util.py coordinate system.
+            """
+            # Ensure target_point is numpy
+            if isinstance(target_point, torch.Tensor):
+                target_point = target_point.cpu().numpy()
 
-        target_point[1] += self.config.lidar_pos[0]
-        point = target_point * self.config.pixels_per_meter
-        point[1] *= -1
-        point[1] = self.config.lidar_resolution_width - point[1] #Might be LiDAR height
-        point[0] += int(self.config.lidar_resolution_height / 2.0) #Might be LiDAR width
-        point = point.astype(np.int32)
-        point = np.clip(point, 0, 512)
-        cv2.circle(image, tuple(point), radius=5, color=color, thickness=3)
-        return image
+            # Config parameters
+            crop_size = image.shape[0]  # Assuming square (e.g., 256)
+            ppm = self.config.pixels_per_meter # e.g., 64
+            
+            # Assume the map is centered (range +/- 2.0m for 256px @ 64ppm)
+            # Calculate max range in meters based on image size
+            # x_range_meters = (crop_size / ppm) / 2.0 
+            
+            # Dimensions 
+            half_crop = crop_size / 2.0
+
+            # Projection Logic (Matches transfuser_util.py)
+            # Y (Left/Right) -> Column. Positive Y is Left.
+            # Image Col 0 is Max Left. Center is 0. Max Col is Max Right.
+            # col = center + (-y * ppm)  <-- This puts positive Y (Left) to the left (smaller col index)?
+            # Wait, usually image origin (0,0) is top-left.
+            # If we want standard visualization:
+            # Col: Center + (-y * ppm) => If y is positive (left), col decreases (moves left). Correct.
+            col = int(half_crop + (-target_point[1] * ppm))
+            
+            # X (Forward) -> Row. Positive X is Forward.
+            # Image Row 0 is Top.
+            # Row: Center - (x * ppm) => If x is positive (forward), row decreases (moves up). Correct.
+            # Adjusting offset to ensure (0,0) robot is at the center
+            # Note: transfuser_util uses specific logic: feature_map_height - 1 - ((x + range) * ppm)
+            # which simplifies to: (range * ppm) - (x * ppm) = center - (x * ppm)
+            row = int(half_crop - (target_point[0] * ppm))
+
+            # Draw if within bounds
+            if 0 <= col < crop_size and 0 <= row < crop_size:
+                # Use radius 5 to be visible
+                cv2.circle(image, (col, row), radius=5, color=color, thickness=-1)
+            
+            return image
     
     def visualize_model_io(self, save_path, step, config, rgb, lidar_bev, target_point,
                         pred_wp, pred_bev, pred_semantic, pred_depth, bboxes, device,
                         gt_bboxes=None, expert_waypoints=None, stuck_detector=0, forced_move=False,
-                        gt_depth=None): # <--- 1. ADD gt_depth ARGUMENT
-        font = ImageFont.load_default()
-        i = 0 
+                        gt_depth=None):
+        
+        i = 0 # Visualize first element of batch
 
-        # --- 2. DEPTH VISUALIZATION LOGIC ---
+        # --- 1. RGB (Front Camera) ---
+        # Permute (C, H, W) -> (H, W, C) and convert to BGR
+        rgb_image = rgb[i].permute(1, 2, 0).detach().cpu().numpy() 
+        rgb_image = rgb_image[:, :, [2, 1, 0]] 
+        rgb_image = (np.clip(rgb_image, 0, 1) * 255).astype(np.uint8)
+        
+        # --- 2. Semantic Prediction (Front) ---
+        if pred_semantic is not None:
+            # pred_semantic: (B, Num_Classes, H, W)
+            # Resize to match RGB for visualization if needed, or keep original
+            sem_logits = pred_semantic[i].detach().cpu()
+            sem_idx = sem_logits.argmax(dim=0).numpy().astype(np.uint8)
+            
+            # Semantic Color Map (BGR)
+            # 0: Unk (Black), 1: Drive (Gray), 2: Obs (Red)
+            # Adjust these to match your dataset classes
+            sem_colors = np.array([
+                [0, 0, 0],       # 0: Unknown / Background
+                [128, 128, 128], # 1: Drivable (Gray)
+                [0, 0, 255],     # 2: Obstacle (Red)
+                [0, 255, 0],     # 3: Other?
+                [255, 0, 0]      # 4: Other?
+            ], dtype=np.uint8)
+            
+            # Handle class indices larger than color map
+            sem_idx[sem_idx >= len(sem_colors)] = 0
+            
+            sem_viz = sem_colors[sem_idx]
+            
+            # Resize to match RGB height if different
+            if sem_viz.shape[:2] != rgb_image.shape[:2]:
+                sem_viz = cv2.resize(sem_viz, (rgb_image.shape[1], rgb_image.shape[0]), interpolation=cv2.INTER_NEAREST)
+                
+            cv2.putText(sem_viz, "Pred Semantic", (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        else:
+            sem_viz = np.zeros_like(rgb_image)
+
+        # --- 3. Depth (Combined GT & Pred) ---
         depth_stack = None
         
-        # Process Predicted Depth
+        # Helper to process depth
+        def process_depth(d_tensor, label):
+            d_img = d_tensor.detach().cpu().numpy()
+            if d_img.ndim == 3: d_img = d_img[0] # Handle (1, H, W)
+            d_img = (np.clip(d_img, 0, 1) * 255).astype(np.uint8)
+            d_color = cv2.applyColorMap(d_img, cv2.COLORMAP_MAGMA)
+            cv2.putText(d_color, label, (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            return d_color
+
         if pred_depth is not None:
-            p_d_img = pred_depth[i].detach().cpu().numpy()
-            p_d_img = (np.clip(p_d_img, 0, 1) * 255).astype(np.uint8)
-            p_d_color = cv2.applyColorMap(p_d_img, cv2.COLORMAP_MAGMA)
-            cv2.putText(p_d_color, "Pred Depth", (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            depth_stack = p_d_color
+            depth_stack = process_depth(pred_depth[i], "Pred Depth")
 
-        # Process Ground Truth Depth
         if gt_depth is not None:
-            g_d_img = gt_depth[i].detach().cpu().numpy()
-            g_d_img = (np.clip(g_d_img, 0, 1) * 255).astype(np.uint8)
-            g_d_color = cv2.applyColorMap(g_d_img, cv2.COLORMAP_MAGMA)
-            cv2.putText(g_d_color, "GT Depth", (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            
+            gt_d_viz = process_depth(gt_depth[i], "GT Depth")
             if depth_stack is not None:
-                # Stack GT on top of Prediction
-                depth_stack = np.concatenate((g_d_color, depth_stack), axis=0)
+                depth_stack = np.concatenate((gt_d_viz, depth_stack), axis=0) # Vertical stack
             else:
-                depth_stack = g_d_color
-
-        # --- 3. BEV VISUALIZATION (Standard) ---
-        images = np.concatenate(list(lidar_bev.detach().cpu().numpy()[i][:2]), axis=1)
-        images = (images * 255).astype(np.uint8)
-        images = np.stack([images, images, images], axis=-1)
-        images = np.concatenate([images, np.zeros_like(images[:50])], axis=0)
-
-        if (not (gt_bboxes is None)):
-            rotated_bboxes_gt = []
-            for bbox in gt_bboxes.detach().cpu().numpy()[i]:
-                bbox = self.get_rotated_bbox(bbox)
-                rotated_bboxes_gt.append(bbox)
-            images = self.draw_bboxes(rotated_bboxes_gt, images, color=(0, 255, 0), brake_color=(0, 255, 128))
-
-        # Only draw predicted bboxes if they exist (not empty)
-        if len(bboxes) > 0:
-            rotated_bboxes = []
-            for bbox in bboxes.detach().cpu().numpy():
-                bbox = self.get_rotated_bbox(bbox[:7])
-                rotated_bboxes.append(bbox)
-            images = self.draw_bboxes(rotated_bboxes, images, color=(255, 0, 0), brake_color=(0, 255, 255))
-
-        label = torch.zeros((1, 1, 7)).to(device)
-        label[:, -1, 0] = 128.
-        label[:, -1, 1] = 256.
-
-        if not expert_waypoints is None:
-            images = self.draw_waypoints(label[0], expert_waypoints[i:i+1], images, color=(0, 0, 255))
-
-        images = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, 2:]), images, color=(255, 255, 255)) 
-        images = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, :2]), images, color=(255, 0, 0))     
-        images = self.draw_target_point(target_point[i].detach().cpu().numpy(), images)
-
-        # Handle BEV Output (Check if it exists)
-        if pred_bev is not None:
-            bev = pred_bev[i].detach().cpu().numpy().argmax(axis=0) / 2.
-            bev = np.stack([bev, bev, bev], axis=2) * 255.
-            bev_image = bev.astype(np.uint8)
-            bev_image = cv2.resize(bev_image, (256, 256))
-        else:
-            # Placeholder black image if BEV task is off
-            bev_image = np.zeros((256, 256, 3), dtype=np.uint8)
-
-        bev_image = np.concatenate([bev_image, np.zeros_like(bev_image[:50])], axis=0)
-
-        if not expert_waypoints is None:
-            bev_image = self.draw_waypoints(label[0], expert_waypoints[i:i+1], bev_image, color=(0, 0, 255))
-
-        bev_image = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, 2:]), bev_image, color=(255, 255, 255))
-        bev_image = self.draw_waypoints(label[0], deepcopy(pred_wp[i:i + 1, :2]), bev_image, color=(255, 0, 0))
-        bev_image = self.draw_target_point(target_point[i].detach().cpu().numpy(), bev_image)
-
-        bev_image = np.array(bev_image)
-
-        # --- 4. FINAL ASSEMBLY ---
-        rgb_image = rgb[i].permute(1, 2, 0).detach().cpu().numpy()[:, :, [2, 1, 0]]
+                depth_stack = gt_d_viz
         
-        # Layout: RGB | BEV | LiDAR Raw
-        target_h = images.shape[0] 
-        rgb_aspect = rgb_image.shape[1] / rgb_image.shape[0]
-        target_w = int(target_h * rgb_aspect)
-        rgb_image = cv2.resize(rgb_image, (target_w, target_h))
-
-        main_panel = np.concatenate((rgb_image, bev_image, images), axis=1)
-
-        # Add Depth Stack if it exists
-        if depth_stack is not None:
-            ds_aspect = depth_stack.shape[1] / depth_stack.shape[0]
-            ds_target_w = int(target_h * ds_aspect)
-            depth_stack = cv2.resize(depth_stack, (ds_target_w, target_h))
-            final_image = np.concatenate((main_panel, depth_stack), axis=1)
+        # If no depth, make placeholder
+        if depth_stack is None:
+            depth_stack = np.zeros_like(rgb_image)
         else:
-            final_image = main_panel
+            # Resize depth stack width to match RGB width
+            d_h, d_w = depth_stack.shape[:2]
+            scale = rgb_image.shape[1] / d_w
+            depth_stack = cv2.resize(depth_stack, (rgb_image.shape[1], int(d_h * scale)))
 
+        # --- 4. BEV Input (Ground Truth) ---
+        # lidar_bev tensor shape: (C, H, W). 
+        # Typically: Ch0=Below(Ground), Ch1=Above(Obs), and if concat=True, Ch2=Target
+        lidar_data = lidar_bev[i].detach().cpu().numpy()
+        bev_h, bev_w = lidar_data.shape[1], lidar_data.shape[2]
+        bev_input_viz = np.zeros((bev_h, bev_w, 3), dtype=np.uint8)
+
+        # Map channels to colors (BGR)
+        # Blue: Ground (Ch0)
+        bev_input_viz[:, :, 0] = (lidar_data[0] * 255).astype(np.uint8)
+        # Red: Obstacle (Ch1)
+        bev_input_viz[:, :, 2] = (lidar_data[1] * 255).astype(np.uint8)
+        
+        # Green: Target (Ch2 if exists)
+        if lidar_data.shape[0] > 2:
+             bev_input_viz[:, :, 1] = (lidar_data[2] * 255).astype(np.uint8)
+
+        # Draw Waypoints on BEV Input
+        label_dummy = torch.zeros((1, 1, 7)).to(device) # Dummy label for helper
+        if expert_waypoints is not None:
+            bev_input_viz = self.draw_waypoints(label_dummy[0], expert_waypoints[i:i+1], bev_input_viz, color=(0, 255, 255)) # Yellow
+        
+        bev_input_viz = self.draw_waypoints(label_dummy[0], deepcopy(pred_wp[i:i + 1]), bev_input_viz, color=(255, 0, 0)) # Blue
+        cv2.putText(bev_input_viz, "BEV Input (GT)", (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+
+        # --- 5. BEV Prediction (4 Classes) ---
+        if pred_bev is not None:
+            # pred_bev: (B, 4, H, W) -> Argmax -> (H, W)
+            bev_cls = pred_bev[i].detach().cpu().numpy().argmax(axis=0).astype(np.uint8)
+            
+            # Color Map for 4 Classes (BGR)
+            # 0: Unk (Black), 1: Drive (Gray), 2: Obs (Red), 3: Goal (Magenta)
+            bev_colors = np.array([
+                [0, 0, 0],       # 0: Unknown
+                [100, 100, 100], # 1: Drivable
+                [0, 0, 255],     # 2: Obstacle
+                [255, 0, 255]    # 3: Goal
+            ], dtype=np.uint8)
+            
+            bev_pred_viz = bev_colors[bev_cls]
+            
+            # Draw Waypoints overlay on Prediction
+            if expert_waypoints is not None:
+                bev_pred_viz = self.draw_waypoints(label_dummy[0], expert_waypoints[i:i+1], bev_pred_viz, color=(0, 255, 255))
+            bev_pred_viz = self.draw_waypoints(label_dummy[0], deepcopy(pred_wp[i:i + 1]), bev_pred_viz, color=(255, 0, 0))
+            
+            # Draw Target Point overlay
+            bev_pred_viz = self.draw_target_point(target_point[i], bev_pred_viz, color=(0, 255, 0))
+            
+            cv2.putText(bev_pred_viz, "BEV Pred", (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+        else:
+            bev_pred_viz = np.zeros_like(bev_input_viz)
+
+        # --- 6. Final Layout Assembly ---
+        # Resize BEVs to 256x256 if they aren't already
+        target_bev_size = (256, 256)
+        if bev_input_viz.shape[:2] != target_bev_size:
+            bev_input_viz = cv2.resize(bev_input_viz, target_bev_size, interpolation=cv2.INTER_NEAREST)
+        if bev_pred_viz.shape[:2] != target_bev_size:
+            bev_pred_viz = cv2.resize(bev_pred_viz, target_bev_size, interpolation=cv2.INTER_NEAREST)
+
+        # Column 1: RGB + Semantic
+        col1 = np.concatenate((rgb_image, sem_viz), axis=0)
+        
+        # Column 2: BEV Input + BEV Pred
+        col2 = np.concatenate((bev_input_viz, bev_pred_viz), axis=0)
+        # Resize Col2 to match Col1 height logic if needed, but usually we just stack nicely
+        # Let's ensure Col2 width matches Col1 for cleaner concatenation? 
+        # Actually, separate columns is better.
+        
+        # Resize Col2 to have same width as Col1
+        scale = col1.shape[1] / col2.shape[1]
+        col2 = cv2.resize(col2, (col1.shape[1], int(col2.shape[0] * scale)))
+
+        # Column 3: Depth Stack
+        # Resize to match Col1 width
+        scale = col1.shape[1] / depth_stack.shape[1]
+        col3 = cv2.resize(depth_stack, (col1.shape[1], int(depth_stack.shape[0] * scale)))
+
+        # Final Grid: [Col1, Col2, Col3] side by side
+        # Pad heights to match the tallest column
+        max_h = max(col1.shape[0], col2.shape[0], col3.shape[0])
+        
+        def pad_img(img, target_h):
+            if img.shape[0] < target_h:
+                pad = np.zeros((target_h - img.shape[0], img.shape[1], 3), dtype=np.uint8)
+                return np.concatenate((img, pad), axis=0)
+            return img
+
+        final_image = np.concatenate((pad_img(col1, max_h), pad_img(col2, max_h), pad_img(col3, max_h)), axis=1)
+
+        # Save
         cv2.imwrite(str(save_path + ("/%d.png" % (step // 2))), final_image)
     # def visualize_model_io(self, save_path, step, config, rgb, lidar_bev, target_point,
     #                     pred_wp, pred_bev, pred_semantic, pred_depth, bboxes, device,

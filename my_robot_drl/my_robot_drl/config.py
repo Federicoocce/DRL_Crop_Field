@@ -19,7 +19,7 @@ class GlobalConfig:
     bev_y_meters = 4.0  # Total height of the BEV grid in meters (0m to 4m in front of robot)
     # Your LiDAR is ~0.2m off the ground, so a value slightly higher than -0.2 is a good start.
     lidar_z_split_height = -0.25
-    lidar_fov_deg = 200 # Field of view in degrees (e.g., 360 or 200). 
+    lidar_fov_deg = 360 # Field of view in degrees (e.g., 360 or 200). 
     img_width = 320 # important this should be consistent with scale, e.g. scale = 1, img_width 320, scale=2, image_width 640
     lidar_resolution_width  = 256 # Width of the LiDAR grid that the point cloud is voxelized into.
     lidar_resolution_height = 256 # Height of the LiDAR grid that the point cloud is voxelized into.
@@ -128,12 +128,12 @@ class GlobalConfig:
 
     # Optimization
     lr = 1e-4 # learning rate
-    multitask = True
+    multitask = False
     
     # Individual toggles
-    use_aux_depth = True # Enable Depth prediction
-    use_aux_bev = True   # Enable BEV Semantic prediction
-    use_aux_semantic = True # Enable Front-View Semantic prediction (Disable if env doesn't provide it)
+    use_aux_depth = False # Enable Depth prediction
+    use_aux_bev = False   # Enable BEV Semantic prediction
+    use_aux_semantic = False # Enable Front-View Semantic prediction (Disable if env doesn't provide it)
 
     # Loss Weights (Lambda)
     ls_depth = 10.0
@@ -160,9 +160,9 @@ class GlobalConfig:
     # Default weights (can be overridden by the boolean flags in model.py logic)
     detailed_losses_weights = [
         1.0, # loss_wp
-        1.0, # loss_bev (will be zeroed if use_aux_bev is False)
-        1.0, # loss_depth (will be zeroed if use_aux_depth is False)
-        1.0, # loss_semantic (will be zeroed if use_aux_semantic is False)
+        0.0, # loss_bev (will be zeroed if use_aux_bev is False)
+        0.0, # loss_depth (will be zeroed if use_aux_depth is False)
+        0.0, # loss_semantic (will be zeroed if use_aux_semantic is False)
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 # Detection losses (set to 1.0 if doing bounding boxes)
     ]
 
