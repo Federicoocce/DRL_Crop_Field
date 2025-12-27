@@ -18,19 +18,19 @@ class GlobalConfig:
     bev_x_meters = 4.0  # Total width of the BEV grid in meters (-2m to +2m from robot center)
     bev_y_meters = 4.0  # Total height of the BEV grid in meters (0m to 4m in front of robot)
     # Your LiDAR is ~0.2m off the ground, so a value slightly higher than -0.2 is a good start.
-    lidar_z_split_height = -0.25
-    lidar_fov_deg = 360 # Field of view in degrees (e.g., 360 or 200). 
+    lidar_z_split_height = -0.15  # Height at which to split ground and obstacle points
+    lidar_fov_deg = 200 # Field of view in degrees (e.g., 360 or 200). 
     img_width = 320 # important this should be consistent with scale, e.g. scale = 1, img_width 320, scale=2, image_width 640
     lidar_resolution_width  = 256 # Width of the LiDAR grid that the point cloud is voxelized into.
     lidar_resolution_height = 256 # Height of the LiDAR grid that the point cloud is voxelized into.
     pixels_per_meter = 64.0 # How many pixels make up 1 meter. 1 / pixels_per_meter = size of pixel in meters
-    lidar_pos = [1.3,0.0,2.5] # x, y, z mounting position of the LiDAR
+    lidar_pos = [0.20,0.0,0.25] # x, y, z mounting position of the LiDAR
     lidar_rot = [0.0, 0.0, -90.0] # Roll Pitch Yaw of LiDAR in degree
     ignore_rear = True
     use_velocity = True
-    camera_pos = [1.3, 0.0, 2.3] #x, y, z mounting position of the camera
+    camera_pos = [0.20, 0.0, 0.25] #x, y, z mounting position of the camera
     # --- CAMERA PARAMETERS (FROM YOUR URDF) ---
-    camera_width = 1024      # From URDF: <width>1024</width>
+    camera_width = 1024      # From URDF: <width>1024</width>   
     camera_height = 576     # From URDF: <height>576</height>
     camera_fov = 130        # From URDF: 2.2689 radians ≈ 130 degrees
     # camera_rot_0 = [0.0, 0.0, 0.0] # Roll Pitch Yaw of camera 0 in degree
@@ -128,13 +128,16 @@ class GlobalConfig:
 
     # Optimization
     lr = 1e-4 # learning rate
-    multitask = False
+    multitask = True
     
     # Individual toggles
-    use_aux_depth = False # Enable Depth prediction
-    use_aux_bev = False   # Enable BEV Semantic prediction
-    use_aux_semantic = False # Enable Front-View Semantic prediction (Disable if env doesn't provide it)
-
+    use_aux_depth = True # Enable Depth prediction
+    use_aux_bev = True  # Enable BEV Semantic prediction
+    use_aux_semantic = True # Enable Front-View Semantic prediction (Disable if env doesn't provide it)
+    # --- UNCERTAINTY PARAMETERS ---
+    predict_uncertainty = True  # Toggle this to enable/disable
+    uncertainty_min_log_var = -10.0 # equivalent to sigma approx 0.006 (Clip low end to prevent explosion)
+    uncertainty_max_log_var = 10.0  # equivalent to sigma large (Clip high end)
     # Loss Weights (Lambda)
     ls_depth = 10.0
     ls_bev = 1.0
@@ -160,9 +163,9 @@ class GlobalConfig:
     # Default weights (can be overridden by the boolean flags in model.py logic)
     detailed_losses_weights = [
         1.0, # loss_wp
-        0.0, # loss_bev (will be zeroed if use_aux_bev is False)
-        0.0, # loss_depth (will be zeroed if use_aux_depth is False)
-        0.0, # loss_semantic (will be zeroed if use_aux_semantic is False)
+        1.0, # loss_bev (will be zeroed if use_aux_bev is False)
+        1.0, # loss_depth (will be zeroed if use_aux_depth is False)
+        1.0, # loss_semantic (will be zeroed if use_aux_semantic is False)
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 # Detection losses (set to 1.0 if doing bounding boxes)
     ]
 

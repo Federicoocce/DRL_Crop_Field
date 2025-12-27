@@ -119,8 +119,10 @@ class LidarCenterNet(nn.Module):
                                   hidden_size=self.config.gru_hidden_size).to(self.device)
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.output = nn.Linear(self.config.gru_hidden_size, 3).to(self.device)
-
+        # If predicting uncertainty, we need 2 outputs for (dx, dy) AND 2 for (log_var_x, log_var_y)
+        # Original was 3 (dx, dy, unused/brake?). We adapt to 2 + 2 = 4.
+        out_dim = 4 if self.config.predict_uncertainty else 3 
+        self.output = nn.Linear(self.config.gru_hidden_size, out_dim).to(self.device)
         # pid controller
         self.turn_controller = PIDController(K_P=config.turn_KP, K_I=config.turn_KI, K_D=config.turn_KD, n=config.turn_n)
         self.speed_controller = PIDController(K_P=config.speed_KP, K_I=config.speed_KI, K_D=config.speed_KD, n=config.speed_n)
@@ -129,6 +131,7 @@ class LidarCenterNet(nn.Module):
         z = self.join(z)
     
         output_wp = list()
+        output_log_var = list() # Store uncertainty predictions
         
         # initial input variable to GRU
         x = torch.zeros(size=(z.shape[0], 2), dtype=z.dtype).to(z.device)
@@ -144,15 +147,28 @@ class LidarCenterNet(nn.Module):
                 x_in = x
             
             z = self.decoder(x_in, z)
-            dx = self.output(z)
+            dx_full = self.output(z) # Get full output
             
-            x = dx[:,:2] + x
-            
+            # Extract coordinates
+            dx = dx_full[:, :2]
+            x = dx + x
             output_wp.append(x[:,:2])
             
+            # --- MODIFICATION START ---
+            if self.config.predict_uncertainty:
+                # Extract log variance (last 2 dimensions)
+                log_var = dx_full[:, 2:4]
+                output_log_var.append(log_var)
+            # --- MODIFICATION END ---
+            
         pred_wp = torch.stack(output_wp, dim=1)
+        
+        # Stack uncertainty if enabled
+        pred_log_var = None
+        if self.config.predict_uncertainty:
+            pred_log_var = torch.stack(output_log_var, dim=1)
 
-        # pred the wapoints in the vehicle coordinate and we convert it to lidar coordinate here because the GT waypoints is in lidar coordinate
+        # pred the waypoints in the vehicle coordinate...
         pred_wp[:, :, 0] = pred_wp[:, :, 0] - self.config.lidar_pos[0]
             
         pred_brake = None
@@ -160,7 +176,7 @@ class LidarCenterNet(nn.Module):
         throttle = None
         brake = None
 
-        return pred_wp, pred_brake, steer, throttle, brake
+        return pred_wp, pred_brake, steer, throttle, brake, pred_log_var
 
     def control_pid(self, waypoints, velocity, is_stuck):
         ''' Predicts vehicle control with a PID controller.
@@ -220,7 +236,7 @@ class LidarCenterNet(nn.Module):
         else:
             raise ("The chosen vision backbone does not exist. The options are: transFuser, late_fusion, geometric_fusion, latentTF")
 
-        pred_wp, _, _, _, _ = self.forward_gru(fused_features, target_point)
+        pred_wp, _, _, _, _, pred_log_var = self.forward_gru(fused_features, target_point)
 
         # We are no longer predicting bounding boxes, so return an empty list
         rotated_bboxes = []
@@ -236,7 +252,7 @@ class LidarCenterNet(nn.Module):
                             gt_bboxes=None, expert_waypoints=expert_waypoints, stuck_detector=stuck_detector, forced_move=forced_move)
 
 
-        return pred_wp, rotated_bboxes
+        return pred_wp, pred_log_var
 
     def forward(self, rgb, lidar_bev, ego_waypoint, target_point, target_point_image, ego_vel, bev, depth, semantic, num_points=None, save_path=None, bev_points=None, cam_points=None):
         loss = {}
@@ -265,14 +281,30 @@ class LidarCenterNet(nn.Module):
             raise ("The chosen vision backbone does not exist. The options are: transFuser, late_fusion, geometric_fusion, latentTF")
 
 
-        pred_wp, _, _, _, _ = self.forward_gru(fused_features, target_point)
-
-                # First, always calculate the waypoint loss, as it's our primary task.
-        loss_wp = torch.mean(torch.abs(pred_wp - ego_waypoint))
-        loss.update({"loss_wp": loss_wp})
-
-        # Now, ONLY calculate auxiliary losses if their weight is not zero.
-        # This makes the code robust to disabling tasks via the config.
+        # Unpack result
+        pred_wp, _, _, _, _, pred_log_var = self.forward_gru(fused_features, target_point)
+        if self.config.predict_uncertainty and pred_log_var is not None:
+            # ALEATORIC UNCERTAINTY LOSS (Gaussian NLL)
+            squared_error = (pred_wp - ego_waypoint) ** 2
+            log_var = torch.clamp(pred_log_var, min=self.config.uncertainty_min_log_var, max=self.config.uncertainty_max_log_var)
+            precision = torch.exp(-log_var)
+            loss_wp_elementwise = 0.5 * precision * squared_error + 0.5 * log_var
+            loss_wp = torch.mean(loss_wp_elementwise)
+            
+            loss.update({"loss_wp": loss_wp})
+            
+            # --- ADDED: Log helpful metrics for humans ---
+            loss.update({"mean_uncertainty": torch.mean(log_var)}) 
+            # Calculate pure L1 error (actual distance in meters) for logging only
+            loss.update({"metric_l1": torch.mean(torch.abs(pred_wp - ego_waypoint))})
+            
+        else:
+            # ... standard L1 loss ...
+            loss_wp = torch.mean(torch.abs(pred_wp - ego_waypoint))
+            loss.update({"loss_wp": loss_wp})
+            loss.update({"metric_l1": loss_wp}) # In this case, loss IS the metric
+            # Now, ONLY calculate auxiliary losses if their weight is not zero.
+            # This makes the code robust to disabling tasks via the config.
                 # --- MODIFIED: Auxiliary Losses ---
 
          # 2. BEV Semantic Loss

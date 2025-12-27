@@ -32,7 +32,8 @@ from .transfuser_util import (
     lidar_to_histogram_features,
     draw_target_point,
     debug_augmentation_visualize,
-    draw_distant_goal_on_bev
+    draw_distant_goal_on_bev,
+    render_sensor_data,
     
 )
 
@@ -64,8 +65,8 @@ BEST_UNCERTAINTY_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_b
 
 MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_il_full_model.pth')
 EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_auxiliary_sss.pkl')
-TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_auxiliary_combined.pkl')
-VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_auxiliary_straight.pkl')
+TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_combined.pkl')
+VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_straight.pkl')
 
 
 # ===================================================================
@@ -831,43 +832,11 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             
             # accumulators for logging average epoch losses
             epoch_train_total_loss = 0.0
-            epoch_train_individual_losses = {k: 0.0 for k in loss_weights.keys() if loss_weights[k] > 0}
+            # FIX: Initialize empty or with base keys, but allow growth
+            epoch_train_individual_losses = {} 
             num_train_batches = 0
 
             for raw_batch_list in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
-
-
-                # # We use 'num_train_batches' as 'i' since it increments every loop
-                # if num_train_batches % 100 == 0: 
-                #     # Alias the list to match your snippet variable name
-                #     raw_batch = raw_batch_list 
-                    
-                #     first_sample_raw = raw_batch[0]
-                #     processed_augmented, augmented_degree = preprocessor.process_observation(first_sample_raw)
-                    
-                #     if abs(augmented_degree) > 10.0: # Threshold
-                #         original_augment_state = preprocessor.config.augment
-                #         preprocessor.config.augment = False
-                #         processed_original, original_degree = preprocessor.process_observation(first_sample_raw)
-                #         preprocessor.config.augment = original_augment_state
-                        
-                #         batch_original = {key: val.unsqueeze(0).to(model.device) for key, val in processed_original.items()}
-                #         batch_augmented = {key: val.unsqueeze(0).to(model.device) for key, val in processed_augmented.items()}
-                        
-                #         original_wps = batch_original['ego_waypoint'][0].cpu().numpy()
-                #         augmented_wps = batch_augmented['ego_waypoint'][0].cpu().numpy()
-                        
-                #         # --- MODIFIED: Extract Semantic BEV Labels (Class Indices) ---
-                #         original_sem_bev = batch_original['bev'][0].cpu().numpy()
-                #         augmented_sem_bev = batch_augmented['bev'][0].cpu().numpy()
-
-                #         debug_augmentation_visualize(
-                #             batch_original, batch_augmented, 
-                #             original_degree, augmented_degree, 
-                #             original_wps, augmented_wps,
-                #             original_sem_bev, augmented_sem_bev
-                #         )
-                # # --- END: Augmentation Debug Visualization --
 
                 processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch_list] 
                 batch = {key: torch.stack([s[key] for s in processed_list]).to(model.device) for key in processed_list[0].keys()}
@@ -884,11 +853,12 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                 
                 # Aggregate losses
                 for key, value in losses.items():
-                    # Always track raw value if it's a known loss
-                    if key in epoch_train_individual_losses:
-                        epoch_train_individual_losses[key] += value.item()
+                    # FIX: Dynamically add new metrics (like metric_l1, mean_uncertainty) to the dictionary
+                    if key not in epoch_train_individual_losses:
+                        epoch_train_individual_losses[key] = 0.0
+                    epoch_train_individual_losses[key] += value.item()
 
-                    # Apply weight for optimization
+                    # Apply weight for optimization (only for known weighted losses)
                     if key in loss_weights and loss_weights[key] > 0:
                         weighted_loss = loss_weights[key] * value
                         total_loss += weighted_loss
@@ -909,7 +879,8 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             # ==========================================
             model.eval()
             epoch_val_total_loss = 0.0
-            epoch_val_individual_losses = {k: 0.0 for k in loss_weights.keys() if loss_weights[k] > 0}
+            # FIX: Initialize empty
+            epoch_val_individual_losses = {}
             num_val_batches = 0
             
             with torch.no_grad():
@@ -919,7 +890,6 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                 for i in range(0, len(val_data_list), IL_BATCH_SIZE):
                     raw_batch = val_data_list[i:i + IL_BATCH_SIZE]
                     
-                    # FIX: Removed the length check that was dropping the last partial batch
                     if not raw_batch: continue
 
                     processed_list = [preprocessor.process_observation(s)[0] for s in raw_batch] 
@@ -933,9 +903,10 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                     total_loss = torch.tensor(0.0, device=model.device)
                     
                     for key, value in losses.items():
-                        # Always track raw value
-                        if key in epoch_val_individual_losses:
-                            epoch_val_individual_losses[key] += value.item()
+                        # FIX: Dynamically add new metrics
+                        if key not in epoch_val_individual_losses:
+                            epoch_val_individual_losses[key] = 0.0
+                        epoch_val_individual_losses[key] += value.item()
 
                         # Apply weight for total metric
                         if key in loss_weights and loss_weights[key] > 0:
@@ -955,6 +926,12 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
 
             current_global_epoch = global_epoch_counter + epoch + 1
             current_val_wp_loss = avg_val_individual.get('loss_wp', avg_val_total)
+            
+            # --- NEW: Retrieve Aleatoric Metrics (Safe Get) ---
+            train_unc = avg_train_individual.get('mean_uncertainty', 0.0)
+            val_unc   = avg_val_individual.get('mean_uncertainty', 0.0)
+            train_l1  = avg_train_individual.get('metric_l1', 0.0)
+            val_l1    = avg_val_individual.get('metric_l1', 0.0)
 
             # --- RUN MC DROPOUT TEST ---
             current_uncertainty = test_generalization_mc_dropout(
@@ -964,7 +941,14 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             )
 
             # 3. Construct Console Log String
-            log_str = f"[Epoch {epoch + 1}] Train Total: {avg_train_total:.4f} | Val Total: {avg_val_total:.4f} | Val WP: {current_val_wp_loss:.4f} | MC Unc: {current_uncertainty:.4f}"
+            log_str = (
+                f"[Epoch {epoch + 1}] "
+                f"Tr Loss: {avg_train_total:.4f} | "
+                f"Val Loss: {avg_val_total:.4f} | "
+                f"Val L1 Error: {val_l1:.4f}m | "  
+                f"Val Aleat. Unc: {val_unc:.4f} | " 
+                f"MC Unc: {current_uncertainty:.4f}"
+            )
             
             aux_keys = ['loss_bev', 'loss_depth', 'loss_semantic', 'loss_center_heatmap']
             for k in aux_keys:
@@ -975,11 +959,13 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
 
             logger.info(log_str)
             
-            # 4. Construct WandB Dictionary (Explicit float casting applied)
+            # 4. Construct WandB Dictionary
             wandb_log_data = {
                 "loss_train/total_weighted": float(avg_train_total),
                 "loss_val/total_weighted": float(avg_val_total),
-                "loss_val/wp_loss_specific": float(current_val_wp_loss),
+                "loss_val/wp_loss_nll": float(current_val_wp_loss),
+                "metrics/val_l1_error": float(val_l1),           
+                "metrics/val_aleatoric_unc": float(val_unc),     
                 "generalization/mc_uncertainty": float(current_uncertainty)
             }
             
@@ -1000,10 +986,12 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             # 4. Dual Saving & Combined Patience Logic
             improved_this_epoch = False
 
-            # Check A: Best WP Loss (Standard Accuracy)
-            if current_val_wp_loss < best_val_wp_loss:
-                best_val_wp_loss = current_val_wp_loss
-                logger.info(f"    >>> New Best WP Loss: {best_val_wp_loss:.6f}. Saving to {os.path.basename(BEST_VAL_MODEL_SAVE_PATH)}")
+            # Check A: Best L1 Accuracy (Not NLL!)
+            metric_to_track = val_l1 if config.predict_uncertainty else current_val_wp_loss
+            
+            if metric_to_track < best_val_wp_loss:
+                best_val_wp_loss = metric_to_track
+                logger.info(f"    >>> New Best L1 Accuracy: {best_val_wp_loss:.4f}m. Saving model...")
                 torch.save(model.state_dict(), BEST_VAL_MODEL_SAVE_PATH)
                 improved_this_epoch = True
 
@@ -1039,6 +1027,8 @@ def evaluate_model(env, model, config, logger, device, global_epoch_counter):
     Phase 3: Test the trained model and collect data from the run with controlled frequency.
     """
     logger.info("Starting evaluation run with controlled data collection frequency...")
+    original_augment_setting = config.augment
+    config.augment = False
     preprocessor = DataPreprocessor(config)
     raw_obs, info = env.reset()
     done = False
@@ -1070,8 +1060,30 @@ def evaluate_model(env, model, config, logger, device, global_epoch_counter):
                 'ego_vel': batch['ego_vel']
             }
             
-            pred_wp, _ = model.forward_ego(**inference_args)
+            # --- MODIFIED: Unpack pred_log_var ---
+            pred_wp, pred_log_var = model.forward_ego(**inference_args)
 
+            # --- NEW: Calculate Uncertainty in Meters ---
+            sigma_meters = None
+            if config.predict_uncertainty and pred_log_var is not None:
+                # 1. Clip log_var same as training
+                log_var = torch.clamp(pred_log_var, 
+                                      min=config.uncertainty_min_log_var, 
+                                      max=config.uncertainty_max_log_var)
+                # 2. Convert log_var -> Variance -> Std Dev (Sigma)
+                #    sigma = sqrt(exp(log_var))
+                sigma = torch.sqrt(torch.exp(log_var))
+                # 3. Take the mean of x and y uncertainty for the first waypoint
+                #    Shape is (Batch, Seq, 2). We take [0, 0, :].
+                sigma_meters = sigma[0, 0, :].mean().item()
+
+            # --- NEW: Visualization Call ---
+            # Pass the raw RGB image (H, W, 3) and processed BEV to visualizer
+            render_sensor_data(
+                raw_obs['image_raw'], 
+                processed_obs['lidar_bev'].permute(1, 2, 0).cpu().numpy(), # Back to H,W,C
+                uncertainty=sigma_meters
+            )
             predicted_first_wp = pred_wp[0, 0].cpu().numpy()
             angle_to_target = math.atan2(predicted_first_wp[1], predicted_first_wp[0])
             action = np.array([AGENT_TARGET_LINEAR_VEL, AGENT_KP_ANGULAR * angle_to_target], dtype=np.float32)
@@ -1109,6 +1121,7 @@ def evaluate_model(env, model, config, logger, device, global_epoch_counter):
     
     # Generate the BEV labels now that we have the full map
     evaluation_data = augment_data_with_final_map(env, evaluation_data, config, logger)
+    config.augment = original_augment_setting
 
     return successful_run, evaluation_data, total_reward
 
@@ -1255,7 +1268,30 @@ def validate_best_model(env, config, logger, device, num_episodes=5):
                     batch = {key: val.unsqueeze(0).to(device) for key, val in processed_obs.items()}
 
                     inference_args = {k: batch[k] for k in ['rgb', 'lidar_bev', 'target_point', 'target_point_image', 'ego_vel']}
-                    pred_wp, _ = model.forward_ego(**inference_args)
+                    # --- MODIFIED: Unpack pred_log_var ---
+                    pred_wp, pred_log_var = model.forward_ego(**inference_args)
+
+                    # --- NEW: Calculate Uncertainty in Meters ---
+                    sigma_meters = None
+                    if config.predict_uncertainty and pred_log_var is not None:
+                        # 1. Clip log_var same as training
+                        log_var = torch.clamp(pred_log_var, 
+                                            min=config.uncertainty_min_log_var, 
+                                            max=config.uncertainty_max_log_var)
+                        # 2. Convert log_var -> Variance -> Std Dev (Sigma)
+                        #    sigma = sqrt(exp(log_var))
+                        sigma = torch.sqrt(torch.exp(log_var))
+                        # 3. Take the mean of x and y uncertainty for the first waypoint
+                        #    Shape is (Batch, Seq, 2). We take [0, 0, :].
+                        sigma_meters = sigma[0, 0, :].mean().item()
+
+                    # --- NEW: Visualization Call ---
+                    # Pass the raw RGB image (H, W, 3) and processed BEV to visualizer
+                    render_sensor_data(
+                        raw_obs['image_raw'], 
+                        processed_obs['lidar_bev'].permute(1, 2, 0).cpu().numpy(), # Back to H,W,C
+                        uncertainty=sigma_meters
+                    )
 
                     predicted_first_wp = pred_wp[0, 0].cpu().numpy()
                     angle_to_target = math.atan2(predicted_first_wp[1], predicted_first_wp[0])
