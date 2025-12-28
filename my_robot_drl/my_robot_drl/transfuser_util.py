@@ -419,58 +419,115 @@ def debug_augmentation_visualize(original_batch, augmented_batch, original_degre
 
     cv2.waitKey(50)
 
-def render_sensor_data(camera_image, lidar_bev, camera_image_rear=None, uncertainty=None):
+def render_sensor_data(camera_image, lidar_bev, camera_image_rear=None, 
+                       uncertainty_aleatoric=None, uncertainty_epistemic=None,
+                       mc_pred_waypoints=None):
     """
     Displays sensor data in pop-up windows.
     Args:
-        camera_image (np.array): The front camera image (H, W, 3).
-        lidar_bev (np.array): The processed LiDAR BEV (H, W, 2).
-        camera_image_rear (np.array, optional): The rear camera image.
-        uncertainty (float, optional): Aleatoric Uncertainty (Sigma) in meters.
+        camera_image: Front RGB image (H, W, 3)
+        lidar_bev: BEV Tensor or Array (H, W, 2)
+        camera_image_rear: Rear RGB image
+        uncertainty_aleatoric: Float (meters)
+        uncertainty_epistemic: Float (meters)
+        mc_pred_waypoints: List of tensors/arrays of shape (1, 4, 2)
     """
     try:
         # --- Front Camera Visualization ---
         if camera_image is not None:
-            img_bgr = cv2.cvtColor(camera_image, cv2.COLOR_RGB2BGR)
+            # Ensure contiguous array for OpenCV
+            img_np = np.ascontiguousarray(camera_image)
+            img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
             img_display = cv2.resize(img_bgr, (400, 400), interpolation=cv2.INTER_AREA)
             
-            # --- NEW: Draw Uncertainty Overlay ---
-            if uncertainty is not None:
-                # Convert to cm for easier reading
-                unc_cm = uncertainty * 100.0 
-                
-                # Color logic: Green if < 20cm, Yellow < 40cm, Red > 40cm
-                if unc_cm < 20.0:
-                    text_color = (0, 255, 0) # Green
-                elif unc_cm < 40.0:
-                    text_color = (0, 255, 255) # Yellow
-                else:
-                    text_color = (0, 0, 255) # Red
+            # Draw Background Box for text
+            cv2.rectangle(img_display, (10, 10), (250, 80), (0, 0, 0), -1)
 
-                # Draw a background box for readability
-                cv2.rectangle(img_display, (10, 10), (220, 50), (0, 0, 0), -1)
+            # --- ALEATORIC ---
+            if uncertainty_aleatoric is not None:
+                unc_cm = uncertainty_aleatoric * 100.0 
+                if unc_cm < 20.0: col = (0, 255, 0)      # Green
+                elif unc_cm < 40.0: col = (0, 255, 255)  # Yellow
+                else: col = (0, 0, 255)                  # Red
                 
-                # Text: "Unc: 8.25 cm"
-                text = f"Unc: {unc_cm:.2f} cm"
-                cv2.putText(img_display, text, (20, 40), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, text_color, 2)
+                text = f"Aleatoric: {unc_cm:.2f} cm"
+                cv2.putText(img_display, text, (20, 35), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2)
+
+            # --- EPISTEMIC ---
+            if uncertainty_epistemic is not None:
+                unc_cm = uncertainty_epistemic * 100.0
+                if unc_cm < 10.0: col = (0, 255, 0)      # Green
+                elif unc_cm < 25.0: col = (0, 255, 255)  # Yellow
+                else: col = (0, 0, 255)                  # Red
+
+                text = f"Systematic: {unc_cm:.2f} cm"
+                cv2.putText(img_display, text, (20, 65), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2)
 
             cv2.imshow("Front Camera View", img_display)
 
         # --- Rear Camera Visualization ---
         if camera_image_rear is not None:
-            img_rear_bgr = cv2.cvtColor(camera_image_rear, cv2.COLOR_RGB2BGR)
+            img_rear_np = np.ascontiguousarray(camera_image_rear)
+            img_rear_bgr = cv2.cvtColor(img_rear_np, cv2.COLOR_RGB2BGR)
             img_rear_display = cv2.resize(img_rear_bgr, (400, 400), interpolation=cv2.INTER_AREA)
             cv2.imshow("Rear Camera View", img_rear_display)
 
         # --- BEV Visualization ---
         if lidar_bev is not None:
+            # Handle Tensor vs Numpy
+            if hasattr(lidar_bev, 'cpu'):
+                lidar_bev = lidar_bev.cpu().numpy()
+                
             if lidar_bev.ndim == 3 and lidar_bev.shape[2] == 2:
                 bev_h, bev_w, _ = lidar_bev.shape
                 bev_display = np.zeros((bev_h, bev_w, 3), dtype=np.uint8)
-                bev_display[:, :, 0] = lidar_bev[:, :, 0] # Blue
-                bev_display[:, :, 2] = lidar_bev[:, :, 1] # Red
+                bev_display[:, :, 0] = lidar_bev[:, :, 0] # Blue (Ground)
+                bev_display[:, :, 2] = lidar_bev[:, :, 1] # Red (Obstacle)
                 
+                # --- DRAW MC TRAJECTORIES ---
+                if mc_pred_waypoints is not None and len(mc_pred_waypoints) > 0:
+                    pixels_per_meter = 64
+                    x_meters_range = 2.0
+                    y_meters_range = 2.0
+                    
+                    for wp_data in mc_pred_waypoints:
+                        # Handle Tensor vs Numpy for Waypoints
+                        if hasattr(wp_data, 'cpu'):
+                            points = wp_data.cpu().numpy()
+                        else:
+                            points = wp_data
+
+                        # Handle shape (1, 4, 2) vs (4, 2)
+                        if points.ndim == 3:
+                            points = points[0]
+
+                        pixel_points = []
+                        for pt in points:
+                            rx, ry = pt # Ego-Frame: x forward, y left
+                            
+                            # Projection:
+                            # Y (Left) -> Column (Center + Left Offset)
+                            # X (Forward) -> Row (Bottom - Forward Offset)
+                            
+                            # Note: bev_w and bev_h are usually 256. 
+                            # If they are different, we center the crop.
+                            
+                            col = int(((-ry + y_meters_range) * pixels_per_meter))
+                            # Center horizontal if map is wider than prediction grid
+                            col += (bev_w - 256) // 2 
+                            
+                            row = int((256 - 1 - ((rx + x_meters_range) * pixels_per_meter)))
+                            # Center vertical if map is taller
+                            row += (bev_h - 256) // 2
+
+                            pixel_points.append((col, row))
+                        
+                        # Draw Cyan lines (BGR: 255, 255, 0)
+                        pts = np.array(pixel_points, np.int32).reshape((-1, 1, 2))
+                        cv2.polylines(bev_display, [pts], isClosed=False, color=(255, 255, 0), thickness=1)
+
                 bev_display_resized = cv2.resize(bev_display, (400, 400), interpolation=cv2.INTER_NEAREST)
                 cv2.imshow("LiDAR BEV", bev_display_resized)
 

@@ -1022,27 +1022,46 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
     return global_epoch_counter + epoch + 1
 
 
-def evaluate_model(env, model, config, logger, device, global_epoch_counter):
+def evaluate_model(env, model, config, logger, device, global_epoch_counter, use_mc_dropout=False):
     """
-    Phase 3: Test the trained model and collect data from the run with controlled frequency.
+    Phase 3: Test the trained model and collect data.
+    Supports toggling between Standard Inference and MC Dropout Inference.
     """
-    logger.info("Starting evaluation run with controlled data collection frequency...")
+    mode_str = "MC Dropout" if use_mc_dropout else "Standard"
+    logger.info(f"Starting evaluation run. Mode: {mode_str} Inference.")
+    
+    # MC Settings
+    MC_SAMPLES = 10
+    
+    # Temporarily disable augmentation for consistent evaluation
     original_augment_setting = config.augment
     config.augment = False
+    
     preprocessor = DataPreprocessor(config)
     raw_obs, info = env.reset()
     done = False
     total_reward = 0.0
-    evaluation_data = [raw_obs.copy()] # Store the very first observation
+    evaluation_data = [raw_obs.copy()]
 
-    # --- START OF THE FIX ---
-    # Add the same frequency control logic from the expert collector
+    # Data Collection Frequency
     collection_interval_normal = 1.0 / DATA_COLLECTION_FPS
     collection_interval_turning = 1.0 / DATA_COLLECTION_FPS_TURNING
     last_collection_time = time.time()
-    # --- END OF THE FIX ---
 
-    model.eval()
+    # --- 1. Set Model Mode ---
+    if use_mc_dropout:
+        # MC Mode: BN in Eval, Dropout in Train
+        if hasattr(model, 'force_dropout_active'):
+            model.force_dropout_active()
+        else:
+            model.eval()
+            for m in model.modules():
+                if m.__class__.__name__.startswith('Dropout'):
+                    m.train()
+    else:
+        # Standard Mode: Everything in Eval
+        model.eval()
+
     with torch.no_grad():
         while not done:
             if abs(raw_obs['gt_waypoints'][0][0]) > MAX_GT_WAYPOINT_DEVIATION_X:
@@ -1060,31 +1079,61 @@ def evaluate_model(env, model, config, logger, device, global_epoch_counter):
                 'ego_vel': batch['ego_vel']
             }
             
-            # --- MODIFIED: Unpack pred_log_var ---
-            pred_wp, pred_log_var = model.forward_ego(**inference_args)
+            # --- 2. Inference Logic (Standard vs MC) ---
+            predicted_wp_final = None
+            aleatoric_unc_meters = None
+            epistemic_unc_meters = None # Only available in MC mode
 
-            # --- NEW: Calculate Uncertainty in Meters ---
-            sigma_meters = None
-            if config.predict_uncertainty and pred_log_var is not None:
-                # 1. Clip log_var same as training
-                log_var = torch.clamp(pred_log_var, 
-                                      min=config.uncertainty_min_log_var, 
-                                      max=config.uncertainty_max_log_var)
-                # 2. Convert log_var -> Variance -> Std Dev (Sigma)
-                #    sigma = sqrt(exp(log_var))
-                sigma = torch.sqrt(torch.exp(log_var))
-                # 3. Take the mean of x and y uncertainty for the first waypoint
-                #    Shape is (Batch, Seq, 2). We take [0, 0, :].
-                sigma_meters = sigma[0, 0, :].mean().item()
+            if use_mc_dropout:
+                # === MC DROPOUT LOOP ===
+                mc_preds_wp = []
+                mc_aleatoric_sigmas = []
 
-            # --- NEW: Visualization Call ---
-            # Pass the raw RGB image (H, W, 3) and processed BEV to visualizer
+                for _ in range(MC_SAMPLES):
+                    pred_wp_i, pred_log_var_i = model.forward_ego(**inference_args)
+                    mc_preds_wp.append(pred_wp_i)
+                    
+                    if config.predict_uncertainty and pred_log_var_i is not None:
+                        log_var = torch.clamp(pred_log_var_i, 
+                                            min=config.uncertainty_min_log_var, 
+                                            max=config.uncertainty_max_log_var)
+                        sigma = torch.sqrt(torch.exp(log_var))
+                        mc_aleatoric_sigmas.append(sigma[0, 0, :].mean().item())
+
+                # A. Prediction: Ensemble Mean
+                predicted_wp_final = torch.stack(mc_preds_wp).mean(dim=0)
+                
+                # B. Epistemic Uncertainty: Std Dev of Ensembles
+                std_dev_preds = torch.stack(mc_preds_wp).std(dim=0)
+                epistemic_unc_meters = std_dev_preds[0, 0, :].mean().item()
+
+                # C. Aleatoric Uncertainty: Mean of Sigmas
+                if len(mc_aleatoric_sigmas) > 0:
+                    aleatoric_unc_meters = np.mean(mc_aleatoric_sigmas)
+
+            else:
+                # === STANDARD PASS ===
+                pred_wp, pred_log_var = model.forward_ego(**inference_args)
+                predicted_wp_final = pred_wp
+                
+                # Aleatoric only
+                if config.predict_uncertainty and pred_log_var is not None:
+                    log_var = torch.clamp(pred_log_var, 
+                                        min=config.uncertainty_min_log_var, 
+                                        max=config.uncertainty_max_log_var)
+                    sigma = torch.sqrt(torch.exp(log_var))
+                    aleatoric_unc_meters = sigma[0, 0, :].mean().item()
+
+            # --- 3. Visualization ---
             render_sensor_data(
                 raw_obs['image_raw'], 
-                processed_obs['lidar_bev'].permute(1, 2, 0).cpu().numpy(), # Back to H,W,C
-                uncertainty=sigma_meters
+                processed_obs['lidar_bev'].permute(1, 2, 0).cpu().numpy(),
+                uncertainty_aleatoric=aleatoric_unc_meters,
+                uncertainty_epistemic=epistemic_unc_meters
             )
-            predicted_first_wp = pred_wp[0, 0].cpu().numpy()
+
+            # --- 4. Control ---
+            predicted_first_wp = predicted_wp_final[0, 0].cpu().numpy()
             angle_to_target = math.atan2(predicted_first_wp[1], predicted_first_wp[0])
             action = np.array([AGENT_TARGET_LINEAR_VEL, AGENT_KP_ANGULAR * angle_to_target], dtype=np.float32)
             action = np.clip(action, env.action_space.low, env.action_space.high)
@@ -1094,32 +1143,25 @@ def evaluate_model(env, model, config, logger, device, global_epoch_counter):
             done = terminated or truncated
             total_reward += reward
 
-            # Only append data if enough time has passed
-            is_turning_now = env.is_turning # Or use _should_sample_at_high_frequency(env) if accessible
+            # --- 5. Data Collection ---
+            is_turning_now = env.is_turning 
             current_interval = collection_interval_turning if is_turning_now else collection_interval_normal
             
             if time.time() - last_collection_time >= current_interval:
-                # Add the flag to aggregated data as well
                 obs_to_save = raw_obs.copy()
                 obs_to_save['is_curve'] = is_turning_now
-                
                 evaluation_data.append(obs_to_save)
                 last_collection_time = time.time()
 
-
-    model.train()
-
-    logger.info(f"Evaluation finished. Total Reward: {total_reward:.2f}")
-    wandb.log({"total_reward": total_reward}, step=global_epoch_counter)
+    model.train() # Reset to train mode
+    
+    logger.info(f"Evaluation finished ({mode_str}). Total Reward: {total_reward:.2f}")
+    if use_mc_dropout:
+        wandb.log({"total_reward_mc": total_reward}, step=global_epoch_counter)
 
     successful_run = info.get("termination_reason") == "all_waypoints_visited"
-    if successful_run:
-        logger.info("SUCCESS! Model completed the course.")
-    else:
-        reason = info.get("termination_reason", "unknown")
-        logger.warn(f"FAILURE. Model did not complete (Reason: {reason}).")
     
-    # Generate the BEV labels now that we have the full map
+    # Generate labels
     evaluation_data = augment_data_with_final_map(env, evaluation_data, config, logger)
     config.augment = original_augment_setting
 
@@ -1212,18 +1254,25 @@ def preprocess_depth_image(image_np, target_w, target_h, crop_shift=0):
     return normalized_depth # Returns (H, W)
 
 
-def validate_best_model(env, config, logger, device, num_episodes=5):
+def validate_best_model(env, config, logger, device, num_episodes=10):
     """
-    Loads BOTH the Best WP model and the Best Uncertainty model and benchmarks them.
+    Evaluates 3 Scenarios:
+    1. Best WP Loss Model (Standard Inference)
+    2. Best Uncertainty Model (Standard Inference)
+    3. Best WP Loss Model (MC Dropout Inference for Systematic Uncertainty)
     """
     logger.info("="*60)
-    logger.info(f"PHASE: COMPARATIVE VALIDATION")
+    logger.info(f"PHASE: COMPARATIVE VALIDATION (WP, UNC, WP+MC)")
     logger.info("="*60)
 
-    # List of models to evaluate
+    # MC Dropout Configuration
+    MC_SAMPLES = 5  # Number of forward passes per frame
+
+    # Define the 3 evaluations: (Name, Path, Enable_MC_Dropout)
     models_to_eval = [
-        ("Best WP Loss Model", BEST_VAL_MODEL_SAVE_PATH),
-        ("Best Uncertainty Model", BEST_UNCERTAINTY_MODEL_SAVE_PATH)
+        ("Best WP Loss Model (Standard)", BEST_VAL_MODEL_SAVE_PATH, False),
+        ("Best Uncertainty Model (Standard)", BEST_UNCERTAINTY_MODEL_SAVE_PATH, False),
+        ("Best WP Loss Model (MC Dropout)", BEST_VAL_MODEL_SAVE_PATH, True)
     ]
 
     model = LidarCenterNet(config, device, backbone=config.backbone, use_velocity=config.use_velocity)
@@ -1233,7 +1282,7 @@ def validate_best_model(env, config, logger, device, num_episodes=5):
     original_augment_setting = config.augment
     config.augment = False
 
-    for model_name, model_path in models_to_eval:
+    for model_name, model_path, use_mc in models_to_eval:
         logger.info(f"\n--- Evaluating: {model_name} ---")
         
         if not os.path.exists(model_path):
@@ -1243,7 +1292,14 @@ def validate_best_model(env, config, logger, device, num_episodes=5):
         try:
             model.load_state_dict(torch.load(model_path))
             model.to(device)
-            model.eval()
+            
+            if use_mc:
+                # Forces Dropout to TRAIN mode, BN to EVAL mode
+                model.force_dropout_active()
+                logger.info(f"  > MC Dropout Enabled: Averaging {MC_SAMPLES} passes per step.")
+            else:
+                model.eval()
+            
         except Exception as e:
             logger.error(f"Error loading {model_name}: {e}")
             continue
@@ -1256,44 +1312,86 @@ def validate_best_model(env, config, logger, device, num_episodes=5):
             done = False
             episode_reward = 0.0
             
-            # logger.info(f"  Episode {ep + 1}/{num_episodes}...")
-
             with torch.no_grad():
                 while not done:
                     if abs(raw_obs['gt_waypoints'][0][0]) > MAX_GT_WAYPOINT_DEVIATION_X:
                         info["termination_reason"] = "deviated_from_path"
                         break
 
+                    # Preprocess
                     processed_obs, _ = preprocessor.process_observation(raw_obs)
                     batch = {key: val.unsqueeze(0).to(device) for key, val in processed_obs.items()}
-
                     inference_args = {k: batch[k] for k in ['rgb', 'lidar_bev', 'target_point', 'target_point_image', 'ego_vel']}
-                    # --- MODIFIED: Unpack pred_log_var ---
-                    pred_wp, pred_log_var = model.forward_ego(**inference_args)
+                    
+                    # --- INFERENCE LOGIC ---
+                    predicted_wp_final = None
+                    aleatoric_unc_meters = None
+                    epistemic_unc_meters = None
 
-                    # --- NEW: Calculate Uncertainty in Meters ---
-                    sigma_meters = None
-                    if config.predict_uncertainty and pred_log_var is not None:
-                        # 1. Clip log_var same as training
-                        log_var = torch.clamp(pred_log_var, 
-                                            min=config.uncertainty_min_log_var, 
-                                            max=config.uncertainty_max_log_var)
-                        # 2. Convert log_var -> Variance -> Std Dev (Sigma)
-                        #    sigma = sqrt(exp(log_var))
-                        sigma = torch.sqrt(torch.exp(log_var))
-                        # 3. Take the mean of x and y uncertainty for the first waypoint
-                        #    Shape is (Batch, Seq, 2). We take [0, 0, :].
-                        sigma_meters = sigma[0, 0, :].mean().item()
+                    if use_mc:
+                        # === MC DROPOUT MODE ===
+                        mc_preds_wp = []
+                        mc_aleatoric_sigmas = []
 
-                    # --- NEW: Visualization Call ---
-                    # Pass the raw RGB image (H, W, 3) and processed BEV to visualizer
+                        for _ in range(MC_SAMPLES):
+                            # Forward pass
+                            pred_wp_i, pred_log_var_i = model.forward_ego(**inference_args)
+                            
+                            # Store Waypoints
+                            mc_preds_wp.append(pred_wp_i) # Shape: (1, 4, 2)
+                            
+                            # Store Aleatoric Sigma (if available)
+                            if config.predict_uncertainty and pred_log_var_i is not None:
+                                log_var = torch.clamp(pred_log_var_i, 
+                                                    min=config.uncertainty_min_log_var, 
+                                                    max=config.uncertainty_max_log_var)
+                                sigma = torch.sqrt(torch.exp(log_var))
+                                # Mean of X/Y uncertainty for 1st waypoint
+                                mc_aleatoric_sigmas.append(sigma[0, 0, :].mean().item())
+
+                        # 1. Prediction: Mean of all MC runs
+                        predicted_wp_final = torch.stack(mc_preds_wp).mean(dim=0) # (1, 4, 2)
+                        
+                        # 2. Epistemic Uncertainty (Systematic): Std Dev of Predictions
+                        # Calculate std dev of the 1st Waypoint (X and Y), then average them
+                        std_dev_preds = torch.stack(mc_preds_wp).std(dim=0)
+                        epistemic_unc_meters = std_dev_preds[0, 0, :].mean().item()
+                        # Save the raw list of tensors for visualization
+                        mc_trajectories_for_viz = mc_preds_wp
+
+                        # 3. Aleatoric Uncertainty: Mean of predicted Sigmas
+                        if len(mc_aleatoric_sigmas) > 0:
+                            aleatoric_unc_meters = np.mean(mc_aleatoric_sigmas)
+
+                    else:
+                        # === STANDARD MODE ===
+                        pred_wp, pred_log_var = model.forward_ego(**inference_args)
+                        predicted_wp_final = pred_wp
+                        
+                        # Aleatoric only
+                        if config.predict_uncertainty and pred_log_var is not None:
+                            log_var = torch.clamp(pred_log_var, 
+                                                min=config.uncertainty_min_log_var, 
+                                                max=config.uncertainty_max_log_var)
+                            sigma = torch.sqrt(torch.exp(log_var))
+                            aleatoric_unc_meters = sigma[0, 0, :].mean().item()
+                        mc_trajectories_for_viz = [pred_wp] # Single trajectory for visualization
+                        
+                        epistemic_unc_meters = None # Not available in standard mode
+
+                    # --- VISUALIZATION ---
                     render_sensor_data(
                         raw_obs['image_raw'], 
-                        processed_obs['lidar_bev'].permute(1, 2, 0).cpu().numpy(), # Back to H,W,C
-                        uncertainty=sigma_meters
+                        processed_obs['lidar_bev'].permute(1, 2, 0).cpu().numpy(),
+                        uncertainty_aleatoric=aleatoric_unc_meters,
+                        uncertainty_epistemic=epistemic_unc_meters,
+                        mc_pred_waypoints=mc_trajectories_for_viz  # <--- Ensure this arg matches
                     )
 
-                    predicted_first_wp = pred_wp[0, 0].cpu().numpy()
+                    # --- CONTROL ---
+                    # Use the calculated final waypoint (Mean if MC, Single if Standard)
+                    predicted_first_wp = predicted_wp_final[0, 0].cpu().numpy()
+                    
                     angle_to_target = math.atan2(predicted_first_wp[1], predicted_first_wp[0])
                     action = np.array([AGENT_TARGET_LINEAR_VEL, AGENT_KP_ANGULAR * angle_to_target], dtype=np.float32)
                     action = np.clip(action, env.action_space.low, env.action_space.high)
@@ -1305,16 +1403,21 @@ def validate_best_model(env, config, logger, device, num_episodes=5):
             is_success = info.get("termination_reason") == "all_waypoints_visited"
             if is_success: success_count += 1
             total_rewards.append(episode_reward)
-            # logger.info(f"    Result: {'SUCCESS' if is_success else 'FAIL'} (Rew: {episode_reward:.1f})")
 
-        # Report Stats for this model
+        # Report Stats
         success_rate = (success_count / num_episodes) * 100.0
         avg_rew = np.mean(total_rewards)
         logger.info(f"RESULTS for {model_name}:")
         logger.info(f"  Success Rate: {success_rate:.1f}%")
         logger.info(f"  Avg Reward:   {avg_rew:.2f}")
+        if wandb.run is not None:
+            # Create a clean key: "Best WP Loss Model (Standard)" -> "best_wp_loss_model_standard"
+            clean_name = model_name.replace(" ", "_").replace("(", "").replace(")", "").lower()
+            wandb.log({
+                f"validation/{clean_name}_success_rate": success_rate,
+                f"validation/{clean_name}_avg_reward": avg_rew
+            })
 
-    # Restore config
     config.augment = original_augment_setting
     logger.info("="*60)
 
@@ -1360,10 +1463,15 @@ def main(args=None):
 
     if cli_args.mode == 'validate':
         try:
+            # Initialize WandB for validation run
+            wandb.init(project="agricobots", name="180_validation_run4", job_type="validate")
+            
             env = MaizeNavigationEnv()
             logger = env.get_logger()
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             validate_best_model(env, config, logger, device)
+            
+            wandb.finish()
         except Exception as e:
             print(f"Error during validation: {e}")
         finally:
@@ -1433,95 +1541,77 @@ def main(args=None):
     best_average_reward_so_far = -float('inf')
     run_count = 0
     success_rate = 0.0
-    NUMBER_OF_EVAL_RUNS = 5
-    # --- END OF THE FIX ---
+    NUMBER_OF_EVAL_RUNS = 5 
 
-    # 2. DAgger loop: evaluate, aggregate data, and retrain for a fixed number of epochs
     while success_rate < 100.0:
         run_count += 1
         logger.info("\n" + "#"*60)
         logger.info(f"STARTING IMITATION LEARNING ATTEMPT #{run_count}")
-        logger.info(f"Current Best Avg Reward: {best_average_reward_so_far:.2f} | Target Reward: {TARGET_REWARD_THRESHOLD}")
         logger.info("#"*60 + "\n")
-        # ==============================================================================
-        # --- BENCHMARK: BEST UNCERTAINTY MODEL (Pure Evaluation, No Data Collection) ---
-        # ==============================================================================
+
+        all_new_data = [] # Aggregate data from all 3 phases
+        
+        # --- 1. Evaluate BEST WP MODEL (STANDARD INFERENCE) ---
+        logger.info(">>> STEP 1: Evaluating Best WP Model (Standard Inference)...")
+        if os.path.exists(BEST_VAL_MODEL_SAVE_PATH):
+            model.load_state_dict(torch.load(BEST_VAL_MODEL_SAVE_PATH))
+            model.to(device)
+            for i in range(NUMBER_OF_EVAL_RUNS):
+                # use_mc_dropout=False
+                succ, new_data, rew = evaluate_model(env, model, config, logger, device, global_epoch_counter, use_mc_dropout=False)
+                if not succ: all_new_data.extend(new_data)
+        
+        # --- 2. Evaluate BEST UNCERTAINTY MODEL (STANDARD INFERENCE) ---
+        logger.info("\n>>> STEP 2: Evaluating Best Uncertainty Model (Standard Inference)...")
         if os.path.exists(BEST_UNCERTAINTY_MODEL_SAVE_PATH):
-            logger.info("\n>>> Benchmarking 'Best Uncertainty Model' (5 Episodes - No Data Collection)...")
-            try:
-                # Load weights
-                model.load_state_dict(torch.load(BEST_UNCERTAINTY_MODEL_SAVE_PATH))
-                model.to(device)
-                
-                unc_rewards = []
-                unc_successes = 0
-                
-                for i in range(NUMBER_OF_EVAL_RUNS):
-                    logger.info(f"    Uncertainty Eval Run {i+1}/{NUMBER_OF_EVAL_RUNS}...")
-                    # Run evaluation, ignore the returned dataset (2nd arg)
-                    succ, _, rew = evaluate_model(env, model, config, logger, device, global_epoch_counter)
-                    unc_rewards.append(rew)
-                    if succ: unc_successes += 1
-                
-                unc_avg_rew = np.mean(unc_rewards)
-                unc_succ_rate = (unc_successes / NUMBER_OF_EVAL_RUNS) * 100.0
-                
-                logger.info(f"    [Uncertainty Model Results] Success: {unc_succ_rate:.1f}% | Avg Reward: {unc_avg_rew:.2f}")
-                wandb.log({
-                    "benchmark/uncertainty_success_rate": unc_succ_rate,
-                    "benchmark/uncertainty_avg_reward": unc_avg_rew
-                }, step=global_epoch_counter)
-                
-            except Exception as e:
-                logger.error(f"Failed to benchmark Uncertainty Model: {e}")
+            model.load_state_dict(torch.load(BEST_UNCERTAINTY_MODEL_SAVE_PATH))
+            model.to(device)
+            for i in range(NUMBER_OF_EVAL_RUNS):
+                # use_mc_dropout=False
+                succ, new_data, rew = evaluate_model(env, model, config, logger, device, global_epoch_counter, use_mc_dropout=False)
+                if not succ: all_new_data.extend(new_data)
         else:
-            logger.warn("Best Uncertainty Model not found. Skipping benchmark.")
+            logger.warn("Best Uncertainty Model not found. Skipping Step 2.")
 
-        # --- START OF THE FIX ---
-        # Perform multiple evaluation runs and collect statistics
-        evaluation_rewards = []
-        all_new_data = []
-        successful_runs_count = 0
-        
-        logger.info(f"Starting {NUMBER_OF_EVAL_RUNS} evaluation runs...")
-        for i in range(NUMBER_OF_EVAL_RUNS):
-            logger.info(f"  --- Evaluation Run [{i + 1}/{NUMBER_OF_EVAL_RUNS}] ---")
-            successful_run, new_data, current_reward = evaluate_model(env, model, config, logger, device, global_epoch_counter=global_epoch_counter)
+        # --- 3. Evaluate BEST WP MODEL (MC DROPOUT INFERENCE) ---
+        # This is the 'primary' evaluation for success criteria
+        logger.info("\n>>> STEP 3: Evaluating Best WP Model (MC Dropout Inference)...")
+        if os.path.exists(BEST_VAL_MODEL_SAVE_PATH):
+            model.load_state_dict(torch.load(BEST_VAL_MODEL_SAVE_PATH))
+            model.to(device)
             
-            evaluation_rewards.append(current_reward)
-            if successful_run:
-                successful_runs_count += 1
-            else:
-                # Only aggregate data from failed runs
-                all_new_data.extend(new_data)
-        
-        # Calculate and log the statistics
-        average_reward = np.mean(evaluation_rewards)
-        success_rate = (successful_runs_count / NUMBER_OF_EVAL_RUNS) * 100.0
-        
-        logger.info("\n" + "-"*60)
-        logger.info(f"Evaluation Complete. Avg Reward: {average_reward:.2f}, Success Rate: {success_rate:.1f}%")
-        logger.info(f"Individual rewards: {[f'{r:.2f}' for r in evaluation_rewards]}")
-        logger.info("-"*60 + "\n")
-
-        wandb.log({
-            "average_reward": average_reward, 
-            "success_rate": success_rate,
-            "best_average_reward": best_average_reward_so_far # Log the running best
-        }, step=global_epoch_counter)
-
-        # Check for a new best model and save it
-        if average_reward > best_average_reward_so_far:
-            best_average_reward_so_far = average_reward
-            logger.info(f"*** New best average reward achieved: {best_average_reward_so_far:.2f}! Saving model. ***")
-            os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
-            try:
+            mc_rewards = []
+            mc_successes = 0
+            
+            for i in range(NUMBER_OF_EVAL_RUNS):
+                # use_mc_dropout=True
+                succ, new_data, rew = evaluate_model(env, model, config, logger, device, global_epoch_counter, use_mc_dropout=True)
+                mc_rewards.append(rew)
+                if succ: 
+                    mc_successes += 1
+                else:
+                    all_new_data.extend(new_data)
+            
+            # Calculate stats based on the MC run (most robust)
+            average_reward = np.mean(mc_rewards)
+            success_rate = (mc_successes / NUMBER_OF_EVAL_RUNS) * 100.0
+            
+            logger.info("\n" + "-"*60)
+            logger.info(f"MC Evaluation Complete. Avg Reward: {average_reward:.2f}, Success Rate: {success_rate:.1f}%")
+            logger.info("-"*60 + "\n")
+            
+            wandb.log({
+                "average_reward": average_reward, 
+                "success_rate": success_rate,
+                "best_average_reward": best_average_reward_so_far
+            }, step=global_epoch_counter)
+            
+            if average_reward > best_average_reward_so_far:
+                best_average_reward_so_far = average_reward
+                logger.info(f"*** New best average reward: {best_average_reward_so_far:.2f}! Saving model. ***")
                 torch.save(model.state_dict(), BEST_MODEL_SAVE_PATH)
-                logger.info(f"    Successfully saved new best model to: {BEST_MODEL_SAVE_PATH}")
-            except Exception as e:
-                logger.error(f"    Could not save the best model. Error: {e}")
 
-        # Check completion criteria before deciding to retrain
+        # Check Termination
         if success_rate >= 100.0 and best_average_reward_so_far >= TARGET_REWARD_THRESHOLD:
             logger.info("Success criteria met! Ending DAgger loop.")
             break

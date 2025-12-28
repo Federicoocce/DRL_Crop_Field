@@ -177,7 +177,19 @@ class LidarCenterNet(nn.Module):
         brake = None
 
         return pred_wp, pred_brake, steer, throttle, brake, pred_log_var
-
+    
+    def force_dropout_active(self):
+        """
+        Sets the model to eval mode (fixing BatchNorm), 
+        but forces Dropout layers to train mode for MC Inference.
+        """
+        self.eval() # Default: Set everything to eval (BN stats fixed)
+        
+        # Iterate over all modules and enable Dropout specifically
+        for m in self.modules():
+            if m.__class__.__name__.startswith('Dropout'):
+                m.train()
+                
     def control_pid(self, waypoints, velocity, is_stuck):
         ''' Predicts vehicle control with a PID controller.
         Args:
