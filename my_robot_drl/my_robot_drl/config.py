@@ -73,7 +73,11 @@ class GlobalConfig:
 
     bounding_box_divisor = 2.0 # The height and width of the bounding box value was changed by this factor during data collection. Fix that for future datasets and remove
     draw_brake_threshhold = 0.5 # If the brake value is higher than this threshhold, the bb will be drawn with the brake color during visualization
-
+    # TransFuser++ Architecture
+    use_transformer_decoder = True # Set to True to enable TF++ pooling
+    decoder_dim = 256              # Embedding dimension for the decoder
+    decoder_layers = 6             # Number of transformer decoder layers
+    decoder_heads = 4              # Number of attention heads
     #Waypoint GRU
     gru_hidden_size = 64
 

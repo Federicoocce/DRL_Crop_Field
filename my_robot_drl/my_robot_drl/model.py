@@ -17,8 +17,41 @@ from torchvision import models
 # Copyright (c) OpenMMLab. All rights reserved.
 import torch
 import torch.nn as nn
+import math
 
+class PositionEmbeddingSine(nn.Module):
+    """
+    Sinusoidal positional encodings for 2D grids.
+    """
+    def __init__(self, num_pos_feats=64, temperature=10000, normalize=False, scale=None):
+        super().__init__()
+        self.num_pos_feats = num_pos_feats
+        self.temperature = temperature
+        self.normalize = normalize
+        if scale is None:
+            scale = 2 * math.pi
+        self.scale = scale
 
+    def forward(self, tensor):
+        x = tensor
+        bs, _, h, w = x.shape
+        not_mask = torch.ones((bs, h, w), device=x.device)
+        y_embed = not_mask.cumsum(1, dtype=torch.float32)
+        x_embed = not_mask.cumsum(2, dtype=torch.float32)
+        if self.normalize:
+            eps = 1e-6
+            y_embed = y_embed / (y_embed[:, -1:, :] + eps) * self.scale
+            x_embed = x_embed / (x_embed[:, :, -1:] + eps) * self.scale
+
+        dim_t = torch.arange(self.num_pos_feats, dtype=torch.float32, device=x.device)
+        dim_t = self.temperature**(2 * (torch.div(dim_t, 2, rounding_mode='floor')) / self.num_pos_feats)
+
+        pos_x = x_embed[:, :, :, None] / dim_t
+        pos_y = y_embed[:, :, :, None] / dim_t
+        pos_x = torch.stack((pos_x[:, :, :, 0::2].sin(), pos_x[:, :, :, 1::2].cos()), dim=4).flatten(3)
+        pos_y = torch.stack((pos_y[:, :, :, 0::2].sin(), pos_y[:, :, :, 1::2].cos()), dim=4).flatten(3)
+        pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
+        return pos
 
 class PIDController(object):
     def __init__(self, K_P=1.0, K_I=0.0, K_D=0.0, n=20):
@@ -104,16 +137,48 @@ class LidarCenterNet(nn.Module):
         # prediction heads
 
         self.i = 0
-
-        # waypoints prediction
-        self.join = nn.Sequential(
-                            nn.Linear(512, 256),
-                            nn.ReLU(inplace=True),
-                            nn.Linear(256, 128),
-                            nn.ReLU(inplace=True),
-                            nn.Linear(128, 64),
-                            nn.ReLU(inplace=True),
-                        ).to(self.device)
+        # --- MODIFIED BLOCK START ---
+        # Waypoints prediction / Fusion Neck
+        if hasattr(self.config, 'use_transformer_decoder') and self.config.use_transformer_decoder:
+            # 1. Reduction: 512 channels -> decoder_dim (e.g. 256)
+            self.reduce_channel = nn.Conv2d(self.config.perception_output_features, 
+                                          self.config.decoder_dim, kernel_size=1).to(self.device)
+            
+            # 2. Positional Embeddings
+            self.pos_embedding = PositionEmbeddingSine(self.config.decoder_dim // 2, normalize=True).to(self.device)
+            
+            # 3. Learnable Query (1 query token to summarize the scene for the GRU)
+            self.query_embed = nn.Parameter(torch.zeros(1, 1, self.config.decoder_dim)).to(self.device)
+            
+            # 4. Transformer Decoder
+            decoder_layer = nn.TransformerDecoderLayer(
+                d_model=self.config.decoder_dim,
+                nhead=self.config.decoder_heads,
+                dim_feedforward=self.config.decoder_dim * 4,
+                dropout=0.1,
+                activation='relu',
+                batch_first=True
+            )
+            self.transformer_decoder = nn.TransformerDecoder(decoder_layer, 
+                                                           num_layers=self.config.decoder_layers).to(self.device)
+            
+            # 5. Final projection to GRU hidden size
+            self.to_gru_hidden = nn.Linear(self.config.decoder_dim, self.config.gru_hidden_size).to(self.device)
+            
+            # Dummy join to avoid errors if referenced, though unused in ++ path
+            self.join = nn.Identity().to(self.device)
+            
+        else:
+            # Original TransFuser MLP (takes flattened 512 vector)
+            self.join = nn.Sequential(
+                                nn.Linear(512, 256),
+                                nn.ReLU(inplace=True),
+                                nn.Linear(256, 128),
+                                nn.ReLU(inplace=True),
+                                nn.Linear(128, 64),
+                                nn.ReLU(inplace=True),
+                            ).to(self.device)
+        # --- MODIFIED BLOCK END ---
 
         self.decoder = nn.GRUCell(input_size=4 if self.gru_concat_target_point else 2, # 2 represents x,y coordinate
                                   hidden_size=self.config.gru_hidden_size).to(self.device)
@@ -127,10 +192,45 @@ class LidarCenterNet(nn.Module):
         self.turn_controller = PIDController(K_P=config.turn_KP, K_I=config.turn_KI, K_D=config.turn_KD, n=config.turn_n)
         self.speed_controller = PIDController(K_P=config.speed_KP, K_I=config.speed_KI, K_D=config.speed_KD, n=config.speed_n)
 
+    def process_features_decoder(self, fused_features):
+            """
+            TransFuser++ Logic:
+            Takes 4D Grid (B, C, H, W) -> Adds Pos Embed -> transformer_decoder -> Projects to GRU Hidden (B, 64)
+            """
+            # 1. Reduce channels and add Positional Embeddings
+            # src: (B, 256, H, W)
+            src = self.reduce_channel(fused_features) 
+            pos = self.pos_embedding(src)
+            src = src + pos
+            
+            # 2. Flatten for Transformer 
+            # (B, C, H, W) -> (B, H*W, C) -> (B, Sequence_Len, Dim)
+            bs, c, h, w = src.shape
+            src = src.flatten(2).permute(0, 2, 1) 
+            
+            # 3. Prepare Queries 
+            # Expand learnable query for batch size: (B, 1, 256)
+            query = self.query_embed.repeat(bs, 1, 1)
+            
+            # 4. Run Decoder
+            # Query attends to the Spatial Grid (src)
+            # Output: (B, 1, 256)
+            scene_embedding = self.transformer_decoder(tgt=query, memory=src)
+            
+            # 5. Squeeze and Project to GRU Hidden Size
+            scene_embedding = scene_embedding.squeeze(1) # (B, 256)
+            
+            # Project to 64 (GRU hidden size)
+            z = self.to_gru_hidden(scene_embedding) # (B, 64)
+            
+            return z
     def forward_gru(self, z, target_point):
-        z = self.join(z)
+        # Only run self.join if we are NOT using the transformer decoder
+        # (Because we already did the projection in forward_ego for the transformer path)
+        if not (hasattr(self.config, 'use_transformer_decoder') and self.config.use_transformer_decoder):
+            z = self.join(z)
     
-        output_wp = list()
+        output_wp = list()  
         output_log_var = list() # Store uncertainty predictions
         
         # initial input variable to GRU
@@ -189,7 +289,7 @@ class LidarCenterNet(nn.Module):
         for m in self.modules():
             if m.__class__.__name__.startswith('Dropout'):
                 m.train()
-                
+
     def control_pid(self, waypoints, velocity, is_stuck):
         ''' Predicts vehicle control with a PID controller.
         Args:
@@ -247,8 +347,14 @@ class LidarCenterNet(nn.Module):
             features, image_features_grid, fused_features = self._model(rgb, lidar_bev, ego_vel)
         else:
             raise ("The chosen vision backbone does not exist. The options are: transFuser, late_fusion, geometric_fusion, latentTF")
+        # --- MODIFIED BLOCK START ---
+        if hasattr(self.config, 'use_transformer_decoder') and self.config.use_transformer_decoder:
+            z = self.process_features_decoder(fused_features)
+        else:
+            z = fused_features
+        # --- MODIFIED BLOCK END ---
 
-        pred_wp, _, _, _, _, pred_log_var = self.forward_gru(fused_features, target_point)
+        pred_wp, _, _, _, _, pred_log_var = self.forward_gru(z, target_point)
 
         # We are no longer predicting bounding boxes, so return an empty list
         rotated_bboxes = []
@@ -291,10 +397,17 @@ class LidarCenterNet(nn.Module):
             features, image_features_grid, fused_features = self._model(rgb, lidar_bev, ego_vel)
         else:
             raise ("The chosen vision backbone does not exist. The options are: transFuser, late_fusion, geometric_fusion, latentTF")
-
+        # --- MODIFIED BLOCK START ---
+        if hasattr(self.config, 'use_transformer_decoder') and self.config.use_transformer_decoder:
+            # fused_features is (B, C, H, W). Process it into (B, 64)
+            z = self.process_features_decoder(fused_features)
+        else:
+            # fused_features is (B, 512). Pass as is.
+            z = fused_features
+        # --- MODIFIED BLOCK END ---
 
         # Unpack result
-        pred_wp, _, _, _, _, pred_log_var = self.forward_gru(fused_features, target_point)
+        pred_wp, _, _, _, _, pred_log_var = self.forward_gru(z, target_point)
         if self.config.predict_uncertainty and pred_log_var is not None:
             # ALEATORIC UNCERTAINTY LOSS (Gaussian NLL)
             squared_error = (pred_wp - ego_waypoint) ** 2
