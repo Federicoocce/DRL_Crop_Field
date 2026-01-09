@@ -215,7 +215,7 @@
     <!-- Gazebo Plugin for SICK multiScan136 3D LiDAR -->
     <gazebo reference="lidar_3d_link">
         <sensor name="lidar_3d_sensor" type="ray">
-            <visualize>true</visualize>
+            <visualize>false</visualize>
             <update_rate>20</update_rate>
             <ray>
                 <scan>

@@ -509,7 +509,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
         
         observation = self._get_observation()
         info = self._get_info()
-        self.get_logger().info(f"Reset complete. Initial target: #{self.target_waypoint_index}")
+        #self.get_logger().info(f"Reset complete. Initial target: #{self.target_waypoint_index}")
         return observation, info
 
         
@@ -792,7 +792,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
             # If we reach here, it means the current lane is complete.
             # We log this and proceed to the global fallback search to find the next lane.
-            self.get_logger().info(f"Lane {current_lane_idx} complete. Falling back to global closest waypoint search.")
+            #self.get_logger().info(f"Lane {current_lane_idx} complete. Falling back to global closest waypoint search.")
 
         # --- Step 3: Fallback to globally closest waypoint search ---
         # This code runs if we are not in a defined lane (e.g., at the start) or
@@ -965,7 +965,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                     else:
                         # We reached a normal (non-assist) waypoint
                         if self.is_turning:
-                            self.get_logger().info("U-turn sequence completed.")
+                            #self.get_logger().info("U-turn sequence completed.")
                             self.is_turning = False
                         potential_next_target_idx = self._find_closest_unvisited_waypoint()
                         if potential_next_target_idx is not None:
@@ -975,7 +975,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                             # Check for a lane change, which triggers a U-turn.
                             # This happens when we are at the END of a lane.
                             if is_boundary_wp and lane_reached != lane_next and self.previous_waypoint_index is not None:
-                                self.get_logger().info(f"END OF LANE {lane_reached}: Initiating turn.")
+                                #self.get_logger().info(f"END OF LANE {lane_reached}: Initiating turn.")
                                 self.is_turning = True
 
                                
@@ -983,16 +983,16 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                                 start_of_next_lane_idx = potential_next_target_idx
                                 
                                 if not potential_wp.get('is_lane_boundary', False):
-                                    self.get_logger().warn(
-                                        f"Closest waypoint #{potential_next_target_idx} in new lane {lane_next} is not a boundary. "
-                                        f"Searching for the correct boundary entry point."
-                                    )
+                                    #self.get_logger().warn(
+                                    #    f"Closest waypoint #{potential_next_target_idx} in new lane {lane_next} is not a boundary. "
+                                    #    f"Searching for the correct boundary entry point."
+                                    #)
 
                                     # Use the new helper to find the TRUE entry point
                                     corrected_idx = self._find_closest_boundary_of_lane(lane_next, robot_pos)
                                     
                                     if corrected_idx is not None:
-                                        self.get_logger().info(f"Correction successful. New target for U-turn is #{corrected_idx}.")
+                                        #self.get_logger().info(f"Correction successful. New target for U-turn is #{corrected_idx}.")
                                         potential_next_target_idx = corrected_idx
                                     else:
                                         self.get_logger().error(
@@ -1007,7 +1007,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                                 
                                 # 2. SET the distant goal to be the START of the next lane.
                                 self.distant_goal_world_coords = self.waypoints[potential_next_target_idx]
-                                self.get_logger().info(f"New distant goal is START of lane {lane_next}.")
+                                #self.get_logger().info(f"New distant goal is START of lane {lane_next}.")
 
                                 self.original_target_after_turn_idx = potential_next_target_idx
                                 num_turn_wps_added = self._generate_dubins_uturn_waypoints(self.previous_waypoint_index, wp_reached_idx, potential_next_target_idx)
@@ -1263,11 +1263,11 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                     wp_start_next_lane = self.waypoints[start_of_next_lane_wp_idx]
                     x1, y1 = wp_start_next_lane['x'], wp_start_next_lane['y']
                     is_turn_to_boundary = True
-                    self.get_logger().info(f"[DubinsCalc] Corrected target to actual boundary waypoint #{start_of_next_lane_wp_idx}.")
+                    #self.get_logger().info(f"[DubinsCalc] Corrected target to actual boundary waypoint #{start_of_next_lane_wp_idx}.")
                 else:
                     self.get_logger().warn(f"[DubinsCalc] Could not find any boundary waypoint for lane {wp_start_next_lane.get('original_lane_index', -1)}. Proceeding with original target #{start_of_next_lane_wp_idx}.")
             if is_turn_to_boundary:
-                self.get_logger().info(f"[DubinsCalc] Target #{start_of_next_lane_wp_idx} is a boundary. Searching for adjacent non-boundary waypoint.")
+                #self.get_logger().info(f"[DubinsCalc] Target #{start_of_next_lane_wp_idx} is a boundary. Searching for adjacent non-boundary waypoint.")
                 
                 adjacent_wp_idx = None
                 
@@ -1277,7 +1277,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                     # If the waypoint at -1 is NOT a boundary, it's the one we want.
                     if not self.waypoints[idx_minus_1].get('is_lane_boundary', False):
                         adjacent_wp_idx = idx_minus_1
-                        self.get_logger().info(f"[DubinsCalc] Adjacent waypoint is at index -1 (#{adjacent_wp_idx}).")
+                        #self.get_logger().info(f"[DubinsCalc] Adjacent waypoint is at index -1 (#{adjacent_wp_idx}).")
 
                 # Candidate 2: Check index + 1 if the first candidate was also a boundary or was invalid
                 if adjacent_wp_idx is None:
@@ -1286,7 +1286,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                          # If the waypoint at +1 is NOT a boundary, it's the one we want.
                         if not self.waypoints[idx_plus_1].get('is_lane_boundary', False):
                             adjacent_wp_idx = idx_plus_1
-                            self.get_logger().info(f"[DubinsCalc] Adjacent waypoint is at index +1 (#{adjacent_wp_idx}).")
+                            #self.get_logger().info(f"[DubinsCalc] Adjacent waypoint is at index +1 (#{adjacent_wp_idx}).")
 
                 # If we still haven't found a valid adjacent waypoint, we cannot calculate the turn.
                 if adjacent_wp_idx is None:
@@ -1361,7 +1361,7 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
 
         # 3. Update the total waypoint count for the episode.
         self.num_waypoints_total += len(new_turn_waypoints)
-        self.get_logger().info(f"Dubins: Inserted {len(new_turn_waypoints)} U-turn waypoints. New total: {self.num_waypoints_total}.")
+        #self.get_logger().info(f"Dubins: Inserted {len(new_turn_waypoints)} U-turn waypoints. New total: {self.num_waypoints_total}.")
         # debug: log a sample of generated turn waypoints (world + local)
         # for j, turn_wp in enumerate(new_turn_waypoints[:10]):  # limit to first 10 to avoid spamming
         #     try:
@@ -1444,14 +1444,14 @@ class MaizeNavigationEnv(gymnasium.Env, Node):
                 
                 # FALLBACK: If not found in the plan (e.g., at initialization), use the new helper
                 if prev_wp_for_turn is None:
-                    self.get_logger().info("[LocalPlan] Previous WP not in plan. Using fallback search.")
+                    #self.get_logger().info("[LocalPlan] Previous WP not in plan. Using fallback search.")
                     prev_wp_master_idx = self._find_previous_waypoint_in_lane(last_real_wp_in_plan['master_index'])
                     if prev_wp_master_idx is not None:
                         prev_wp_for_turn = self.waypoints[prev_wp_master_idx].copy()
                         prev_wp_for_turn['master_index'] = prev_wp_master_idx # Ensure it has the index
                 
                 if prev_wp_for_turn is not None:
-                    self.get_logger().info(f"[LocalPlan] U-Turn detected. Planning turn from #{last_real_wp_in_plan['master_index']} to #{potential_next_wp_idx} using prev #{prev_wp_for_turn['master_index']}.")
+                    #self.get_logger().info(f"[LocalPlan] U-Turn detected. Planning turn from #{last_real_wp_in_plan['master_index']} to #{potential_next_wp_idx} using prev #{prev_wp_for_turn['master_index']}.")
                     planned_turn_wps = self._calculate_dubins_path(
                         prev_wp_for_turn['master_index'], last_real_wp_in_plan['master_index'], potential_next_wp_idx
                     )

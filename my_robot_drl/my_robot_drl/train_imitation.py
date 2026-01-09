@@ -51,7 +51,7 @@ AGENT_KP_ANGULAR = 0.8
 AGENT_TARGET_LINEAR_VEL = 0.2
 TARGET_REWARD_THRESHOLD = 7800.0
 MAX_GT_WAYPOINT_DEVIATION_X = 0.75 # meters
-EARLY_STOPPING_PATIENCE = 8 # Epochs to wait for validation loss improvement
+EARLY_STOPPING_PATIENCE = 5 # Epochs to wait for validation loss improvement
 DAGGER_RETRAIN_EPOCHS = 5   # Fixed number of epochs for DAgger retraining
 
 HOME_DIR = os.path.expanduser('~')
@@ -68,7 +68,8 @@ EXPERT_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '360_auxiliary_sss.pkl')
 TRAIN_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_combined.pkl')
 VAL_DATASET_PATH = os.path.join(DATASET_SAVE_DIR, '180_auxiliary_straight.pkl')
 
-
+STAGE1_EPOCHS = 10
+STAGE1_MODEL_SAVE_PATH = os.path.join(MODEL_SAVE_DIR, 'transfuser_stage1_perception.pth')
 # ===================================================================
 # --- DATA PREPROCESSOR CLASS ---
 # ===================================================================
@@ -775,6 +776,44 @@ def identity_collate(batch):
     which fixes the 'cv2.resize' error.
     """
     return batch
+def set_requires_grad(module, requires_grad=False):
+    if module is not None:
+        for param in module.parameters():
+            param.requires_grad = requires_grad
+
+def configure_stage1_mode(model, config, logger):
+    """Stage 1: Freeze Waypoint Heads, Train Perception only."""
+    logger.info(">>> CONFIGURING STAGE 1: Freezing Waypoint Heads.")
+    
+    # 1. Freeze Waypoint Components
+    set_requires_grad(model.decoder, False)
+    set_requires_grad(model.output, False)
+    if hasattr(model, 'join'): set_requires_grad(model.join, False)
+    if hasattr(model, 'transformer_decoder'): set_requires_grad(model.transformer_decoder, False)
+    if hasattr(model, 'reduce_channel'): set_requires_grad(model.reduce_channel, False)
+    if hasattr(model, 'query_embed'): model.query_embed.requires_grad = False
+    if hasattr(model, 'pos_embedding'): set_requires_grad(model.pos_embedding, False)
+    if hasattr(model, 'to_gru_hidden'): set_requires_grad(model.to_gru_hidden, False)
+
+    # 2. Disable Waypoint Loss
+    try:
+        wp_idx = config.detailed_losses.index('loss_wp')
+        config.detailed_losses_weights[wp_idx] = 0.0
+    except ValueError: pass
+
+def configure_stage2_mode(model, config, logger):
+    """Stage 2: Unfreeze Everything, Enable Waypoint Loss."""
+    logger.info(">>> CONFIGURING STAGE 2: Unfreezing All Layers.")
+    
+    # 1. Unfreeze Everything
+    for param in model.parameters():
+        param.requires_grad = True
+        
+    # 2. Restore Waypoint Loss
+    try:
+        wp_idx = config.detailed_losses.index('loss_wp')
+        config.detailed_losses_weights[wp_idx] = 1.0
+    except ValueError: pass
 
 def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pause_client, unpause_client, env_node, run_count, global_epoch_counter, max_epochs, use_early_stopping=False):
     """
@@ -798,6 +837,7 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
     # Trackers
     best_val_wp_loss = float('inf')
     best_mc_uncertainty = float('inf') # For uncertainty-based saving
+    best_aleatoric_unc = float('inf') 
     patience_counter = 0
     
     debug_save_dir = os.path.join(MODEL_SAVE_DIR, 'debug_viz')
@@ -858,10 +898,14 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
                         epoch_train_individual_losses[key] = 0.0
                     epoch_train_individual_losses[key] += value.item()
 
-                    # Apply weight for optimization (only for known weighted losses)
-                    if key in loss_weights and loss_weights[key] > 0:
-                        weighted_loss = loss_weights[key] * value
-                        total_loss += weighted_loss
+                    # Dynamically check weights (crucial for 2-stage training)
+                    w_idx = config.detailed_losses.index(key) if key in config.detailed_losses else -1
+                    w = config.detailed_losses_weights[w_idx] if w_idx >= 0 else 0.0
+                    
+                    if w > 0:
+                        total_loss += w * value
+
+
 
                 optimizer.zero_grad()
                 total_loss.backward()
@@ -986,34 +1030,41 @@ def train_model(model, optimizer, config, train_dataset, val_dataset, logger, pa
             # 4. Dual Saving & Combined Patience Logic
             improved_this_epoch = False
 
-            # Check A: Best L1 Accuracy (Not NLL!)
-            metric_to_track = val_l1 if config.predict_uncertainty else current_val_wp_loss
-            
-            if metric_to_track < best_val_wp_loss:
-                best_val_wp_loss = metric_to_track
-                logger.info(f"    >>> New Best L1 Accuracy: {best_val_wp_loss:.4f}m. Saving model...")
+            # 1. Best L1 Model (Standard Metric)
+            if val_l1 < best_val_wp_loss:
+                best_val_wp_loss = val_l1
+                logger.info(f"    >>> New Best L1: {best_val_wp_loss:.4f}m. Saving...")
                 torch.save(model.state_dict(), BEST_VAL_MODEL_SAVE_PATH)
                 improved_this_epoch = True
 
-            # Check B: Best Uncertainty (Robustness)
+            # 2. Best MC Uncertainty (Robustness)
             if current_uncertainty < best_mc_uncertainty:
                 best_mc_uncertainty = current_uncertainty
-                logger.info(f"    >>> New Best Uncertainty: {best_mc_uncertainty:.6f}. Saving to {os.path.basename(BEST_UNCERTAINTY_MODEL_SAVE_PATH)}")
+                logger.info(f"    >>> New Best MC Unc: {best_mc_uncertainty:.6f}. Saving...")
                 torch.save(model.state_dict(), BEST_UNCERTAINTY_MODEL_SAVE_PATH)
                 improved_this_epoch = True
 
-            # Early Stopping Check
+            # 3. Best Aleatoric Uncertainty (Confidence / Deep Training)
+            # This allows the model to keep training "deep" as long as confidence improves
+            if val_unc < best_aleatoric_unc:
+                best_aleatoric_unc = val_unc
+                logger.info(f"    >>> New Best Aleatoric Unc: {best_aleatoric_unc:.4f}. Saving aleatoric model...")
+                # We save this to a specific file so we can explicitly test it later
+                torch.save(model.state_dict(), os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_aleatoric_model.pth'))
+                improved_this_epoch = True
+
+            # --- EARLY STOPPING ---
             if use_early_stopping:
                 if improved_this_epoch:
                     if patience_counter > 0:
-                        logger.info(f"    Improvement detected. Resetting patience from {patience_counter} to 0.")
+                        logger.info(f"    Improvement detected (L1, MC, or Aleatoric). Resetting patience.")
                     patience_counter = 0
                 else:
                     patience_counter += 1
-                    logger.info(f"    No improvement in WP Loss OR Uncertainty. Patience: {patience_counter}/{EARLY_STOPPING_PATIENCE}")
+                    logger.info(f"    No improvement. Patience: {patience_counter}/{EARLY_STOPPING_PATIENCE}")
 
                 if patience_counter >= EARLY_STOPPING_PATIENCE:
-                    logger.info(f"Early stopping triggered. Both metrics plateaued for {EARLY_STOPPING_PATIENCE} epochs.")
+                    logger.info(f"Early stopping triggered.")
                     break
                 
     finally:
@@ -1031,7 +1082,7 @@ def evaluate_model(env, model, config, logger, device, global_epoch_counter, use
     logger.info(f"Starting evaluation run. Mode: {mode_str} Inference.")
     
     # MC Settings
-    MC_SAMPLES = 10
+    MC_SAMPLES = 4
     
     # Temporarily disable augmentation for consistent evaluation
     original_augment_setting = config.augment
@@ -1256,22 +1307,24 @@ def preprocess_depth_image(image_np, target_w, target_h, crop_shift=0):
 
 def validate_best_model(env, config, logger, device, num_episodes=10):
     """
-    Evaluates 3 Scenarios:
+    Evaluates 4 Scenarios:
     1. Best WP Loss Model (Standard Inference)
-    2. Best Uncertainty Model (Standard Inference)
-    3. Best WP Loss Model (MC Dropout Inference for Systematic Uncertainty)
+    2. Best Uncertainty Model (Standard Inference - Optimized for MC Unc)
+    3. Best Aleatoric Model (Standard Inference - Optimized for Raw Confidence)
+    4. Best WP Loss Model (MC Dropout Inference for Systematic Uncertainty)
     """
     logger.info("="*60)
-    logger.info(f"PHASE: COMPARATIVE VALIDATION (WP, UNC, WP+MC)")
+    logger.info(f"PHASE: COMPARATIVE VALIDATION (WP, MC-UNC, ALEATORIC, WP+MC)")
     logger.info("="*60)
 
     # MC Dropout Configuration
-    MC_SAMPLES = 5  # Number of forward passes per frame
+    MC_SAMPLES = 3  # Number of forward passes per frame
 
-    # Define the 3 evaluations: (Name, Path, Enable_MC_Dropout)
+    # Define the 4 evaluations: (Name, Path, Enable_MC_Dropout)
     models_to_eval = [
         ("Best WP Loss Model (Standard)", BEST_VAL_MODEL_SAVE_PATH, False),
         ("Best Uncertainty Model (Standard)", BEST_UNCERTAINTY_MODEL_SAVE_PATH, False),
+        ("Best Aleatoric Model (Standard)", os.path.join(MODEL_SAVE_DIR, 'transfuser_il_best_aleatoric_model.pth'), False), # <--- NEW
         ("Best WP Loss Model (MC Dropout)", BEST_VAL_MODEL_SAVE_PATH, True)
     ]
 
@@ -1432,7 +1485,7 @@ def main(args=None):
     # from the ones added by ROS 2.
     
     parser = argparse.ArgumentParser(description="Run Imitation Learning for AgriCobots")
-    parser.add_argument('--mode', type=str, default='train', choices=['train', 'collect', 'validate'],
+    parser.add_argument('--mode', type=str, default='train', choices=['train', 'collect', 'validate', '2_stage'],
                         help="Set the script to 'train', 'collect' or 'validate' mode.")
     parser.add_argument('--no-dagger', action='store_true', 
                     help="If set, disables the DAgger loop. The script will train once, evaluate, and exit.")
@@ -1515,12 +1568,46 @@ def main(args=None):
     # --- Main Training Loop ---
     train_dataset, val_dataset = load_datasets(TRAIN_DATASET_PATH, VAL_DATASET_PATH, logger)
 
-    # 1. Initial training phase with early stopping
-    global_epoch_counter = train_model(
-        model, optimizer, config, train_dataset, val_dataset, logger,
-        pause_client, unpause_client, env_node=env, run_count=0,
-        global_epoch_counter=0, max_epochs=IL_EPOCHS, use_early_stopping=True
-    )
+    if cli_args.mode == '2_stage':
+            logger.info("### STARTING 2-STAGE TRAINING STRATEGY ###")
+
+            # --- STAGE 1 ---
+            configure_stage1_mode(model, config, logger)
+            # Re-init optimizer for Stage 1 parameters only
+            optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=IL_LEARNING_RATE)
+            
+            global_epoch_counter = train_model(
+                model, optimizer, config, train_dataset, val_dataset, logger,
+                pause_client, unpause_client, env_node=env, run_count=0,
+                global_epoch_counter=0, 
+                max_epochs=STAGE1_EPOCHS, 
+                use_early_stopping=False
+            )
+            torch.save(model.state_dict(), STAGE1_MODEL_SAVE_PATH)
+
+            # --- STAGE 2 ---
+            configure_stage2_mode(model, config, logger)
+            # Re-init optimizer for full model (clears Stage 1 momentum)
+            optimizer = optim.AdamW(model.parameters(), lr=IL_LEARNING_RATE)
+            
+            remaining = IL_EPOCHS - STAGE1_EPOCHS
+            if remaining > 0:
+                global_epoch_counter = train_model(
+                    model, optimizer, config, train_dataset, val_dataset, logger,
+                    pause_client, unpause_client, env_node=env, run_count=0,
+                    global_epoch_counter=global_epoch_counter,
+                    max_epochs=remaining,
+                    use_early_stopping=True
+                )
+                
+    elif cli_args.mode == 'train':
+        logger.info("### STARTING STANDARD TRAINING ###")
+        # Standard training logic (no freezing)
+        global_epoch_counter = train_model(
+            model, optimizer, config, train_dataset, val_dataset, logger,
+            pause_client, unpause_client, env_node=env, run_count=0,
+            global_epoch_counter=0, max_epochs=IL_EPOCHS, use_early_stopping=True
+        )
 
     # Load the best model from the initial training phase before starting DAgger
     logger.info("\n" + "="*60)
@@ -1541,8 +1628,8 @@ def main(args=None):
     best_average_reward_so_far = -float('inf')
     run_count = 0
     success_rate = 0.0
-    NUMBER_OF_EVAL_RUNS = 5 
-
+    NUMBER_OF_EVAL_RUNS = 5
+     
     while success_rate < 100.0:
         run_count += 1
         logger.info("\n" + "#"*60)
@@ -1556,20 +1643,54 @@ def main(args=None):
         if os.path.exists(BEST_VAL_MODEL_SAVE_PATH):
             model.load_state_dict(torch.load(BEST_VAL_MODEL_SAVE_PATH))
             model.to(device)
+            
+            # Local stats for this step
+            step1_rewards = []
+            step1_successes = 0
+            
             for i in range(NUMBER_OF_EVAL_RUNS):
-                # use_mc_dropout=False
                 succ, new_data, rew = evaluate_model(env, model, config, logger, device, global_epoch_counter, use_mc_dropout=False)
-                if not succ: all_new_data.extend(new_data)
+                step1_rewards.append(rew)
+                if succ: 
+                    step1_successes += 1
+                else:
+                    all_new_data.extend(new_data)
+            
+            # Log Step 1 Stats
+            s1_avg_rew = np.mean(step1_rewards)
+            s1_succ_rate = (step1_successes / NUMBER_OF_EVAL_RUNS) * 100.0
+            logger.info(f"    [Standard WP] Avg Reward: {s1_avg_rew:.2f} | Success: {s1_succ_rate:.1f}%")
+            wandb.log({
+                "eval_dagger/wp_standard_reward": s1_avg_rew,
+                "eval_dagger/wp_standard_success_rate": s1_succ_rate
+            }, step=global_epoch_counter)
         
         # --- 2. Evaluate BEST UNCERTAINTY MODEL (STANDARD INFERENCE) ---
         logger.info("\n>>> STEP 2: Evaluating Best Uncertainty Model (Standard Inference)...")
         if os.path.exists(BEST_UNCERTAINTY_MODEL_SAVE_PATH):
             model.load_state_dict(torch.load(BEST_UNCERTAINTY_MODEL_SAVE_PATH))
             model.to(device)
+            
+            # Local stats for this step
+            step2_rewards = []
+            step2_successes = 0
+            
             for i in range(NUMBER_OF_EVAL_RUNS):
-                # use_mc_dropout=False
                 succ, new_data, rew = evaluate_model(env, model, config, logger, device, global_epoch_counter, use_mc_dropout=False)
-                if not succ: all_new_data.extend(new_data)
+                step2_rewards.append(rew)
+                if succ: 
+                    step2_successes += 1
+                else:
+                    all_new_data.extend(new_data)
+
+            # Log Step 2 Stats
+            s2_avg_rew = np.mean(step2_rewards)
+            s2_succ_rate = (step2_successes / NUMBER_OF_EVAL_RUNS) * 100.0
+            logger.info(f"    [Standard Unc] Avg Reward: {s2_avg_rew:.2f} | Success: {s2_succ_rate:.1f}%")
+            wandb.log({
+                "eval_dagger/unc_standard_reward": s2_avg_rew,
+                "eval_dagger/unc_standard_success_rate": s2_succ_rate
+            }, step=global_epoch_counter)
         else:
             logger.warn("Best Uncertainty Model not found. Skipping Step 2.")
 
@@ -1600,10 +1721,11 @@ def main(args=None):
             logger.info(f"MC Evaluation Complete. Avg Reward: {average_reward:.2f}, Success Rate: {success_rate:.1f}%")
             logger.info("-"*60 + "\n")
             
+            # Log Step 3 Stats (Main DAgger Metrics)
             wandb.log({
-                "average_reward": average_reward, 
-                "success_rate": success_rate,
-                "best_average_reward": best_average_reward_so_far
+                "eval_dagger/wp_mc_reward": average_reward, 
+                "eval_dagger/wp_mc_success_rate": success_rate,
+                "eval_dagger/best_average_reward_overall": max(best_average_reward_so_far, average_reward)
             }, step=global_epoch_counter)
             
             if average_reward > best_average_reward_so_far:
@@ -1615,17 +1737,19 @@ def main(args=None):
         if success_rate >= 100.0 and best_average_reward_so_far >= TARGET_REWARD_THRESHOLD:
             logger.info("Success criteria met! Ending DAgger loop.")
             break
-        # ==============================================================================
+        
         # --- NEW LOGIC: CHECK FOR DAGGER DISABLE FLAG ---
-        # ==============================================================================
         if cli_args.no_dagger:
             logger.info("Argument '--no-dagger' was provided.")
             logger.info("Skipping data aggregation and retraining. Exiting loop.")
             break
-        # ==============================================================================
+        
         # Aggregate the data from all failed runs for retraining
         if all_new_data:
-            logger.warn(f"Aggregating {len(all_new_data)} new data points from {NUMBER_OF_EVAL_RUNS - successful_runs_count} failed runs.")
+            # FIX: Use mc_successes instead of undefined successful_runs_count
+            failed_runs_count = NUMBER_OF_EVAL_RUNS - mc_successes
+            logger.warn(f"Aggregating {len(all_new_data)} new data points from failed runs.")
+            
             random.shuffle(all_new_data)
             split_index = int(0.8 * len(all_new_data))
             new_train_data = all_new_data[:split_index]
@@ -1636,10 +1760,9 @@ def main(args=None):
             logger.info(f"  - Added {len(new_val_data)} points to validation set (new size: {len(val_dataset)})")
         else:
             logger.info("All evaluation runs were successful. No new data to aggregate.")
-        # --- END OF THE FIX ---
-        # Retrain using the exact same logic as the initial training phase:
-        # Train for up to IL_EPOCHS, but stop early if validation loss plateaus.
-        # The best model from this phase is saved to the same BEST_VAL_MODEL_SAVE_PATH, overwriting the previous best.
+        
+        # IMPORTANT: Before entering DAgger, ensure full model is unfrozen/weighted correctly
+        configure_stage2_mode(model, config, logger)
         logger.info(f"Starting DAgger retraining phase (Run #{run_count})...")
         global_epoch_counter = train_model(
             model, optimizer, config, train_dataset, val_dataset, logger,

@@ -148,7 +148,7 @@ class LidarCenterNet(nn.Module):
             self.pos_embedding = PositionEmbeddingSine(self.config.decoder_dim // 2, normalize=True).to(self.device)
             
             # 3. Learnable Query (1 query token to summarize the scene for the GRU)
-            self.query_embed = nn.Parameter(torch.zeros(1, 1, self.config.decoder_dim)).to(self.device)
+            self.query_embed = nn.Parameter(torch.zeros(1, 1, self.config.decoder_dim))
             
             # 4. Transformer Decoder
             decoder_layer = nn.TransformerDecoderLayer(
